@@ -97,9 +97,14 @@ export function skinWood(axes, wood, sway, root, finest){
   // field, so they cross a fillet as smoothly as the surface does.
   const base = wood.pos.length/3, groups = axes.reduce((m, x) => Math.max(m, x.group), 0) + 1, best = new Float32Array(groups), gx = new Float32Array(groups), gy = new Float32Array(groups), gz = new Float32Array(groups), rec = new Array(groups)
   const near = [], rings = axes, crease = new Float32Array(pos.length/3)
+  for (const x of axes) x.reach = x.rings.map((b, i) => { if (!i) return null
+    const a = x.rings[i - 1], half = Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2])/2, far = half + Math.max(a.r, b.r)*REACH
+    return [(a.p[0] + b.p[0])/2, (a.p[1] + b.p[1])/2, (a.p[2] + b.p[2])/2, far*far] })
   const read = () => {
     best.fill(0)
     for (const x of near) for (let i = 1; i < x.rings.length; i++){
+      const e = x.reach[i], ex = q[0] - e[0], ey = q[1] - e[1], ez = q[2] - e[2]
+      if (ex*ex + ey*ey + ez*ez > e[3]) continue                        // most lengths of wood are nowhere near this point
       const m = nearest(q, x.rings[i - 1], x.rings[i])
       if (m.field > best[x.group]){ const k = SOFT/(m.r*(m.d || 1)); best[x.group] = m.field; gx[x.group] = -m.dx*k*m.field; gy[x.group] = -m.dy*k*m.field; gz[x.group] = -m.dz*k*m.field; rec[x.group] = [m, x.rings[i - 1], x.rings[i]] }
     }
@@ -120,7 +125,6 @@ export function skinWood(axes, wood, sway, root, finest){
       const move = Math.max(Math.min((sum - 1)/root1, h), -h)            // Newton: a step along the slope to where the field reads 1
       q[0] += nx*move; q[1] += ny*move; q[2] += nz*move
     }
-    read()
     let w = 0, rx = 0, ry = 0, grain = 0, thick = 0, buried = 0
     for (let g = 0; g < groups; g++){
       const f = best[g]
