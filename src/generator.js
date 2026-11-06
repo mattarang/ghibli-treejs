@@ -74,7 +74,7 @@ function shapeCrown(sp, r, root, scale, branches, tips){
     return [root[0] + dx*k + Math.cos(bendTo)*lean, p[1] > y0 ? y0 + (p[1] - y0)*squeeze : p[1], root[2] + dz*k + Math.sin(bendTo)*lean]
   }
   for (const b of branches){
-    for (const e of b.trail) e.p = warp(e.p, !b.level || b.leader)
+    for (const e of b.trail) e.p = warp(e.p, !b.level || b.leader || b.fork)
     // ease out what's left of any kink; the ends stay put so limbs stay attached
     if (b.level) for (let pass = 0; pass < 2; pass++){ const old = b.trail.map(e => e.p)
       for (let i = 1; i < old.length - 1; i++) b.trail[i].p = old[i].map((v, a) => .25*old[i - 1][a] + .5*v + .25*old[i + 1][a]) }
@@ -91,6 +91,15 @@ function shapeCrown(sp, r, root, scale, branches, tips){
       const o = T[0].p, e = T[T.length - 1].p, want = Math.hypot(e[0] - o[0], e[2] - o[2])*Math.tan(sp.limbRise*Math.PI/180) - (e[1] - o[1])
       if (want > 0) T.forEach((q, i) => { const u = i/(T.length - 1); q.p = [q.p[0], q.p[1] + want*u*(2 - u), q.p[2]] })
     }
+  }
+  // Fastigiate limbs: each main limb, and all it carries, swings in until it runs close along the trunk
+  if (sp.fastigiate) for (const b of branches){
+    if (b.level !== 1 || b.continues || !(b.parent.level === 0 || b.parent.leader)) continue
+    const o = b.trail[0].p, chord = sub(b.trail[b.trail.length - 1].p, o), l = Math.hypot(...chord), now = Math.acos(clamp(chord[1]/Math.max(l, 1e-4), -1, 1)), turn = now - sp.fastigiate*Math.PI/180
+    if (turn <= 0 || l < 1e-4) continue
+    const axis = norm(cross(chord, [0, 1, 0])), held = new Set([b])
+    for (const k of branches) if (held.has(k.parent)) held.add(k)
+    for (const k of held) for (const e of k.trail) e.p = add(o, rotateAbout(sub(e.p, o), axis, turn))
   }
   // A tree stands over its roots: however it leans, the crown's middle stays within reach of the trunk. The rest of the lean is taken back
   // higher up the tree, so the trunk keeps its gesture.
@@ -227,7 +236,7 @@ function growSkeleton(sp, r, root, scale, tips){
         // a limb sets off along its parent and bends out over its first sections, so forks flow instead of butting together
         const from = b.steerFrom || 0, w = b.target && i >= from && i < from + 4 ? clamp((i - from + 1)/4) : 0, steer = w ? norm([lerp(b.d[0], b.target[0], w*w*(3 - 2*w)), lerp(b.d[1], b.target[1], w*w*(3 - 2*w)), lerp(b.d[2], b.target[2], w*w*(3 - 2*w))]) : d
         const bow = b.level === 0 ? Math.sin(i/sections*5 + sideA)*sp.sinuous*(b.stem ? .08 : .17) : 0      // trunks wander in long slow bends
-        const nd = norm(add(add(add(steer, side, bow), wander, sp.gnarl*level), [0, 1, 0], b.leader || b.stem ? Math.max(sp.upward, .06) : sp.upward*(1 + b.level*.6)*(sp.upward > 0 ? lerp(-.3, 1.7, i/sections) : 1) - (b.level >= 2 ? sp.droop : 0)))
+        const nd = norm(add(add(add(steer, side, bow), wander, sp.gnarl*level), [0, 1, 0], b.leader || b.stem ? Math.max(sp.upward, .06) : sp.upward*(1 + b.level*.6)*(sp.upward > 0 ? lerp(-.3, 1.7, i/sections) : 1) - (b.level >= 2 ? sp.droop : 0) - (b.level >= 1 && !b.leader ? sp.arch*t*t*3 : 0)))
         if (nd[1] < .05 && p[1] < root[1] + H*.24){ nd[1] = .05 }     // no limb dives into the ground
         if (b.level){ const aim = b.target ?? b.d, turned = dot(nd, aim)    // wood wanders, but it doesn't turn back on itself
           if (turned < .55){ const k = (.55 - turned)*1.4; nd[0] += aim[0]*k; nd[1] += aim[1]*k; nd[2] += aim[2]*k; const m = Math.hypot(...nd); nd[0] /= m; nd[1] /= m; nd[2] /= m } }
@@ -256,14 +265,17 @@ function growSkeleton(sp, r, root, scale, tips){
       }
       continue
     }
-    const count = Math.max(2, Math.round(sp.children*(b.level === 0 ? 1 : .62)/(b.stem ? Math.sqrt(trunks) : 1))), phase = r()*Math.PI*2
+    const mainAxis = b.level === 0 || b.leader, count = Math.max(2, Math.round((mainAxis ? sp.children : sp.sideShoots || sp.children*.62)/(b.stem ? Math.sqrt(trunks) : 1))), phase = r()*Math.PI*2
+    // Nodes: limbs that leave at one height. Maples set theirs in opposite pairs, each pair turned a quarter from the last; cedars carry loose tiers on the main axis.
+    const inNode = sp.opposite && b.level <= 2 ? 2 : sp.whorls && mainAxis ? Math.round(sp.whorls) : 0, nodes = inNode ? Math.ceil(count/inNode) : 0, nodeAt = Array.from({ length: nodes }, () => r())
     const slots = Array.from({ length: count }, (_, i) => i)      // height and direction stratified independently: even all round, no spiral
     for (let i = count - 1; i > 0; i--){ const j = Math.floor(r()*(i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]] }
     for (let c = 0; c < count; c++){
-      const along = lerp(b.level === 0 ? sp.childStart : .25, .98, (c + .2 + r()*.6)/count)
+      const node = inNode ? Math.floor(c/inNode) : 0, start = mainAxis ? sp.childStart : .25
+      const along = inNode ? lerp(start, .98, (node + .2 + nodeAt[node]*.6)/nodes) + (sp.opposite ? 0 : (r() - .5)*.03) : lerp(b.level === 0 ? sp.childStart : .25, .98, (c + .2 + r()*.6)/count)
       const t = clamp(along), at = t*sections, i = Math.min(sections - 1, Math.floor(at)), f = at - i
       const a = trail[i], e = trail[i + 1], q0 = add(a.p, sub(e.p, a.p), f), pd = a.d
-      const az = phase + slots[c]/count*Math.PI*2 + (r() - .5)*.8
+      const az = inNode ? phase + node*(sp.opposite ? Math.PI/2 : 1.1) + (c%inNode)/inNode*Math.PI*2 + (r() - .5)*(sp.opposite ? .15 : .6) : phase + slots[c]/count*Math.PI*2 + (r() - .5)*.8
       const side = rotateAbout(perpTo(pd), pd, az)
       const spread = angle*lerp(.8, 1.2, r())*(b.level === 0 ? lerp(1.15, .75, t) : 1)
       const cd = norm(add([pd[0]*Math.cos(spread), pd[1]*Math.cos(spread), pd[2]*Math.cos(spread)], side, Math.sin(spread)))
@@ -272,6 +284,15 @@ function growSkeleton(sp, r, root, scale, tips){
       const base = a.rad*.76, from = pd
       const lenK = b.level === 0 ? env(t) : 1 - .45*t, lenBase = b.level === 0 ? H*.56 : b.len
       queue.push({ p: q, d: from, target: cd, base, fromSection: i + 1, atSection: at, attach: { a: q0, d: from }, r: Math.max(a.rad*(b.level === 0 ? .62 : .72), .045*scale), len: Math.min(lenBase*sp.lengthRatio*lenK*lerp(.82, 1.15, r()), limbCap(b.level + 1)*lerp(.85, 1, r())), level: b.level + 1, s: r()*9, parent: rec })
+    }
+    // A round-headed tree has no leader: a sub-trunk dissolves into a fork of near-equal limbs that share its wood, so nothing runs up through the crown as a spear.
+    if (b.stem && sp.forkTop){
+      rec.forks = true
+      for (let i = 0, n = r() < .4 ? 3 : 2, start = r()*7; i < n; i++){
+        const out = rotateAbout(perpTo(tip.d), tip.d, start + i/n*Math.PI*2 + (r() - .5)*.6), tilt = sp.forkAngle*Math.PI/180*lerp(.8, 1.2, r()), target = norm(add([tip.d[0]*Math.cos(tilt), tip.d[1]*Math.cos(tilt), tip.d[2]*Math.cos(tilt)], out, Math.sin(tilt)))
+        queue.push({ p: tip.p, d: tip.d, n0: tip.n, target, fork: true, r: tip.rad*.7, fromSection: sections, atSection: sections, attach: { a: tip.p, d: tip.d }, len: Math.min(H*(1 - sp.trunkFrac)*.5, limbCap(1)*1.1)*lerp(.85, 1.1, r()), level: 1, s: r()*9, parent: rec })
+      }
+      continue
     }
     // the terminal continuation: without it a crown looks clipped
     queue.push({ p: tip.p, d: tip.d, n0: tip.n, target: norm(add(tip.d, randDir(r), .18)), r: tip.rad*.97, continues: true, fromSection: sections, atSection: sections, leader: b.level === 0, len: b.level === 0 ? Math.min(H*(1 - sp.trunkFrac)*.55*sp.leader, limbCap(1)*1.2) : Math.min(b.len*sp.lengthRatio*.8, limbCap(b.level + 1)), level: b.level + 1, s: b.s, parent: rec })
@@ -470,7 +491,7 @@ function separateWood(branches, clumps, final = false){
     }
     return found
   }
-  const carried = b => [b, ...b.kids.flatMap(carried)]
+  const carried = b => [b, ...b.kids.flatMap(carried)], lastStem = b => b.stem && kept.filter(k => k.stem).length < 2   // a tree always keeps a stem
   // thinner wood gives way to thicker; the trunk never moves
   const giveWay = b => !b.level || b.stem ? 0 : 1
   const yields = c => giveWay(c.a) !== giveWay(c.b) ? (giveWay(c.a) ? [c.a, c.b, 1] : [c.b, c.a, -1]) : (c.a.area ?? 0) < (c.b.area ?? 0) ? [c.a, c.b, 1] : [c.b, c.a, -1]
@@ -488,8 +509,8 @@ function separateWood(branches, clumps, final = false){
       }
       if (!done.size) break
     }
-    // anything still touching couldn't get clear. A side branch can go without leaving a stump, because the wood it left simply carries on; a lone tip's
-    // leaves stay where they are, held by the wood around them.
+    // anything still touching couldn't get clear. A side branch can go without leaving a stump, because the wood it left simply carries on, and its
+    // leaves go with it: foliage never stays behind without wood.
     for (let round = 0; round < 10; round++){
       const hits = touching(), gone = new Set()
       if (!hits.length) break
@@ -503,14 +524,14 @@ function separateWood(branches, clumps, final = false){
         m.parent.kids.splice(m.parent.kids.indexOf(m), 1)
         for (const b of all){
           b.kept = false; if (kept.includes(b)) kept.splice(kept.indexOf(b), 1)
-          if (all.length > 1) for (const q of b.owned) if (clumps.includes(q)) clumps.splice(clumps.indexOf(q), 1)
+          for (const q of b.owned) if (clumps.includes(q)) clumps.splice(clumps.indexOf(q), 1)
         }
       }
     }
     // wood ends at the last thing it carries: bare length past that is trimmed back and thinned to a tip, and wood carrying nothing goes
     if (clumps.shelves) for (let i = kept.length - 1; i >= 0; i--){
       const b = kept[i], kids = kept.filter(k => k.parent === b), reach = Math.max(-1, ...b.owned.filter(q => clumps.includes(q)).map(q => q.anchor.sec), ...kids.map(k => Math.ceil(k.atSection ?? 0)))
-      if (reach < 0){ if (b.level || b.stem){ b.kept = false; kept.splice(i, 1) } continue }
+      if (reach < 0){ if (b.level || (b.stem && !lastStem(b))){ b.kept = false; kept.splice(i, 1) } continue }
       if (kids.some(k => k.continues) || reach + 2 > b.last) continue
       const end = Math.min(reach + 2, b.trail.length - 1), start = Math.max(end - 5, 1)
       b.cut = end; b.last = end
@@ -544,7 +565,7 @@ function separateWood(branches, clumps, final = false){
     for (const c of hits.sort((p, q) => q.depth - p.depth)){
       const [m, , sign] = yields(c)
       if (c.depth < (sign > 0 ? c.ra : c.rb)*.45) continue              // shallow: slimmed once the girth is final
-      if ((!m.level && !m.stem) || gone.has(c.a) || gone.has(c.b)) continue
+      if ((!m.level && !m.stem) || lastStem(m) || gone.has(c.a) || gone.has(c.b)) continue
       for (const b of carried(m)) gone.add(b)
       m.parent.kids.splice(m.parent.kids.indexOf(m), 1)
     }
@@ -570,6 +591,46 @@ function segmentGap(p1, q1, p2, q2){
   return { depth: touch - dist, ra: lerp(p1.rad, q1.rad, s), rb: lerp(p2.rad, q2.rad, t), at: pa, push: dist > 1e-5 ? [gap[0]/dist, gap[1]/dist, gap[2]/dist] : [0, 1, 0] }
 }
 
+// Leaves follow the wood. A mass cut off from the crown would be a ball on a stick, so foliage grows back down its branch, smaller as it goes, until it joins
+// the rest of the crown or runs out of reach. The wood is final by now, so this adds nothing for separation to undo.
+function carryAlongLimbs(sp, clumps, scale){
+  if (!sp.sleeve || !clumps.shelves || clumps.length < 3) return
+  const near = (a, b, k) => { const d = sub(a.c, b.c); d[1] /= sp.squash; return dot(d, d) < ((a.r + b.r)*k)**2 }
+  const groups = () => {
+    const id = clumps.map((_, i) => i), find = i => { while (id[i] !== i) i = id[i] = id[id[i]]; return i }
+    for (let i = 0; i < clumps.length; i++) for (let j = 0; j < i; j++) if (near(clumps[i], clumps[j], 1.05)) id[find(i)] = find(j)
+    const sets = new Map()
+    clumps.forEach((c, i) => { const g = find(i); if (!sets.has(g)) sets.set(g, []); sets.get(g).push(c) })
+    return [...sets.values()].sort((a, b) => b.reduce((t, c) => t + c.r**3, 0) - a.reduce((t, c) => t + c.r**3, 0))
+  }
+  const reach = sp.sleeve*scale
+  for (const island of groups().slice(1, 9)){
+    const from = island.find(c => c.anchor?.b?.kept)
+    if (!from) continue
+    const own = new Set(island)
+    let b = from.anchor.b, sec = Math.min(from.anchor.sec, b.trail.length - 1), walked = 0, last = from.anchor.b.trail[sec].p, done = false
+    while (b && !done && walked < reach){
+      for (let i = sec; i >= 0 && !done; i--){
+        const e = b.trail[i], step = Math.hypot(...sub(e.p, last)), r = from.r*lerp(.8, .55, walked/reach)
+        if (step < r*.9) continue
+        walked += step; last = e.p
+        const c = { c: add(e.p, [0, 1, 0], r*sp.squash*.2), r, shelf: from.shelf, rim: from.rim, mass: from.mass, anchor: { b, sec: i, p: e.p } }
+        if (clumps.some(o => !own.has(o) && near(o, c, .95))) done = true
+        clumps.push(c); own.add(c)
+        if (walked >= reach) done = true
+      }
+      if (!b.level || b.stem) break
+      sec = Math.min(Math.round(b.atSection ?? 0), b.parent.trail.length - 1); b = b.parent
+    }
+  }
+}
+
+// Nothing wood-like goes under the lawn: reseating and separation can both carry a low limb down, so the last word goes to the ground.
+function holdAboveGround(sp, branches, clumps, scale){
+  for (const b of branches) if (b.kept && !b.root && (b.level || b.stem)) for (const e of b.trail) e.p = [e.p[0], Math.max(e.p[1], groundHeight(e.p[0], e.p[2]) + e.rad + .04*scale), e.p[2]]
+  for (const c of clumps) c.c = [c.c[0], Math.max(c.c[1], groundHeight(c.c[0], c.c[2]) + c.r*sp.squash*.55), c.c[2]]
+}
+
 // Girth runs along a whole limb, from where it leaves to its tip, continuations included, so wood only ever thins as it goes. A limb starts in proportion
 // to what it leaves and is never too slight for its own length: long wood is thick wood, so nothing splits straight into whips.
 const SLENDER = 30
@@ -583,10 +644,12 @@ function flowGirth(sp, branches, scale){
     let L = 0
     for (let i = 1; i < rings.length; i++) L += Math.hypot(...sub(rings[i].p, rings[i - 1].p))
     let r0 = head.trail[0].rad
-    if (!head.stem){ const pa = head.parent, from = pa.trail[Math.min(Math.round(head.atSection ?? 0), pa.trail.length - 1)].rad; r0 = Math.min(Math.max(from*sp.limbRatio*[1, 1, .8, .62][Math.min(head.level, 3)], head.level < 2 ? L/SLENDER : 0), from*.72) }
-    const tip = Math.max(r0*.1, .012*scale)
+    if (head.fork) r0 = head.parent.trail[Math.min(Math.round(head.atSection), head.parent.trail.length - 1)].rad*.8
+    else if (!head.stem){ const pa = head.parent, from = pa.trail[Math.min(Math.round(head.atSection ?? 0), pa.trail.length - 1)].rad; r0 = Math.min(Math.max(from*sp.limbRatio*[1, 1, .8, .62][Math.min(head.level, 3)], head.level < 2 ? L/SLENDER : 0), from*.72) }
+    const forks = chain[chain.length - 1].forks && kept.some(k => k.fork && k.parent === chain[chain.length - 1])
+    const tip = forks ? r0*.72 : Math.max(r0*.1, .012*scale)
     let s = 0
-    const pow = head.stem ? 2 : 1.2                                     // sub-trunks hold their girth to where the limbs leave
+    const pow = head.stem && !forks ? 2 : 1.2                                     // sub-trunks hold their girth to where the limbs leave
     rings.forEach((e, i) => { if (i) s += Math.hypot(...sub(e.p, rings[i - 1].p)); e.rad = lerp(r0, tip, (s/Math.max(L, 1e-3))**pow) })
   }
 }
@@ -684,7 +747,7 @@ function makeClumps(sp, r, tips, scale, root){
       const rad = R*lerp(1 - sp.clumpVar, 1 + sp.clumpVar*.6, r()), c = add(add(tip.p, tip.d, rad*.3), randDir(r), rad*.25*i)
       if (c[1] - rad*sp.squash < floor) continue                     // keep the trunk and the space under the crown open
       if (clumps.some(o => { const q = sub(o.c, c); return dot(q, q) < (sp.clumpSpacing*(o.r + rad)*.5)**2 })) continue
-      clumps.push({ c, r: rad })
+      clumps.push({ c, r: rad, anchor: { b: tip.branch, sec: tip.section, p: tip.p } })   // foliage belongs to its wood, and moves or goes with it
     }
   }
   // notches: bites out of the outline, so the shape has an interesting edge and some sky through it
@@ -823,9 +886,11 @@ export function emitFoliage(sp, r, clumps, root, scale, out, cores){
 // Weeping curtains: from each branch tip a whip arcs outward and falls under its own weight, painted as long pulled strokes.
 // Strands of one mass share a pivot, so the curtain shades as one lobed surface and the gaps between lobes stay dark.
 function emitStrands(sp, r, tips, clumps, root, scale, out){
-  const H = sp.height*scale, len0 = sp.cardSize*scale, step = len0*.62, floor = root[1] + H*.05
+  const H = sp.height*scale, len0 = sp.cardSize*scale, step = len0*.62, floor = root[1] + H*.1
   const reach = tips.reduce((m, t) => Math.max(m, Math.hypot(t.p[0] - root[0], t.p[2] - root[2])), 1)
   for (const tip of tips){
+    const keep = clamp((Math.hypot(tip.p[0] - root[0], tip.p[2] - root[2])/reach - .15)/.3)   // curtains hang from the outer crown; the inside stays open round the trunk
+    if (r() > keep) continue
     const n = Math.floor(sp.hang) + (r() < sp.hang%1 ? 1 : 0)
     let mass = tip.p, best = 1e12
     for (const c of clumps){ const q = sub(c.c, tip.p), dd = dot(q, q); if (dd < best){ best = dd; mass = c.mass } }
@@ -856,7 +921,8 @@ function individual(sp, seed){
   const r = mulberry32(seed*40503 + 11), v = sp.variety, by = (k, a) => k*(1 + (r()*2 - 1)*a*v)
   const o = { ...sp, height: by(sp.height, .14), trunkRadius: by(sp.trunkRadius, .12), trunkFrac: by(sp.trunkFrac, .14), forkHeight: by(sp.forkHeight, .3), stemSpread: by(sp.stemSpread, .3),
     crownWidth: by(sp.crownWidth, .18), childAngle: by(sp.childAngle, .14), lengthRatio: by(sp.lengthRatio, .14), childStart: Math.min(by(sp.childStart, .18), .95), children: by(sp.children, .22), asym: by(sp.asym, .35), lean: by(sp.lean, .5) }
-  o.forkHeight = Math.min(o.forkHeight, o.trunkFrac*.7)
+  o.forkHeight = Math.min(o.forkHeight, o.trunkFrac*.7); o.trunkFrac = Math.min(o.trunkFrac, .95)
+  if (sp.forms) o.gesture = sp.forms[Math.floor(r()*sp.forms.length)]
   return o
 }
 
@@ -880,6 +946,8 @@ export function generatePlant(species, seed, root, scale, wood, foliage, cores =
   pipeModel(sp, branches, scale, clumps)
   flowGirth(sp, branches, scale)
   separateWood(branches, clumps, true)
+  holdAboveGround(sp, branches, clumps, scale)
+  carryAlongLimbs(sp, clumps, scale)
   growRoots(sp, r, root, scale, branches)
   emitWood(sp, r, root, scale, branches, wood, clumps)
   const form = emitFoliage(sp, r, clumps, root, scale, foliage, cores)
