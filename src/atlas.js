@@ -178,18 +178,64 @@ export function makeGrassAtlas(seed = 9){
   for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++){
     const x0 = tx*T, y0 = ty*T
     g.save(); g.beginPath(); g.rect(x0 + 3, y0 + 3, T - 6, T - 6); g.clip()
-    const n = 7 + Math.floor(r()*6)
+    const n = 7 + Math.floor(r()*6), rootY = y0 + T*.5
     for (let i = 0; i < n; i++){
-      const s = (i + .5)/n*2 - 1, by = y0 + T*(.5 + s*.3), bx = x0 + T*.02, len = T*(.5 + r()*.44)*(1 - .25*s*s)
-      const ey = by + s*T*(.08 + r()*.16) + (r() - .5)*T*.1, ex = bx + len, w = T*(.06 + r()*.04), mx = bx + len*.55, my = by + (ey - by)*.25 + (r() - .5)*T*.06
-      const grad = g.createLinearGradient(bx, 0, ex, 0), v = .2 + r()*.2
-      grad.addColorStop(0, `rgb(${Math.round(v*255)},255,0)`); grad.addColorStop(1, `rgb(${Math.round(Math.min(1, v + .6)*255)},255,0)`)
-      g.fillStyle = grad; g.beginPath(); g.moveTo(bx, by - w); g.quadraticCurveTo(mx, my - w*.8, ex, ey); g.quadraticCurveTo(mx, my + w*.8, bx, by + w); g.fill()
+      // every blade leaves one root as a point and swells before it tapers: no flat base for the eye to catch
+      const s = (i + .5)/n*2 - 1, bx = x0 + T*.03, len = T*(.55 + r()*.4)*(1 - .25*s*s), ey = rootY + s*T*(.16 + r()*.2), ex = bx + len
+      const w = T*(.05 + r()*.04), mx = bx + len*.5, my = rootY + (ey - rootY)*.35 + (r() - .5)*T*.05, v = .15 + r()*.15
+      const grad = g.createLinearGradient(bx, 0, ex, 0); grad.addColorStop(0, `rgb(${Math.round(v*255)},255,0)`); grad.addColorStop(1, `rgb(${Math.round(Math.min(1, v + .65)*255)},255,0)`)
+      g.fillStyle = grad; g.beginPath(); g.moveTo(bx, rootY); g.quadraticCurveTo(mx, my - w, ex, ey); g.quadraticCurveTo(mx, my + w, bx, rootY); g.fill()
     }
     g.restore()
   }
   settlePaint(g, S, r, 2)
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.NoColorSpace; t.flipY = false; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter
+  return t
+}
+
+// five octaves of tiling value noise, for the shaders to read in one lookup. Tiles every 16 units of noise.
+export function makeFieldTexture(size = 512){
+  const r = mulberry32(4242), base = 16, lattice = new Float32Array(4096)
+  for (let i = 0; i < 4096; i++) lattice[i] = r()
+  const at = (x, y, m, o) => lattice[(((x%m + m)%m)*131 + ((y%m + m)%m)*251 + o*37) & 4095]
+  const value = (x, y, m, o) => { const i = Math.floor(x), j = Math.floor(y), u = x - i, v = y - j, s = u*u*(3 - 2*u), t = v*v*(3 - 2*v)
+    const a = at(i, j, m, o), b = at(i + 1, j, m, o), c = at(i, j + 1, m, o), d = at(i + 1, j + 1, m, o)
+    return (a + (b - a)*s)*(1 - t) + (c + (d - c)*s)*t }
+  const data = new Uint8Array(size*size)
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++){
+    let sum = 0, amp = .5, m = base
+    for (let o = 0; o < 5; o++){ sum += amp*value(x/size*m, y/size*m, m, o); amp *= .5; m *= 2 }
+    data[x + y*size] = Math.min(255, sum/.97*255)
+  }
+  const tex = new THREE.DataTexture(data, size, size, THREE.RedFormat)
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter
+  tex.generateMipmaps = true; tex.needsUpdate = true
+  return tex
+}
+
+// Round dabs for the clouds, between a smooth oval and the torn blot: the shape stays a rounded touch of the brush, but its rim wanders in small
+// soft bumps and thins here and there, and the paint in it isn't quite even. Coverage is a clean ramp across the rim, so edges stay crisp at any size.
+export function makeSmoothAtlas(seed = 7){
+  const S = 1024, T = S/4, r = mulberry32(seed), data = new Uint8Array(S*S*4)
+  const lattice = new Float32Array(1024); for (let i = 0; i < 1024; i++) lattice[i] = r()
+  const hat = (i, j) => lattice[(i*67 + j*193) & 1023]
+  const noise = (x, y) => { const i = Math.floor(x), j = Math.floor(y), u = x - i, v = y - j, a = u*u*(3 - 2*u), b = v*v*(3 - 2*v)
+    return (hat(i, j)*(1 - a) + hat(i + 1, j)*a)*(1 - b) + (hat(i, j + 1)*(1 - a) + hat(i + 1, j + 1)*a)*b }
+  for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++){
+    const a2 = .05 + r()*.07, a3 = .03 + r()*.05, a5 = .018 + r()*.02, a8 = .012 + r()*.014, p = [r()*7, r()*7, r()*7, r()*7], tone = r(), ox = r()*90, oy = r()*90
+    for (let y = 0; y < T; y++) for (let x = 0; x < T; x++){
+      const u = (x + .5)/T*2 - 1, v = (y + .5)/T*2 - 1, th = Math.atan2(v, u)
+      const rim = .78*(1 + a2*Math.sin(th*2 + p[0]) + a3*Math.sin(th*3 + p[1]) + a5*Math.sin(th*5 + p[2]) + a8*Math.sin(th*8 + p[3]))
+      const bumps = (noise(u*4.5 + ox, v*4.5 + oy) - .5)*.2 + (noise(u*11 + oy, v*11 + ox) - .5)*.1, d = Math.hypot(u, v)/rim + bumps*Math.min(Math.hypot(u, v)/rim, 1)
+      const i = ((ty*T + y)*S + tx*T + x)*4
+      data[i] = Math.min(Math.max(.44 + tone*.08 + (noise(u*2.4 + ox, v*5 + oy) - .5)*.2, 0), 1)*255
+      data[i + 1] = Math.min(Math.max(.36 + (1 - d)*2, 0), 1)*255
+      data[i + 2] = Math.min(Math.max(.75 + (1 - d)*1.6, 0), 1)*255
+      data[i + 3] = 255
+    }
+  }
+  const t = new THREE.DataTexture(data, S, S)
+  t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true
   return t
 }

@@ -9,6 +9,8 @@ npm run dev
 
 Then open http://localhost:5177. Drag to orbit, Shift+drag to move the sun, scroll to zoom. URL parameters set the start state: `?species=Sakura&seed=12&time=16.2&grove=5&close`.
 
+Stats along the top left show frame rate, frame time, draw calls and triangles per frame, including the shadow pass. Output > Profiling stats hides them.
+
 ## How it works
 
 - `src/generator.js`: the plants, with no three.js in it. Branches grow from a queue, clumps form at the tips, and clumps are grouped into larger masses. Each clump is a shell of brush strokes over a dark underpainting.

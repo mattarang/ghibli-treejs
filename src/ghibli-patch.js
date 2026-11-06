@@ -11,12 +11,12 @@ import * as THREE from 'three'
 
 export const U = {
   uTime: { value: 0 }, uWind: { value: 1 }, uSunLum: { value: 1 }, uSunUp: { value: 1 }, uDay: { value: 1 },
-  uPuff: { value: .72 }, uBands: { value: 4 }, uSoft: { value: .1 }, uToonMix: { value: .85 }, uPaletteMix: { value: 1 }, uEdgeWobble: { value: .7 },
+  uPuff: { value: .72 }, uBands: { value: 4 }, uSoft: { value: .1 }, uToonMix: { value: .85 }, uPaletteMix: { value: 1 }, 
   uSss: { value: .55 }, uRim: { value: .3 }, uFleck: { value: .45 }, uFleckScale: { value: 3.2 },
   uSway: { value: 1 }, uFlutter: { value: .035 },
   uBarkWarm: { value: new THREE.Color(0x8a5a36) }, uBarkWarmMix: { value: .35 }, uBarkGrain: { value: .45 }, uBarkRootAO: { value: .45 }, uBarkCanopyAO: { value: .3 },
   uShadowFill: { value: new THREE.Color(0xffb27a) }, uShadowFillK: { value: .05 },
-  uPigment: { value: 1 }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uAmbTint: { value: new THREE.Color(1, 1, 1) }, uSunTint: { value: new THREE.Color(1, 1, 1) },
+  uPigment: { value: 1 }, uLightShape: { value: .34 }, uSelfShade: { value: 1 }, uHueVar: { value: 1 }, uAir: { value: 1 }, uMoss: { value: .6 }, uBarkVar: { value: 1 }, uFurrow: { value: 1 }, uTrees: { value: Array.from({ length: 24 }, () => new THREE.Vector3(1e5, 1e5, 1)) }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uAmbTint: { value: new THREE.Color(1, 1, 1) }, uSunTint: { value: new THREE.Color(1, 1, 1) },
   uLanternPos: { value: new THREE.Vector3(3, 2, 3) }, uLanternColor: { value: new THREE.Color(0xffb35a) }, uLanternI: { value: 0 },
 }
 
@@ -25,7 +25,7 @@ export const setPalette = (pal, hexes) => pal.forEach((u, i) => u.value.set(hexe
 export const paletteUniforms = pal => ({ uPal0: pal[0], uPal1: pal[1], uPal2: pal[2], uPal3: pal[3] })
 
 const PARS = /* glsl */`
-  uniform float uPuff, uBands, uSoft, uToonMix, uPaletteMix, uEdgeWobble, uSss, uRim, uFleck, uFleckScale, uBarkWarmMix, uBarkGrain, uBarkRootAO, uBarkCanopyAO,
+  uniform float uPuff, uBands, uSoft, uToonMix, uPaletteMix, uSss, uRim, uFleck, uFleckScale, uBarkWarmMix, uBarkGrain, uBarkRootAO, uBarkCanopyAO,
     uShadowFillK, uSunLum, uSunUp, uDay, uLanternI, uPigment;
   uniform vec3 uRimColor, uSssColor, uBarkWarm, uShadowFill, uAmbTint, uSunTint, uLanternPos, uLanternColor, uPal0, uPal1, uPal2, uPal3;
   float gFleck = 0., gMod = 1.; vec3 gGlow = vec3(0.), gTint = vec3(1.);`
@@ -123,7 +123,7 @@ export function patch(mat, o){
       .replace('#include <opaque_fragment>', `
         { float kk = gLit; ${o.shade || ''}
           // pigment shifts the colour after the band is chosen, so a stroke stays one stroke with paint moving inside it
-          vec3 pal = palRamp(${o.softRamp ? 'clamp(kk, 0., 1.)' : 'toonRamp(clamp(kk, 0., 1.))'} + (${o.pigment || '0.'})*uPigment*.34);
+          vec3 pal = palRamp(${o.softRamp ? 'clamp(kk, 0., 1.)' : o.ramp || 'toonRamp(clamp(kk, 0., 1.))'} + (${o.pigment || '0.'})*uPigment*.34);
           ${o.palLine || ''}
           float lit = clamp(kk, 0., 1.);
           pal = max(pal*(1. + uShadowFill*uShadowFillK*(1. - lit)*1.6)*gMod*gTint, uPal0*.9)*mix(uAmbTint, uSunTint, toonRamp(lit));   // the deepest paint is the palette's shadow colour, never black

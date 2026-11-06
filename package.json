@@ -3,7 +3,17 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": { "dev": "vite --port 5177 --strictPort", "build": "vite build", "preview": "vite preview" },
-  "dependencies": { "lil-gui": "0.21.0", "three": "0.186.0" },
-  "devDependencies": { "vite": "8.3.6" }
+  "scripts": {
+    "dev": "vite --port 5177 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lil-gui": "0.21.0",
+    "stats.js": "0.17.0",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.6"
+  }
 }
