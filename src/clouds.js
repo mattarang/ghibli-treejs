@@ -15,7 +15,7 @@ export function makeClouds(){
   const unused = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1)
   const mat = makeFoliageMaterial(makeSmoothAtlas(11), unused, palette, { value: new THREE.Color('#fff4dc') }, { value: new THREE.Color('#fff4dc') })
   Object.assign(mat, { transparent: true, depthWrite: false, alphaToCoverage: false, fog: false })
-  Object.assign(mat.uniforms, { uAir: { value: 0 }, uHueVar: { value: .12 }, uSelfShade: { value: 0 }, uWind: { value: 0 }, uShadowFillK: { value: 0 }, uLanternI: { value: 0 } })
+  Object.assign(mat.uniforms, { uAir: { value: 0 }, uHueVar: { value: .12 }, uSelfShade: { value: 0 }, uMass: { value: 0 }, uWind: { value: 0 }, uShadowFillK: { value: 0 }, uLanternI: { value: 0 } })
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat)
   mesh.frustumCulled = false; mesh.renderOrder = 11                     // over the sky, which is drawn last of the solid things
 

@@ -361,7 +361,7 @@ function emitEntries(sp, r, root, scale, branches, wood, foliage, clumps, form){
       // twigs leave a little before the foliage does, so the limb has already divided when it goes in
       for (let t = 0, n = clamp(2 + Math.round(ring.rad/(.1*scale)), 2, 5), spin = r()*7; t < n; t++){
         const a = spin + t/n*Math.PI*2 + (r() - .5)*.7, away = add([side[0]*Math.cos(a), side[1]*Math.cos(a), side[2]*Math.cos(a)], other, Math.sin(a))
-        const dir = norm(add(ring.d, away, lerp(.3, .6, r()))), off = perpTo(dir), off2 = cross(dir, off), len = R*lerp(.22, .45, r()), from = add(out.p, away, out.rad*.6), start = wood.pos.length/3
+        const from = add(out.p, away, out.rad*.6), inward = sub(add(cl.c, randDir(r), cl.r*.2), from), dir = norm(add(norm(inward), away, lerp(.15, .35, r()))), off = perpTo(dir), off2 = cross(dir, off), len = Math.hypot(...inward)*lerp(.62, .85, r()), start = wood.pos.length/3   // twigs carry on into the foliage: they end near the clump's core, never on its skin
         for (let k = 0; k <= 3; k++){
           const u = k/3, c = add(add(from, dir, len*u), [0, 1, 0], -.1*len*u*u), rad = lerp(Math.min(out.rad*.42, .09*scale), .03*scale, u)
           for (let e = 0; e <= 5; e++){
@@ -569,11 +569,15 @@ export function emitFoliage(sp, r, clumps, root, scale, out, cores){
   const held = out.held ??= [], plant = held.length ? held[held.length - 1].plant + 1 : 0      // clumps by plant: main.js lights them against each other
   for (const cl of clumps){
     const { c, r: rad, mass, shelf } = cl, tone = r(), sw = swayAt(c[1]), clump = held.length
-    held.push({ c, r: rad, squash: sp.squash, plant })
+    held.push({ c, r: rad, squash: sp.squash, plant, mass: shelf ?? mass, n: formAt(c, shelf).n })
     cl.id = clump; cl.tone = tone
     const pivot = add(add(c, sub(mass, c), sp.massBlend), sub(crown, add(c, sub(mass, c), sp.massBlend)), sp.crownBlend), wind = [root[0], root[2], sw, .6]
-    cl.pivot = pivot
-    if (sp.core && !(cl.rim > .72)){                                    // rim clumps stay thin: sky shows through the edge of the crown
+    cl.pivot = pivot; cl.wind = wind
+    // Strokes on a shell are thinnest exactly where a clump faces the viewer, so it needs a body. One large stroke at its heart always turns to
+    // the viewer, in the clump's own light and colour: whatever shows between strokes is more of the same paint, and never a hole.
+    if (sp.massMarks && sp.core){ const k = cl.rim > .72 ? .88 : 1
+      addStroke(out, r, { q: c, n: formAt(c, shelf).n, t: [0, 1, 0], len: rad*2.3*Math.max(sp.squash, .6)*k, wid: rad*2.4*k, tile: randTile(r), pivot, ao: .5, tone, wind, dab: .25, clump }) }
+    else if (sp.core && !(cl.rim > .72)){                               // rim clumps stay thin: sky shows through the edge of the crown
       const base = cores.pos.length/3, wob = r()*9
       for (const d of ICO.v){
         const k = rad*((shelf ? .34 : .62) + .07*Math.sin(d[0]*4 + wob)*Math.cos(d[2]*3 + wob)), q = [c[0] + d[0]*k, c[1] + d[1]*k*sp.squash, c[2] + d[2]*k]
@@ -594,7 +598,7 @@ export function emitFoliage(sp, r, clumps, root, scale, out, cores){
       const d = randDir(r)
       let lobe = lobes[0], b = -2
       for (const l of lobes){ const q = dot(d, l.dir); if (q > b){ b = q; lobe = l } }
-      if (lobe.gone && layer) continue                                  // plates stay, so a bitten lobe still hides the core
+      if (lobe.gone && layer > (sp.massMarks ? 1 : 0)) continue          // what stays hides the core: facing the viewer a bite is a hole, so on trees it only thins the edge
       const rise = clamp((b - .45)/.5), bump = .8 + .26*rise*rise + (r() - .5)*.06
       const k = rad*(layer === 3 ? bump + lerp(.14, .36, r()) : bump + [-.04, 0, .05][layer]), q = [c[0] + d[0]*k, c[1] + d[1]*k*sp.squash, c[2] + d[2]*k]
       if (shelf) q[1] = Math.max(q[1], shelf.bottom + shelf.h*(.07*Math.sin(q[0]*.9 + shelf.phase) + .07*Math.sin(q[2]*1.3 + shelf.phase*2)))   // shelves are flat underneath, but drawn by hand
@@ -605,10 +609,21 @@ export function emitFoliage(sp, r, clumps, root, scale, out, cores){
       const flow = sub([0, -1, 0], [d[0]*-d[1], d[1]*-d[1], d[2]*-d[1]])
       const t = rotateAbout(norm(dot(flow, flow) > .02 ? flow : randDir(r)), d, turn + (r() - .5)*2*jitter)
       const ao = clamp(.26 + .4*(onShelf[1]*.5 + .5) + .2*Math.hypot(onCrown[0], onCrown[2]) + .16*rise, .1, 1)
-      const plate = rad*lerp(.58, .95, r())*sp.plateSize, size = [0, lerp(.8, 1.3, r()), lerp(.38, .66, r()), lerp(.3, .5, r())][layer]
+      // marks at three clear scales: plates sized by the mass, dabs by the brush, so the big shapes aren't just more of the small ones
+      const plate = Math.max(rad*lerp(.58, .95, r()), sp.massMarks && shelf ? Math.min(shelf.rx, rad*2.2)*lerp(.32, .44, r()) : 0)*sp.plateSize, size = [0, sp.massMarks ? lerp(.72, 1.15, r()) : lerp(.8, 1.3, r()), lerp(.38, .66, r()), lerp(.3, .5, r())][layer]
       addStroke(out, r, { q, n: nS, t, len: layer ? len0*size : plate, wid: layer ? wid0*size : plate*.85, tile: randTile(r, layer > 1), pivot, ao,
         tone: clamp(lobe.tone + (r() - .5)*.2), wind, dab: [0, 1, 2, 2][layer], clump })
     }
+  }
+  // Neighbouring clumps of one mass are one body of leaves, so the space between them is painted too, in the colour of the clump it joins.
+  // Sky stays in the gaps between boughs and in notches too wide to bridge, where it reads as the tree's own shape.
+  if (sp.massMarks && sp.core) for (let i = 0; i < clumps.length; i++) for (let j = 0; j < i; j++){
+    const a = clumps[i], b = clumps[j]
+    if (!a.shelf || a.shelf !== b.shelf) continue
+    const gap = sub(b.c, a.c), d = Math.hypot(gap[0], gap[1]/sp.squash, gap[2])
+    if (d > (a.r + b.r)*1.2 || d < (a.r + b.r)*.45) continue             // too far to be one body, or already overlapping enough to close
+    const q = add(a.c, gap, .5), w = Math.max(d*.62, Math.min(a.r, b.r)*.8)
+    addStroke(out, r, { q, n: formAt(q, a.shelf).n, t: [0, 1, 0], len: w*2*Math.max(sp.squash, .6), wid: w*2, tile: randTile(r), pivot: a.pivot, ao: .5, tone: a.tone, wind: a.wind, dab: .25, clump: a.id })
   }
   return formAt
 }

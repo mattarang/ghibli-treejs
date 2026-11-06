@@ -2,7 +2,7 @@
 const MEADOW = ['#1f6a4a', '#2f8f4e', '#66b54a', '#b0d868']
 const BARK = ['#1e1e10', '#38391f', '#7a7044', '#b4b078']
 
-const DEFAULTS = { hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .12, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
+const DEFAULTS = { massMarks: true, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .12, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
 
 export const SPECIES = {
   'Great camphor': {

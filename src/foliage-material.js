@@ -5,7 +5,7 @@ import { U } from './ghibli-patch.js'
 
 const vertexShader = /* glsl */`
   attribute vec2 aCorner; attribute vec3 aPatch, aStroke, aLeaf, clusterCenter; attribute vec4 aWind; attribute float aDab;
-  uniform sampler2D tSun; uniform float uSelfShade, uHueVar, uAir; uniform vec3 fogColor;
+  uniform sampler2D tSun; uniform float uSelfShade, uHueVar, uAir, uMass; uniform vec3 fogColor;
   uniform float uTime, uWind, uSway, uFlutter, uLightShape, uBands, uSoft, uToonMix, uPigment, uSss, uRim, uFleck, uShadowFillK, uDay, uLanternI;
   uniform vec3 uSunDir, uPal0, uPal1, uPal2, uPal3, uSssColor, uRimColor, uShadowFill, uAmbTint, uSunTint, uLanternPos, uLanternColor;
   varying vec2 vUv; varying vec3 vColA, vColB; varying float vCalm;
@@ -28,22 +28,34 @@ const vertexShader = /* glsl */`
     wPos.xyz += windOffset(wPos.xyz, clusterCenter, aWind);
     vec4 mvPosition = viewMatrix*wPos;
     vec3 n = normalize(normal), V = normalize(cameraPosition - wPos.xyz);
-    // the one light value for this stroke
-    float F = (max(dot(n, uSunDir), 0.)*(.72 + .28*aLeaf.x) + (aLeaf.x - .5)*.2 + (aLeaf.z - .5)*.02 + aPatch.x*uLightShape*1.8)*.95;
-    // clumps behind others on the way to the sun lose it, so masses throw shade across each other (baked per clump in main.js)
-    if (aPatch.z >= 0. && uSelfShade > 0.){ int id = int(aPatch.z); F *= mix(1., mix(.3, 1., texelFetch(tSun, ivec2(id%256, id/256), 0).r), uSelfShade); }
     float rimV = smoothstep(.5, .82, 1. - abs(dot(n, V)));
-    bool small = aDab > 1.5, band = F > .13 && F < .62, core = aDab < -.5;
+    bool small = aDab > 1.5, core = aDab < -.5, massed = uMass > .5 && aPatch.z >= 0., closed;
+    float F, score = 0.;
+    if (massed){
+      // Light belongs to the mass. main.js gives every clump its place against its mass's terminator; a stroke adds only the turn of its own
+      // form, so whole clumps fall on one side together, and the border between light and shadow is a chain of clump-sized shapes.
+      int id = int(aPatch.z);
+      score = texelFetch(tSun, ivec2(id%256, id/256), 0).r*4. - 2. + dot(n, uSunDir)*.45 + aPatch.x*uLightShape*.9;
+      float along = score + (aLeaf.z - .5)*.16;                                 // across the terminator, dabs decide one by one
+      F = mix(.05, .46 + .24*smoothstep(0., .6, score) + aPatch.y*.05, smoothstep(-.015, .015, along));
+      closed = (aDab > .5 && !small && score < -.16 && aLeaf.z > .4) || (small && abs(score) > .13 && rimV < .4);   // detail lives on the terminator and the rim
+    } else {
+      F = (max(dot(n, uSunDir), 0.)*(.72 + .28*aLeaf.x) + (aLeaf.x - .5)*.2 + (aLeaf.z - .5)*.02 + aPatch.x*uLightShape*1.8)*.95;
+      bool band = F > .13 && F < .62;
+      closed = (aDab > .5 && !small && F < .16 && aLeaf.z > .4) || (small && !band && rimV < .4 && (F < .62 || aLeaf.z > .22));
+    }
     // closed strokes collapse here, before they cost a pixel
-    if ((aDab > .5 && !small && F < .16 && aLeaf.z > .4) || (small && !band && rimV < .4 && (F < .62 || aLeaf.z > .22))){ gl_Position = vec4(2., 2., 2., 1.); return; }
+    if (closed){ gl_Position = vec4(2., 2., 2., 1.); return; }
     vec2 sd = (viewMatrix*vec4(aStroke, 0.)).xy; sd = normalize(sd + vec2(0., 1e-3));
     mvPosition.xy += sd*aCorner.x + vec2(-sd.y, sd.x)*aCorner.y;
+    if (aDab > .1 && aDab < .4) mvPosition.z += length(aCorner)*.4;              // a clump's body stands just behind its strokes, ahead of the wood inside it
     gl_Position = projectionMatrix*mvPosition;
     #include <fog_vertex>
-    float calm = smoothstep(.11, .28, F);                                       // 0 in shadow: paint only moves in the light
+    float calm = core && massed ? 0. : smoothstep(.11, .28, F);                 // 0 in shadow: paint only moves in the light. Cores never take it
     float light = .02 + F + aPatch.y*uFleck*.15;
-    if (small) light += F > .62 ? .14 : (aLeaf.z - .5)*.62;                     // small dabs alone break the big shape
-    float dark = core ? .03 : .015 + .12*aLeaf.x + (aLeaf.y - .5)*.05 + (aLeaf.z - .5)*.1;
+    if (small) light += massed ? (aLeaf.z - .5)*.3 : F > .62 ? .14 : (aLeaf.z - .5)*.62;   // small dabs alone break the big shape
+    float dark = massed ? (core ? .04 + .3*smoothstep(-.1, .1, score) : .02 + .34*aLeaf.x + (aLeaf.y - .5)*.05)
+                        : core ? .03 : .015 + .12*aLeaf.x + (aLeaf.y - .5)*.05 + (aLeaf.z - .5)*.1;
     float kk = mix(dark, mix(light, smoothstep(.16, .74, light), .45), calm), lit = clamp(kk, 0., 1.), x = mix(lit, toonRamp(lit), calm);
     float spread = .22*calm*uPigment;
     vec3 tint = mix(vec3(1.), mix(vec3(.88, 1., 1.06), vec3(1.08, 1.02, .86), aLeaf.y), calm), base = palRamp(x);
@@ -54,8 +66,8 @@ const vertexShader = /* glsl */`
     vec3 glow = (back*uSssColor*(.35 + base) + uRimColor*rimF*(.4 + base))*uSunTint*uDay*calm;
     vec3 lv = uLanternPos - wPos.xyz; float d2 = dot(lv, lv);
     glow += uLanternColor*(.3 + .7*clamp(dot(n, normalize(lv)), 0., 1.))*uLanternI/(1. + d2*.18)*(.4 + base);
-    // hue is a second axis of paint that light doesn't touch: every stroke its own mix, and whole lobes of shadow leaning teal or olive
-    float turn = ((aLeaf.z - .5)*.42 + (aLeaf.y - .5)*(1. - calm)*.45)*uHueVar;
+    // hue is a second axis of paint that light doesn't touch: whole clumps lean teal or olive, and strokes only a little
+    float turn = (massed ? (fract(aPatch.z*.618) - .5)*.3 + (aLeaf.z - .5)*.1 : (aLeaf.z - .5)*.42 + (aLeaf.y - .5)*(1. - calm)*.45)*uHueVar;
     // air: distance lifts shadow toward the sky long before it touches the lights
     float air = (1. - exp(-max(length(mvPosition.xyz) - 45., 0.)*.0045))*(1. - .55*calm)*uAir;
     vColA = mix(turnHue(max(palRamp(x - spread)*scale, uPal0*.9), turn)*wash, fogColor, air) + glow;

@@ -12,7 +12,7 @@ import { makeClouds } from './clouds.js'
 import { applyLighting } from './lighting.js'
 
 const qs = new URLSearchParams(location.search)
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false })
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false, alpha: false })   // coverage alpha must not reach the page
 const view = { resolution: Math.min(devicePixelRatio, 1.5), hold60: true }     // 1.5x with MSAA holds a stroke's edge; the extra pixels of 2x cost a third of the frame
 renderer.setPixelRatio(view.resolution)
 renderer.setSize(innerWidth, innerHeight)
@@ -78,26 +78,49 @@ const GROUND_SHADE = `{ vec2 w = vWPos.xz + 14.*vec2(fld(vWPos.xz*.012), fld(vWP
 const GROUND_PAL = 'pal = mix(pal, mix(vec3(.11, .1, .05), vec3(.26, .24, .1), smoothstep(.1, .5, kk)), gFoot*.72);'
 const GROUND_FRAG = 'uniform vec3 uTrees[24]; uniform sampler2D tField; float gFoot = 0.; float fld(vec2 p){ return texture2D(tField, p/16.).r; }'
 const GROUND_PIGMENT = '(fld(vWPos.xz*vec2(.2, .62)) - .5)*.9'
-// how much sun reaches each clump past the others of its plant. Rebaked only when the sun or the plants change, into a small table the
-// foliage reads once per vertex: one soft sphere test per pair, so a light change stays well under a frame.
+// Light is given out per mass, the way a painter blocks it in: the mass the sun favours most gets most of its area lit, the one it favours least
+// a sliver, and each mass gets one terminator, placed to give it that share. Rebaked only when the sun or the plants change, into a small table
+// the foliage reads once per vertex: each clump's place relative to its terminator.
 const sunTable = new THREE.DataTexture(new Uint8Array(256*64), 256, 64, THREE.RedFormat)
 sunTable.magFilter = sunTable.minFilter = THREE.NearestFilter
+const HERO_SHARE = .62, LAST_SHARE = .15
 let heldClumps = []
 function bakeSun(){
-  const s = U.uSunDir.value, data = sunTable.image.data
-  const n = Math.min(heldClumps.length, data.length)
+  const s = U.uSunDir.value, data = sunTable.image.data, n = Math.min(heldClumps.length, data.length), plants = new Map()
   for (let i = 0; i < n; i++){
-    const a = heldClumps[i]
-    let vis = 1
-    const shade = e => {
-      const x = e.c[0] - a.c[0], y = e.c[1] - a.c[1], z = e.c[2] - a.c[2], t = x*s.x + y*s.y + z*s.z
-      if (t < a.r*.25) return
-      const off = Math.sqrt(Math.max(x*x + y*y + z*z - t*t, 0))/e.r, q = Math.min(Math.max((1.15 - off)/.6, 0), 1)
-      vis *= 1 - .55*q*q*(3 - 2*q)
+    const c = heldClumps[i]; let masses = plants.get(c.plant)
+    if (!masses) plants.set(c.plant, masses = new Map())
+    if (!masses.has(c.mass)) masses.set(c.mass, [])
+    masses.get(c.mass).push(i)
+  }
+  const face = new Float32Array(n), up = Math.min(Math.max((s.y + .05)/.2, 0), 1)
+  for (const masses of plants.values()){
+    const groups = [...masses.values()], all = groups.flat()
+    // a clump behind another mass on the way to the sun loses it, so masses throw shade across each other
+    for (const i of all){
+      const a = heldClumps[i], k = a.squash
+      let vis = 1
+      for (const j of all){
+        const e = heldClumps[j]
+        if (e.mass === a.mass) continue
+        const x = e.c[0] - a.c[0], y = e.c[1] - a.c[1], z = e.c[2] - a.c[2], t = x*s.x + y*s.y + z*s.z
+        if (t < a.r*.25) continue
+        const yy = y/k, sy = s.y/k, tt = (x*s.x + yy*sy + z*s.z)/(s.x*s.x + sy*sy + s.z*s.z), px = x - tt*s.x, py = yy - tt*sy, pz = z - tt*s.z
+        const q = Math.min(Math.max((1.15 - Math.sqrt(px*px + py*py + pz*pz)/e.r)/.6, 0), 1)
+        vis *= 1 - .55*q*q*(3 - 2*q)
+      }
+      face[i] = a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z - (1 - vis)*1.1*U.uSelfShade.value
     }
-    for (let j = i - 1; j >= 0 && heldClumps[j].plant === a.plant; j--) shade(heldClumps[j])
-    for (let j = i + 1; j < n && heldClumps[j].plant === a.plant; j++) shade(heldClumps[j])
-    data[i] = vis*255
+    const mean = groups.map(g => g.reduce((t, i) => t + face[i], 0)/g.length), lo = Math.min(...mean), hi = Math.max(...mean)
+    groups.forEach((g, k) => {
+      const share = groups.length > 1 ? LAST_SHARE + (HERO_SHARE - LAST_SHARE)*((mean[k] - lo)/Math.max(hi - lo, 1e-3))**.8 : (HERO_SHARE + LAST_SHARE)/2
+      const order = [...g].sort((p, q) => face[q] - face[p]), area = g.reduce((t, i) => t + heldClumps[i].r**2, 0)
+      let seen = 0, line = face[order[order.length - 1]] - .5                 // walk down from the sunniest clump until the share is spent
+      if (up === 0) line = 9
+      else for (const i of order){ seen += heldClumps[i].r**2; if (seen >= share*up*area){ line = face[i] - 1e-3; break } }
+      // the shader adds .45 of each stroke's own turn to the sun, so the clump's centre lands exactly on its place against the line
+      for (const i of g){ const a = heldClumps[i]; data[i] = Math.min(Math.max((face[i] - line - .45*(a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z) + 2)/4, 0), 1)*255 }
+    })
   }
   sunTable.needsUpdate = true
 }
@@ -401,7 +424,7 @@ addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camer
 // ---- go ----
 applyLook(); clouds.build(p.clouds, p.cloudSeed); rebuild(); rebuildGrass(); lamp(); frame()
 if (qs.has('close')) gui.close()
-window.__foliage = { p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
+window.__foliage = { gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
 // profiling: frame rate and frame time, then draw calls and triangles per frame (these include the shadow pass)
 const statsBar = document.createElement('div')
 statsBar.style.cssText = 'position:fixed;left:8px;top:8px;display:flex;gap:4px;z-index:20;pointer-events:none'

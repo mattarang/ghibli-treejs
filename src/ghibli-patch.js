@@ -16,7 +16,7 @@ export const U = {
   uSway: { value: 1 }, uFlutter: { value: .035 },
   uBarkWarm: { value: new THREE.Color(0x8a5a36) }, uBarkWarmMix: { value: .35 }, uBarkGrain: { value: .45 }, uBarkRootAO: { value: .45 }, uBarkCanopyAO: { value: .3 },
   uShadowFill: { value: new THREE.Color(0xffb27a) }, uShadowFillK: { value: .05 },
-  uPigment: { value: 1 }, uLightShape: { value: .34 }, uSelfShade: { value: 1 }, uHueVar: { value: 1 }, uAir: { value: 1 }, uMoss: { value: .6 }, uBarkVar: { value: 1 }, uFurrow: { value: 1 }, uTrees: { value: Array.from({ length: 24 }, () => new THREE.Vector3(1e5, 1e5, 1)) }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uAmbTint: { value: new THREE.Color(1, 1, 1) }, uSunTint: { value: new THREE.Color(1, 1, 1) },
+  uPigment: { value: 1 }, uLightShape: { value: .34 }, uSelfShade: { value: 1 }, uMass: { value: 1 }, uHueVar: { value: 1 }, uAir: { value: 1 }, uMoss: { value: .6 }, uBarkVar: { value: 1 }, uFurrow: { value: 1 }, uTrees: { value: Array.from({ length: 24 }, () => new THREE.Vector3(1e5, 1e5, 1)) }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uAmbTint: { value: new THREE.Color(1, 1, 1) }, uSunTint: { value: new THREE.Color(1, 1, 1) },
   uLanternPos: { value: new THREE.Vector3(3, 2, 3) }, uLanternColor: { value: new THREE.Color(0xffb35a) }, uLanternI: { value: 0 },
 }
 
