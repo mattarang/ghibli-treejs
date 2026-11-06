@@ -2,11 +2,12 @@
 const MEADOW = ['#1f6a4a', '#2f8f4e', '#66b54a', '#b0d868']
 const BARK = ['#1e1e10', '#38391f', '#7a7044', '#b4b078']
 
-const DEFAULTS = { limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
+const DEFAULTS = { variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
 
 export const SPECIES = {
   'Great camphor': {
-    stems: 1, forkHeight: 0.09,
+    stemVar: 1.2,
+    stems: 1.3, forkHeight: 0.09,
     boughGap: 0.45,
     shelves: 5,
     sinuous: .5, ivy: .4,
@@ -18,9 +19,10 @@ export const SPECIES = {
     leaf: 'round', edge: 'pointed', palette: ['#143f3a', '#2a7040', '#5a9e4a', '#8cc468'], bark: BARK, ground: MEADOW, sss: '#b0d470', rim: '#84c473', fleck: .45,
   },
   'Hilltop oak': {
+    stemVar: 1.7,
     forkHeight: 0.13, stemSpread: 26,
     shelves: 4,
-    stems: 2, sinuous: .4, ivy: .3,
+    stems: 1.8, sinuous: .4, ivy: .3,
     moss: 0.8,
     gesture: 'windswept', crownWidth: 0.7, asym: .3, windLean: 0.45, notches: 3, massVar: 0.35,
     height: 8.5, trunkRadius: 0.5, trunkFrac: .3, lean: .12, flare: 0.7, levels: 3, children: 5, childAngle: 60, lengthRatio: .92,
@@ -29,6 +31,7 @@ export const SPECIES = {
     leaf: 'round', edge: 'pointed', palette: ['#1c4226', '#33703a', '#649c44', '#94c462'], bark: BARK, ground: MEADOW, sss: '#bcd478', rim: '#9ac878', fleck: .55,
   },
   'Poplar': {
+    stemVar: 0,
     stems: 1, forkHeight: 0.08,
     boughGap: 0.35,
     shelves: 2,
@@ -42,9 +45,10 @@ export const SPECIES = {
     leaf: 'round', edge: 'pointed', palette: ['#123d3e', '#287040', '#529a50', '#86c06a'], bark: BARK, ground: MEADOW, sss: '#a8d07a', rim: '#84c473', fleck: .4,
   },
   'Sakura': {
+    stemVar: 1.7,
     leader: 0.45,
     shelves: 4, boughGap: .82, hueVar: .3,
-    stems: 2, forkHeight: 0.13, stemSpread: 26, sinuous: 0.4,
+    stems: 1.8, forkHeight: 0.13, stemSpread: 26, sinuous: 0.4,
     moss: 0.25,
     gesture: 'umbrella', crownWidth: .82, asym: .34, notches: 1, massVar: 0.45,
     height: 7.5, trunkRadius: 0.5, trunkFrac: .36, lean: .14, flare: .7, levels: 3, children: 5, childAngle: 58, lengthRatio: .8,
@@ -53,12 +57,13 @@ export const SPECIES = {
     leaf: 'round', edge: 'pointed', palette: ['#b4688e', '#e08eaa', '#f6b8ca', '#ffdedd'], bark: ['#2c2220', '#4a3428', '#7e5a42', '#caa282'], ground: MEADOW, sss: '#ffc4c8', rim: '#ffd9e0', fleck: 0,
   },
   'Autumn maple': {
+    stemVar: 2,
     leader: 0.45,
     hueVar: .35,
     shelves: 4,
     stemSpread: 20,
     forkHeight: 0.1,
-    stems: 3,
+    stems: 2,
     sinuous: .4,
     moss: 0.35,
     gesture: 'umbrella', crownWidth: 0.8, asym: .16, notches: 1, massVar: .4,
@@ -68,6 +73,7 @@ export const SPECIES = {
     strays: .14, leaf: 'pointed', edge: 'spray', palette: ['#7c3c3e', '#b84f34', '#ea8a40', '#ffdc76'], bark: ['#2a3034', '#4a5052', '#7c807a', '#bcbcae'], ground: ['#6a6240', '#8e8244', '#bc9e4e', '#e8cf84'], sss: '#ffc25a', rim: '#ffcf80', fleck: .35,
   },
   'Stone pine': {
+    stemVar: 0,
     stems: 1, forkHeight: 0.2,
     shelves: 2,
     sinuous: 0.1,
@@ -79,9 +85,10 @@ export const SPECIES = {
     strokeAngle: 80, brushWidth: .5, strokeJitter: 24, leaf: 'round', edge: 'round', palette: ['#123838', '#245e42', '#4a8a50', '#88ba66'], bark: ['#2c2420', '#553c2a', '#8a6038', '#d0a870'], ground: MEADOW, sss: '#a8d07a', rim: '#84c473', fleck: .3,
   },
   'Garden tree': {
+    stemVar: 1.6,
     leader: 0.6,
     shelves: 4,
-    stems: 3, forkHeight: 0.08, stemSpread: 24, sinuous: .9, ivy: 0.5, moss: .55,
+    stems: 2.4, forkHeight: 0.08, stemSpread: 24, sinuous: .9, ivy: 0.5, moss: .55,
     gesture: 'dome', crownWidth: .5, asym: .34, notches: 3, massVar: .6,
     height: 10, trunkRadius: 0.38, trunkFrac: 0.4, lean: .05, flare: .8, levels: 3, children: 7, childAngle: 40, lengthRatio: .72,
     childStart: .55, gnarl: .16, upward: .05, crown: 'vase',
@@ -89,6 +96,7 @@ export const SPECIES = {
     leaf: 'round', edge: 'pointed', palette: ['#1e4430', '#30743c', '#62a44a', '#90c666'], bark: BARK, ground: MEADOW, sss: '#b0d470', rim: '#84c473', fleck: .35,
   },
   'Mountain cedar': {
+    stemVar: 0,
     stems: 1, forkHeight: 0.1,
     boughGap: 0.3, topClump: 0.4,
     limbRise: 0,
@@ -102,9 +110,10 @@ export const SPECIES = {
     strokeAngle: 70, strokeJitter: 30, leaf: 'pointed', edge: 'pointed', palette: ['#10343a', '#1d5440', '#387a50', '#7ab068'], bark: ['#262220', '#443428', '#785a40', '#bc9a72'], ground: MEADOW, sss: '#a8d07a', rim: '#84c473', fleck: .2,
   },
   'Weeping willow': {
+    stemVar: 1.6,
     forkHeight: 0.11, stemSpread: 26,
     gesture: 'dome', crownWidth: 0.7,
-    stems: 2, sinuous: .4, ivy: .2,
+    stems: 1.7, sinuous: .4, ivy: .2,
     moss: 0.65,
     height: 10, trunkRadius: 0.42, trunkFrac: .28, lean: .1, flare: 0.6, levels: 3, children: 7, childAngle: 46, lengthRatio: 1.0,
     childStart: .6, gnarl: .13, upward: .03, droop: .1, crown: 'dome',
@@ -113,10 +122,11 @@ export const SPECIES = {
     leaf: 'willow', edge: 'spray', palette: ['#24482c', '#3d783c', '#78aa48', '#a8cc68'], bark: BARK, ground: MEADOW, sss: '#c0d47a', rim: '#9ac878', fleck: .25,
   },
   'Round bush': {
+    stemVar: 1.6,
     shelves: 3,
     stemSpread: 35,
     forkHeight: 0.08,
-    stems: 3,
+    stems: 2.4,
     moss: 0.2,
     gesture: 'mound', crownWidth: .6, asym: .2, notches: 1, massVar: .5,
     height: 2.2, trunkRadius: .1, trunkFrac: .25, lean: .1, flare: .3, levels: 2, children: 13, childAngle: 50, lengthRatio: 1.1,

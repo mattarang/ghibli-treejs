@@ -199,10 +199,11 @@ function pipeModel(sp, branches, scale, clumps){
 
 // Grow the skeleton first and mesh it later: branches that end up carrying no foliage get pruned, so nothing pokes out of the crown.
 const BOLE_TOP = .82, STEM_END = .4
-const subTrunks = sp => clamp(Math.round(sp.stems), 1, 3)
+const subTrunks = (sp, r) => Math.round(clamp(sp.stems + (r() - .5)*sp.stemVar, 1, 3))
 const subGirth = n => n > 1 ? Math.sqrt(1/n)*1.1 : 1                    // wood is conserved through the fork, with a little swell at the crotch
 
 function growSkeleton(sp, r, root, scale, tips){
+  let trunks = 1
   const H = sp.height*scale, maxLevel = Math.round(sp.levels), env = ENVELOPE[sp.crown] || ENVELOPE.dome, angle = sp.childAngle*Math.PI/180
   // no single branch runs for metres: reach comes from forking, so each order of wood is shorter than the one that carries it
   const limbCap = level => woodCap(sp, scale, level)
@@ -244,7 +245,7 @@ function growSkeleton(sp, r, root, scale, tips){
     }
     // The rule every tree follows: one rooted bole, then one to three sub-trunks that between them take all of its wood, and only then branches.
     if (b.level === 0 && !b.stem){
-      const n = subTrunks(sp), start = r()*7, spread = sp.stemSpread*Math.PI/180
+      const n = trunks = subTrunks(sp, r), start = r()*7, spread = sp.stemSpread*Math.PI/180
       for (let i = 0; i < n; i++){
         const az = start + i/n*Math.PI*2 + (r() - .5)*.7, tilt = n > 1 ? spread*lerp(.75, 1.15, r()) : 0, out = rotateAbout(perpTo(tip.d), tip.d, az)
         const target = norm(add([tip.d[0]*Math.cos(tilt), tip.d[1]*Math.cos(tilt), tip.d[2]*Math.cos(tilt)], out, Math.sin(tilt)))
@@ -255,7 +256,7 @@ function growSkeleton(sp, r, root, scale, tips){
       }
       continue
     }
-    const count = Math.max(2, Math.round(sp.children*(b.level === 0 ? 1 : .62)/(b.stem ? Math.sqrt(sp.stems) : 1))), phase = r()*Math.PI*2
+    const count = Math.max(2, Math.round(sp.children*(b.level === 0 ? 1 : .62)/(b.stem ? Math.sqrt(trunks) : 1))), phase = r()*Math.PI*2
     const slots = Array.from({ length: count }, (_, i) => i)      // height and direction stratified independently: even all round, no spiral
     for (let i = count - 1; i > 0; i--){ const j = Math.floor(r()*(i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]] }
     for (let c = 0; c < count; c++){
@@ -273,7 +274,7 @@ function growSkeleton(sp, r, root, scale, tips){
       queue.push({ p: q, d: from, target: cd, base, fromSection: i + 1, atSection: at, attach: { a: q0, d: from }, r: Math.max(a.rad*(b.level === 0 ? .62 : .72), .045*scale), len: Math.min(lenBase*sp.lengthRatio*lenK*lerp(.82, 1.15, r()), limbCap(b.level + 1)*lerp(.85, 1, r())), level: b.level + 1, s: r()*9, parent: rec })
     }
     // the terminal continuation: without it a crown looks clipped
-    queue.push({ p: tip.p, d: tip.d, target: norm(add(tip.d, randDir(r), .18)), r: tip.rad*.97, continues: true, fromSection: sections, atSection: sections, leader: b.level === 0, len: b.level === 0 ? Math.min(H*(1 - sp.trunkFrac)*.55*sp.leader, limbCap(1)*1.2) : Math.min(b.len*sp.lengthRatio*.8, limbCap(b.level + 1)), level: b.level + 1, s: b.s, parent: rec })
+    queue.push({ p: tip.p, d: tip.d, n0: tip.n, target: norm(add(tip.d, randDir(r), .18)), r: tip.rad*.97, continues: true, fromSection: sections, atSection: sections, leader: b.level === 0, len: b.level === 0 ? Math.min(H*(1 - sp.trunkFrac)*.55*sp.leader, limbCap(1)*1.2) : Math.min(b.len*sp.lengthRatio*.8, limbCap(b.level + 1)), level: b.level + 1, s: b.s, parent: rec })
   }
   return branches
 }
@@ -821,7 +822,17 @@ function emitStrands(sp, r, tips, clumps, root, scale, out){
   }
 }
 
-export function generatePlant(sp, seed, root, scale, wood, foliage, cores = newBuffer(), ivy = newBuffer()){
+// A species is a range, not a recipe: each seed draws its own tree from it, so no two share proportions. The bole keeps clear of where branching starts.
+function individual(sp, seed){
+  const r = mulberry32(seed*40503 + 11), v = sp.variety, by = (k, a) => k*(1 + (r()*2 - 1)*a*v)
+  const o = { ...sp, height: by(sp.height, .14), trunkRadius: by(sp.trunkRadius, .12), trunkFrac: by(sp.trunkFrac, .14), forkHeight: by(sp.forkHeight, .3), stemSpread: by(sp.stemSpread, .3),
+    crownWidth: by(sp.crownWidth, .18), childAngle: by(sp.childAngle, .14), lengthRatio: by(sp.lengthRatio, .14), childStart: Math.min(by(sp.childStart, .18), .95), children: by(sp.children, .22), asym: by(sp.asym, .35), lean: by(sp.lean, .5) }
+  o.forkHeight = Math.min(o.forkHeight, o.trunkFrac*.7)
+  return o
+}
+
+export function generatePlant(species, seed, root, scale, wood, foliage, cores = newBuffer(), ivy = newBuffer()){
+  const sp = individual(species, seed)
   const r = mulberry32(seed*2654435761 >>> 0), tips = []
   const branches = growSkeleton(sp, r, root, scale, tips)
   shapeCrown(sp, r, root, scale, branches, tips)

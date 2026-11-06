@@ -94,9 +94,9 @@ export function skinWood(axes, wood, sway, root, finest){
   }
   // The grid only finds the surface; it can't describe it. Every vertex now slides onto the true surface and takes its exact normal from the field, so
   // an edge is as smooth as the wood's own curve however coarse the grid. Bark, weathering and wind are read from every axis nearby, in proportion to its
-  // field, so they cross a fillet as smoothly as the surface does; where axes share a point the paint goes quiet, so its streaks don't knot up.
+  // field, so they cross a fillet as smoothly as the surface does.
   const base = wood.pos.length/3, groups = axes.reduce((m, x) => Math.max(m, x.group), 0) + 1, best = new Float32Array(groups), gx = new Float32Array(groups), gy = new Float32Array(groups), gz = new Float32Array(groups), rec = new Array(groups)
-  const near = [], rings = axes
+  const near = [], rings = axes, crease = new Float32Array(pos.length/3)
   const read = () => {
     best.fill(0)
     for (const x of near) for (let i = 1; i < x.rings.length; i++){
@@ -121,21 +121,39 @@ export function skinWood(axes, wood, sway, root, finest){
       q[0] += nx*move; q[1] += ny*move; q[2] += nz*move
     }
     read()
-    let w = 0, top = 0, rx = 0, ry = 0, grain = 0, thick = 0, buried = 0
+    let w = 0, rx = 0, ry = 0, grain = 0, thick = 0, buried = 0
     for (let g = 0; g < groups; g++){
       const f = best[g]
       if (f <= 0) continue
       const [m, A, B] = rec[g], d = m.d || 1, cx = m.dx/d, cy = m.dy/d, cz = m.dz/d
-      w += f; top = Math.max(top, f); const u = m.t                       // the frame turns smoothly from ring to ring, or the bark steps at each one
+      w += f; const u = m.t                       // the frame turns smoothly from ring to ring, or the bark steps at each one
       rx += f*(cx*(A.n[0] + (B.n[0] - A.n[0])*u) + cy*(A.n[1] + (B.n[1] - A.n[1])*u) + cz*(A.n[2] + (B.n[2] - A.n[2])*u))
       ry += f*(cx*(A.b[0] + (B.b[0] - A.b[0])*u) + cy*(A.b[1] + (B.b[1] - A.b[1])*u) + cz*(A.b[2] + (B.b[2] - A.b[2])*u))
       grain += f*(A.v + (B.v - A.v)*m.t); thick += f*(A.thick + (B.thick - A.thick)*m.t); buried += f*(A.buried + (B.buried - A.buried)*m.t)
     }
     if (w < 1e-6) w = 1
-    const share = Math.min(Math.max((top/w - .62)/.3, 0), 1)
-    wood.pos.push(q[0], q[1], q[2]); wood.nor.push(nx, ny, nz)
+    const round = Math.hypot(rx, ry)/w                                  // kept as a length, not a direction: where branches share a point it fades, so the bark's coordinates pass through a fork instead of jumping across it
+    pos[v*3] = q[0]; pos[v*3 + 1] = q[1]; pos[v*3 + 2] = q[2]; nor[v*3] = nx; nor[v*3 + 1] = ny; nor[v*3 + 2] = nz; crease[v] = 1 - Math.min(Math.max((round - .3)/.45, 0), 1)
     wood.uv.push(Math.atan2(ry, rx)/(Math.PI*2), grain/w)
-    wood.wind.push(root[0], root[2], sway(q), 0); wood.center.push(root[0], root[1], root[2]); wood.leaf.push(thick/w, buried/w, share*share*(3 - 2*share))
+    wood.wind.push(root[0], root[2], sway(q), 0); wood.center.push(root[0], root[1], root[2]); wood.leaf.push(thick/w, buried/w, round)
   }
+  // Two axes meet in a crease, where the true surface has a sharp valley the mesh can't follow. It's relaxed there, then any triangle left facing inward
+  // is turned round, so the skin never shows a pinhole.
+  const count = pos.length/3, sum = new Float32Array(count*3), links = new Uint16Array(count)
+  for (let pass = 0; pass < 3; pass++){
+    sum.fill(0); links.fill(0)
+    for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++){
+      const a = tris[t + k], b = tris[t + (k + 1)%3]
+      sum[a*3] += pos[b*3]; sum[a*3 + 1] += pos[b*3 + 1]; sum[a*3 + 2] += pos[b*3 + 2]; links[a]++
+    }
+    for (let v = 0; v < count; v++){ const w = crease[v]*.7; if (w > 0 && links[v]) for (let a = 0; a < 3; a++) pos[v*3 + a] += (sum[v*3 + a]/links[v] - pos[v*3 + a])*w }
+  }
+  for (let t = 0; t < tris.length; t += 3){
+    const a = tris[t]*3, b = tris[t + 1]*3, c = tris[t + 2]*3
+    const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], wx = pos[c] - pos[a], wy = pos[c + 1] - pos[a + 1], wz = pos[c + 2] - pos[a + 2]
+    if ((uy*wz - uz*wy)*(nor[a] + nor[b] + nor[c]) + (uz*wx - ux*wz)*(nor[a + 1] + nor[b + 1] + nor[c + 1]) + (ux*wy - uy*wx)*(nor[a + 2] + nor[b + 2] + nor[c + 2]) < 0){ const q = tris[t + 1]; tris[t + 1] = tris[t + 2]; tris[t + 2] = q }
+  }
+  for (let i = 0; i < pos.length; i++){ wood.pos.push(pos[i]); wood.nor.push(nor[i]) }
+  wood.skin = [wood.idx.length, wood.idx.length + tris.length]
   for (let i = 0; i < tris.length; i++) wood.idx.push(base + tris[i])
 }

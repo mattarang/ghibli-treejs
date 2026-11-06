@@ -146,10 +146,10 @@ const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughne
   // foliage and goes in, and never shows as a loose piece floating in front of a clump's body. Its shadow doesn't move.
   afterClip: 'if (aLeaf.x < -.5 && uCrownDark < .5) gl_Position = vec4(2., 2., 2., 1.); else if (vLeafA.y > 0.){ vec4 sunk = projectionMatrix*vec4(mvPosition.xy, mvPosition.z - uSink*vLeafA.y, 1.); gl_Position.z = sunk.z/sunk.w*gl_Position.w; }',
   vertexPars: 'uniform float uSink, uCrownDark; attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
-  vertexBegin: 'vLeafA = aLeaf; vB = vec3(cos(uv.x*6.28318), sin(uv.x*6.28318), uv.y); vWN = normal; vH = position.y - clusterCenter.y;',
+  vertexBegin: 'vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); vB = vec3(cos(uv.x*6.28318)*abs(aLeaf.z), sin(uv.x*6.28318)*abs(aLeaf.z), uv.y); vWN = normal; vH = position.y - clusterCenter.y;',
   fragmentPars: `varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow, uCrownDark;
     float gRidge = 0., gMoss = 0., gLichen = 0., gCrack = 0., gHue = 0.;`,
-  color: `{ vec2 ring = normalize(vB.xy); float thick = vLeafA.x;
+  color: `{ vec2 ring = vB.xy; float thick = vLeafA.x;
     float big = fbm3(vec3(ring*1.7, vB.z*.2) + 3.), fine = fbm3(vec3(ring*5.5, vB.z*.7));
     gRidge = ((big - .5)*1.1 + (fine - .5)*.4)*(.25 + .75*vLeafA.z);
     float flow = fbm3(vec3(ring*3.4, vB.z*.14) + 11.);
@@ -163,17 +163,15 @@ const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughne
     gMod = 1. + gRidge*.08; diffuseColor.rgb *= gMod; }`,
   // bark is painted in three values: a deep side away from the sun, a middle, and mottled dabs of light on the sun side. Noise along the
   // grain breaks the borders between them into brush marks. Under a canopy the lit dabs thin out to the patches the sun reaches.
-  shade: `{ vec2 rg = normalize(vB.xy); float thick = vLeafA.x, f = dot(normalize(vWN), uSunDir)*.5 + .5;
+  shade: `{ vec2 rg = vB.xy; float thick = vLeafA.x, f = dot(normalize(vWN), uSunDir)*.5 + .5;
     float broad = fbm3(vec3(rg*3., vB.z*.6) + 41.) - .5, small = fbm3(vec3(rg*5., vB.z*1.1) + 5.) - .5;     // short dabs along the grain, not long rails
     float v = f + (broad*.3 + small*.08)*(.3 + .7*vLeafA.z);          // the form decides the value; noise only breaks its edge
     float seen = mix(1., gSeen, smoothstep(.12, .4, gNdl));   // near the terminator the form alone decides: a shadow map can only stair-step a surface it grazes
     float sun = max(seen, smoothstep(.5, .6, fbm3(vec3(rg*2.2, vB.z*.5) + gRidge*.5 + 17.)));
     kk = mix(.06, .3, smoothstep(.47, .62, v));
-    kk = mix(kk, .76, smoothstep(.58, .7, v + (sun - 1.)*.3)*smoothstep(.15, .6, thick)*vLeafA.z);
+    kk = mix(kk, .76, smoothstep(.58, .7, v + (sun - 1.)*.3)*smoothstep(.15, .6, thick));
     kk += gRidge*.05 - gCrack*.2;
-    // where axes meet, the same light without the noise: paint calms down there, but it doesn't change value
-    float calm = mix(.06, .3, smoothstep(.47, .62, f)); calm = mix(calm, .76, smoothstep(.58, .7, f)*smoothstep(.15, .6, thick));
-    kk = mix(calm, kk, vLeafA.z); }
+    }
     gTint = mix(vec3(.92, 1., 1.06), vec3(1.14, .99, .82), mix(.5, gHue, uBarkVar));
     { float deep = vLeafA.y*uCrownDark; kk = mix(kk, .1, deep); gMod = mix(gMod, 1., deep); gTint = mix(gTint, vec3(1.), deep); }`,
   palLine: `pal = mix(pal, vec3(.34, .4, .32)*(.55 + .8*clamp(kk, 0., 1.)), gLichen*.6*(1. - gCrack));
@@ -315,7 +313,8 @@ treeF.add({ dice(){ p.seed = 1 + Math.floor(Math.random()*9998); rebuild(); rebu
 treeF.add(p, 'height', 1.5, 26, .1).name('Height').onChange(later)
 treeF.add(p, 'trunkRadius', .06, 1.4, .01).name('Trunk radius').onChange(later)
 treeF.add(p, 'trunkFrac', .15, .85, .01).name('Bare trunk').onChange(later)
-treeF.add(p, 'stems', 1, 3, 1).name('Sub-trunks').onChange(later)
+treeF.add(p, 'stems', 1, 3, .1).name('Sub-trunks (average)').onChange(later)
+treeF.add(p, 'variety', 0, 1.5, .01).name('Seed variety').onChange(later)
 treeF.add(p, 'forkHeight', .04, .4, .01).name('Bole height').onChange(later)
 treeF.add(p, 'stemSpread', 4, 50, 1).name('Stem spread').onChange(later)
 treeF.add(p, 'sinuous', 0, 1.5, .01).name('Sinuous').onChange(later)
