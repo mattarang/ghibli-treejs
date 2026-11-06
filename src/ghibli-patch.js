@@ -16,7 +16,7 @@ export const U = {
   uSway: { value: 1 }, uFlutter: { value: .035 },
   uBarkWarm: { value: new THREE.Color(0x8a5a36) }, uBarkWarmMix: { value: .35 }, uBarkGrain: { value: .45 }, uBarkRootAO: { value: .45 }, uBarkCanopyAO: { value: .3 },
   uShadowFill: { value: new THREE.Color(0xffb27a) }, uShadowFillK: { value: .05 },
-  uPigment: { value: 1 }, uAmbTint: { value: new THREE.Color(1, 1, 1) }, uSunTint: { value: new THREE.Color(1, 1, 1) },
+  uPigment: { value: 1 }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uAmbTint: { value: new THREE.Color(1, 1, 1) }, uSunTint: { value: new THREE.Color(1, 1, 1) },
   uLanternPos: { value: new THREE.Vector3(3, 2, 3) }, uLanternColor: { value: new THREE.Color(0xffb35a) }, uLanternI: { value: 0 },
 }
 
@@ -58,11 +58,11 @@ const GLSL_LIT = /* glsl */`
     float t = smoothstep(.5-uSoft, .5+uSoft, fract(s)); return mix(x, clamp((f+t)/n, 0., 1.), uToonMix); }
   vec3 palRamp(float x){ x = clamp(x, 0., 1.)*3.;
     return x < 1. ? mix(uPal0, uPal1, x) : x < 2. ? mix(uPal1, uPal2, x-1.) : mix(uPal2, uPal3, x-2.); }
-  float gLit = 0., gNdl = 0.;
+  float gLit = 0., gNdl = 0., gSeen = 0.;
   void RE_Direct_Toon(const in IncidentLight dl, const in vec3 gp, const in vec3 gn, const in vec3 gv, const in vec3 gcn, const in PhysicalMaterial m, inout ReflectedLight rl){
     float ndl = saturate(dot(gn, dl.direction));
     float seen = saturate(dot(dl.color, vec3(.2126,.7152,.0722))/max(uSunLum, 1e-3));   // the shadow term, already in dl.color
-    gLit = max(gLit, ndl*seen); gNdl = max(gNdl, ndl);
+    gLit = max(gLit, ndl*seen); gNdl = max(gNdl, ndl); gSeen = max(gSeen, seen);
     IncidentLight tl = dl;
     #ifdef G_TOON
       tl.color *= clamp(toonRamp(ndl)/max(ndl, 1e-3), 0., 4.);
@@ -105,6 +105,10 @@ export function patch(mat, o){
       ${o.toon ? '#define G_TOON' : ''} ${o.sss ? '#define G_SSS' : ''}
       varying vec3 vWPos; varying vec3 vLocal; ${PARS} ${GLSL_NOISE} ${o.puff ? 'varying vec3 vSphN;' : ''} ${o.fragmentPars || ''}`)
     if (!sh.fragmentShader.includes('lights_physical_pars_fragment')) return   // depth materials stop here
+    // three dithers its soft shadow samples per screen pixel. A stroke takes one shadow lookup for its whole area, so that dither
+    // has nothing to average against and prints as a weave across any stroke sitting on a shadow edge. Hold the rotation still.
+    if (o.flatShadow) sh.fragmentShader = sh.fragmentShader.replace('#include <shadowmap_pars_fragment>',
+      THREE.ShaderChunk.shadowmap_pars_fragment.replaceAll('interleavedGradientNoise( gl_FragCoord.xy )', '0.37'))
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>
         ${GLSL_LIT}`)
@@ -120,6 +124,7 @@ export function patch(mat, o){
         { float kk = gLit; ${o.shade || ''}
           // pigment shifts the colour after the band is chosen, so a stroke stays one stroke with paint moving inside it
           vec3 pal = palRamp(${o.softRamp ? 'clamp(kk, 0., 1.)' : 'toonRamp(clamp(kk, 0., 1.))'} + (${o.pigment || '0.'})*uPigment*.34);
+          ${o.palLine || ''}
           float lit = clamp(kk, 0., 1.);
           pal = max(pal*(1. + uShadowFill*uShadowFillK*(1. - lit)*1.6)*gMod*gTint, uPal0*.9)*mix(uAmbTint, uSunTint, toonRamp(lit));   // the deepest paint is the palette's shadow colour, never black
           outgoingLight = mix(outgoingLight, pal, uPaletteMix);

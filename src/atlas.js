@@ -28,7 +28,7 @@ function dab(g, r, x0, y0, T, style, paint){
   }
 }
 
-// a gouache blot: a lumpy body with satellites scattered off its edge, never a leaf shape. spike roughens the outline.
+// a gouache blot: one lumpy connected shape, never a leaf shape. spike roughens the outline.
 function blot(g, r, x0, y0, T, spike, paint){
   const lump = (cx, cy, R, v) => {
     const p1 = r()*7, p2 = r()*7, N = 36; g.fillStyle = paint(v); g.beginPath()
@@ -42,7 +42,6 @@ function blot(g, r, x0, y0, T, spike, paint){
   const cx = x0 + T/2, cy = y0 + T/2, base = .35 + r()*.3
   lump(cx, cy, T*.34, base)
   for (let i = 0; i < 9; i++){ const a = r()*7, d = T*(.1 + r()*.2); lump(cx + Math.cos(a)*d, cy + Math.sin(a)*d, T*(.08 + r()*.08), base + (r() - .5)*.4) }
-  for (let i = 0; i < 12; i++){ const a = r()*7, d = T*(.33 + r()*.13); lump(cx + Math.cos(a)*d, cy + Math.sin(a)*d, T*(.012 + r()*.03), base + (r() - .5)*.3) }
 }
 
 // loose rounded leaves around a gap, with a couple flying off: the clover-leaf dab
@@ -94,7 +93,25 @@ function fan(g, r, x0, y0, T, paint){                        // spiky flicks fro
 
 // The hand on the brush: blur the coverage, then cut it again against a grain, so edges come out rough and irregular
 // instead of vector-clean, and mottle the pigment inside.
-function settlePaint(g, S, r, R = 5){
+// One stroke, one shape: keep the tile's largest connected piece and fill any pinholes in it, so no flecks float off a blot.
+function oneShape(d, S, x0, y0, T){
+  const at = (x, y) => (y*S + x)*4 + 1, seen = new Int32Array(T*T), stack = []
+  const inTile = i => { const y = Math.floor(i/T), x = i - y*T; return [x0 + x, y0 + y] }
+  const solid = i => { const [x, y] = inTile(i); return d[at(x, y)] > 92 }
+  const fill = (start, mark, want) => { let n = 0; stack.length = 0; stack.push(start); seen[start] = mark
+    while (stack.length){ const i = stack.pop(), x = i%T, y = (i - x)/T; n++
+      for (const [q, ok] of [[i - 1, x > 0], [i + 1, x < T - 1], [i - T, y > 0], [i + T, y < T - 1]])
+        if (ok && !seen[q] && solid(q) === want){ seen[q] = mark; stack.push(q) } }
+    return n }
+  let best = 0, bestN = 0, mark = 0
+  for (let i = 0; i < T*T; i++) if (!seen[i] && solid(i)){ const n = fill(i, ++mark, true); if (n > bestN){ bestN = n; best = mark } }
+  const air = ++mark
+  for (let k = 0; k < T; k++) for (const i of [k, T*T - 1 - k, k*T, k*T + T - 1]) if (!seen[i]) fill(i, air, false)
+  for (let i = 0; i < T*T; i++){ const [x, y] = inTile(i), m = seen[i]
+    if (m !== best && m !== air){ if (m && m < air) d[at(x, y)] = 0; else d[at(x, y)] = 255 } }
+}
+
+function settlePaint(g, S, r, R = 5, solidTile = () => false){
   const img = g.getImageData(0, 0, S, S), d = img.data, A = new Float32Array(S*S), B = new Float32Array(S*S)
   for (let i = 0; i < S*S; i++) A[i] = d[i*4 + 1]/255
   const blur = (src, dst, dx, dy) => { const k = 1/(2*R + 1)
@@ -102,17 +119,24 @@ function settlePaint(g, S, r, R = 5){
       for (let o = -R; o <= R; o++){ const X = Math.min(S - 1, Math.max(0, x + o*dx)), Y = Math.min(S - 1, Math.max(0, y + o*dy)); t += src[Y*S + X] }
       dst[y*S + x] = t*k } }
   blur(A, B, 1, 0); blur(B, A, 0, 1)
-  // a coarse random lattice stands in for the tooth of the paper
-  const G = 192, lat = new Float32Array(G*G).map(() => r())
-  const noise = (x, y, f) => { const u = x*f/S*G%G, v = y*f/S*G%G, a = Math.floor(u), b = Math.floor(v), s = u - a, t = v - b, a1 = (a + 1)%G, b1 = (b + 1)%G
-    return (lat[b*G + a]*(1 - s) + lat[b*G + a1]*s)*(1 - t) + (lat[b1*G + a]*(1 - s) + lat[b1*G + a1]*s)*t }
+  // Smooth noise, each octave turned to its own angle. A lattice read on-axis shows its grid, and stretched over a big stroke
+  // that grid reads as a printed weave: no brush makes that.
+  const G = 256, lat = new Float32Array(G*G).map(() => r())
+  const noise = (x, y, f, a) => { const c = Math.cos(a), n = Math.sin(a), scale = f/S*G
+    const u = (((x*c - y*n)*scale)%G + G)%G, v = (((x*n + y*c)*scale)%G + G)%G, i = Math.floor(u), j = Math.floor(v)
+    const s0 = u - i, t0 = v - j, s = s0*s0*(3 - 2*s0), t = t0*t0*(3 - 2*t0), i1 = (i + 1)%G, j1 = (j + 1)%G
+    return (lat[j*G + i]*(1 - s) + lat[j*G + i1]*s)*(1 - t) + (lat[j1*G + i]*(1 - s) + lat[j1*G + i1]*s)*t }
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++){
-    const i = (y*S + x)*4, soft = A[y*S + x], tooth = noise(x, y, 1)*.6 + noise(x, y, .3)*.4
-    d[i + 1] = Math.max(0, Math.min(255, ((soft - .5)*2.4 + .5 + (tooth - .5)*.9)*255))
+    const i = (y*S + x)*4, soft = A[y*S + x], tooth = noise(x, y, .26, .7)*.65 + noise(x, y, .1, 2.1)*.35
+    // the tooth only bites at the edge of a stroke: inside, paint is solid, or the noise punches a weave of pinholes through it
+    const atEdge = 1 - Math.min(1, Math.max(0, (soft - .45)/.3))
+    d[i + 1] = Math.max(0, Math.min(255, ((soft - .5)*3 + .5 + (tooth - .5)*.5*atEdge)*255))
     d[i + 2] = soft*255
-    const mottle = noise(x, y, .22)*.65 + noise(x, y, .7)*.35
+    const mottle = noise(x, y, .05, 1.1)*.7 + noise(x, y, .13, 2.6)*.3    // pigment pools in broad, slow shapes
     d[i] = Math.max(0, Math.min(255, d[i]*.55 + mottle*115))
   }
+  const T = S/4
+  for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++) if (solidTile(tx, ty)) oneShape(d, S, tx*T, ty*T, T)
   g.putImageData(img, 0, 0)
 }
 
@@ -138,7 +162,8 @@ export function makeBrushAtlas(body, edge = body, seed = 3){
     else (BRUSH[ty < 2 ? body : edge] || BRUSH.round)(g, r, x0, y0, T, paint)
     g.restore()
   }
-  settlePaint(g, S, r, 3)
+  const isBlot = b => b === 'round' || b === 'pointed'
+  settlePaint(g, S, r, 3, (tx, ty) => (tx === 3 && ty === 3) || isBlot(ty < 2 ? body : edge))
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.NoColorSpace; t.flipY = false; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter
   return t

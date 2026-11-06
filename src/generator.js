@@ -21,7 +21,7 @@ const perpTo = d => norm(Math.abs(d[1]) < .9 ? cross(d, [0, 1, 0]) : cross(d, [1
 const rotateAbout = (v, axis, a) => { const c = Math.cos(a), s = Math.sin(a), k = dot(axis, v)*(1 - c), x = cross(axis, v)
   return [v[0]*c + x[0]*s + axis[0]*k, v[1]*c + x[1]*s + axis[1]*k, v[2]*c + x[2]*s + axis[2]*k] }
 
-export function newBuffer(){ return { pos: [], nor: [], uv: [], wind: [], idx: [], center: [], leaf: [], corner: [], stroke: [] } }
+export function newBuffer(){ return { pos: [], nor: [], uv: [], wind: [], idx: [], center: [], leaf: [], corner: [], stroke: [], dab: [] } }
 
 // how far a primary branch reaches, by where it leaves the trunk (0 low, 1 high)
 const ENVELOPE = {
@@ -31,6 +31,54 @@ const ENVELOPE = {
   cone: t => 1 - .85*t,
   umbrella: t => .45 + .75*t**.6,
   vase: t => .35 + .85*t,
+}
+
+// Gesture: how wide a crown is (0-1 of its width) at each height t, bottom to top. This is the shape a painter would block in first,
+// and it should read as a flat black silhouette before any paint goes on.
+const GESTURES = {
+  dome: t => (1 - t*t)**.55,
+  windswept: t => 1 - t**2.5,
+  flame: t => Math.sin(Math.PI*Math.min(1, .06 + .94*t**.72))**.85,
+  cloud: t => (.8 + .2*Math.sin(t*7 + .8))*(1 - t**3),
+  ovate: t => Math.sin(Math.PI*(.1 + .86*t))**.7,
+  umbrella: t => 1 - .9*t**3,
+  mound: t => Math.sqrt(1 - .96*t*t),
+  tiers: t => (1 - t*.94)**.8*(.72 + .28*(1 - (t*6)%1)*Math.min(1, ((t*6)%1)*10)),
+}
+export const GESTURE_NAMES = Object.keys(GESTURES).concat('free')
+
+// A smooth warp of the whole tree into its gesture: branches, tips and so clumps all move together, so nothing detaches.
+function shapeCrown(sp, r, root, scale, branches, tips){
+  const shape = GESTURES[sp.gesture]
+  if (!shape || !tips.length) return
+  const H = sp.height*scale, y0 = Math.min(...tips.map(t => t.p[1])), y1 = Math.max(...tips.map(t => t.p[1])), span = Math.max(y1 - y0, .1)
+  const N = 16, band = new Float32Array(N), slot = y => Math.min(N - 1, Math.floor(clamp((y - y0)/span)*N))
+  for (const t of tips){ const i = slot(t.p[1]); band[i] = Math.max(band[i], Math.hypot(t.p[0] - root[0], t.p[2] - root[2])) }
+  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < N; i++) band[i] = Math.max(band[i], .7*Math.max(band[i - 1] ?? 0, band[i + 1] ?? 0))
+  // read the measured width as a smooth curve: a stepped one puts a jump in every limb that crosses a step
+  for (let pass = 0; pass < 3; pass++){ const c = band.slice(); for (let i = 0; i < N; i++) band[i] = (c[Math.max(i - 1, 0)] + 2*c[i] + c[Math.min(i + 1, N - 1)])/4 }
+  const bandAt = y => { const u = clamp((y - y0)/span)*(N - 1), i = Math.min(N - 2, Math.floor(u)); return lerp(band[i], band[i + 1], u - i) }
+  const a1 = r()*7, a2 = r()*7, a3 = r()*7, W = sp.crownWidth*H, bendTo = r()*Math.PI*2, core = sp.trunkRadius*scale*1.3
+  const warp = p => {
+    const t = clamp((p[1] - y0)/span), dx = p[0] - root[0], dz = p[2] - root[2], rho = Math.hypot(dx, dz)
+    if (rho < 1e-4) return p.slice()
+    const th = Math.atan2(dz, dx), side = 1 + sp.asym*(.5*Math.sin(th + a1) + .3*Math.sin(2*th + a2) + .2*Math.sin(3*th + a3))
+    const f = clamp(W*shape(t)*side/Math.max(bandAt(p[1]), .3), .5, 2.8), w = clamp((rho - core*.4)/core)
+    const k = lerp(1, f, w*w*(3 - 2*w)), lean = t*t*W*sp.windLean
+    return [root[0] + dx*k + Math.cos(bendTo)*lean, p[1], root[2] + dz*k + Math.sin(bendTo)*lean]
+  }
+  for (const b of branches){
+    for (const e of b.trail) e.p = warp(e.p)
+    // ease out what's left of any kink; the ends stay put so limbs stay attached
+    if (b.level) for (let pass = 0; pass < 2; pass++){ const old = b.trail.map(e => e.p)
+      for (let i = 1; i < old.length - 1; i++) b.trail[i].p = old[i].map((v, a) => .25*old[i - 1][a] + .5*v + .25*old[i + 1][a]) }
+    for (let i = 0; i < b.trail.length; i++){                         // the tube follows its new path
+      const e = b.trail[i], next = b.trail[i + 1], prev = b.trail[i - 1]
+      e.d = norm(next ? sub(next.p, e.p) : sub(e.p, prev.p))
+      e.n = norm(sub(e.n, [e.d[0]*dot(e.n, e.d), e.d[1]*dot(e.n, e.d), e.d[2]*dot(e.n, e.d)]))
+    }
+  }
+  for (const t of tips) t.p = warp(t.p)
 }
 
 // Grow the skeleton first and mesh it later: branches that end up carrying no foliage get pruned, so nothing pokes out of the crown.
@@ -89,7 +137,7 @@ function growSkeleton(sp, r, root, scale, tips){
   return branches
 }
 
-function emitWood(sp, r, root, scale, branches, wood){
+function emitWood(sp, r, root, scale, branches, wood, clumps){
   const H = sp.height*scale
   for (const b of branches) if (b.kept && b.continues) b.parent.continued = true
   for (const b of branches){
@@ -101,6 +149,9 @@ function emitWood(sp, r, root, scale, branches, wood){
       const point = b.continued ? 1 : Math.max(.04, clamp((last - i)/Math.max(2, last*.45))**.6), rad = trail[i].rad*point
       // joints stay plain: sun patches keep clear of where limbs meet
       const joint = b.level === 0 ? 1 - clamp((t - .5)/.3) : clamp((t - .12)/.25)
+      // how deep inside the foliage this ring sits: buried wood paints as the crown's shadow, so limbs vanish into it
+      let buried = 0
+      if (b.level) for (const c of clumps){ const q = sub(p, c.c); q[1] /= sp.squash; buried = Math.max(buried, clamp((c.r*1.25 - Math.hypot(...q))/(c.r*.5))) }
       for (let k = 0; k <= radial; k++){
         const a = k/radial*Math.PI*2, ca = Math.cos(a), sa = Math.sin(a)
         const nr = add([n[0]*ca, n[1]*ca, n[2]*ca], bitang, sa)
@@ -111,7 +162,7 @@ function emitWood(sp, r, root, scale, branches, wood){
         const q = add(p, nr, rad*lobes)
         wood.pos.push(...q); wood.nor.push(...nr); wood.uv.push(k/radial, t*b.len/Math.max(b.r*2, .15))
         wood.wind.push(root[0], root[2], .32*scale*(clamp((q[1] - root[1])/H)**1.6)*(sp.height > 4 ? 1 : .5), 0)
-        wood.center.push(root[0], root[1], root[2]); wood.leaf.push(clamp(rad/(.16*scale)), r(), joint)
+        wood.center.push(root[0], root[1], root[2]); wood.leaf.push(clamp(rad/(.16*scale)), buried, joint)
       }
       if (i < last) for (let k = 0; k < radial; k++){
         const a = start + i*(radial + 1) + k, c = a + radial + 1
@@ -156,6 +207,13 @@ function makeClumps(sp, r, tips, scale, root){
       clumps.push({ c, r: rad })
     }
   }
+  // notches: bites out of the outline, so the shape has an interesting edge and some sky through it
+  for (let i = 0; i < sp.notches && clumps.length > 8; i++){
+    let far = clumps[0], reach = -1
+    for (let t = 0; t < 8; t++){ const c = clumps[Math.floor(r()*clumps.length)], q = Math.hypot(c.c[0] - root[0], c.c[2] - root[2]); if (q > reach){ reach = q; far = c } }
+    const R = far.r*1.7, hit = far.c
+    for (let k = clumps.length - 1; k >= 0; k--){ const q = sub(clumps[k].c, hit); if (dot(q, q) < R*R) clumps.splice(k, 1) }
+  }
   // a clump with nothing near it reads as a ball on a stick: painters group masses, so strays go
   if (!sp.hang) for (let i = clumps.length - 1; i >= 0; i--){
     const o = clumps[i]
@@ -163,15 +221,28 @@ function makeClumps(sp, r, tips, scale, root){
   }
   if (!clumps.length) return clumps
   const K = clamp(Math.round(clumps.length/5), 1, 16), { centers, asg } = kmeans(clumps.map(c => c.c), K, r)
-  clumps.forEach((c, i) => { c.mass = centers[asg[i]] })
+  // big, middle, small at the level of masses too: one dominant mass, the rest in support
+  const scaleOf = centers.map(() => lerp(1 - sp.massVar*.45, 1 + sp.massVar*.15, r())), lead = Math.floor(r()*K)
+  scaleOf[lead] = 1 + sp.massVar*.55
+  clumps.forEach((c, i) => { c.mass = centers[asg[i]]; c.r *= scaleOf[asg[i]] })
   return clumps
 }
 
-function addStroke(out, r, { q, n, t, len, wid, tile, pivot, ao, tone, wind }){
+// a low icosphere: each clump's solid core, one flat shadow colour that hides the limbs behind it and gives the crown its dark mass
+function icosphere(){
+  const t = (1 + Math.sqrt(5))/2
+  const v = [[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm)
+  const f = [[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]]
+  const mid = new Map(), m = (a, b) => { const k = a < b ? a*1e4 + b : b*1e4 + a; if (!mid.has(k)){ mid.set(k, v.length); v.push(norm(add(v[a], v[b]))) } return mid.get(k) }
+  return { v, f: f.flatMap(([a, b, c]) => { const ab = m(a, b), bc = m(b, c), ca = m(c, a); return [[a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]] }) }
+}
+const ICO = icosphere()
+
+function addStroke(out, r, { q, n, t, len, wid, tile, pivot, ao, tone, wind, dab = 0 }){
   const base = out.pos.length/3, seed = r()
   for (const [cx, cy, u, v] of [[-1, -1, 0, .5], [1, -1, 1, .5], [1, 1, 1, 0], [-1, 1, 0, 0]]){
     out.pos.push(...q); out.nor.push(...n); out.stroke.push(...t); out.center.push(...pivot); out.wind.push(...wind)
-    out.corner.push(cx*len/2, cy*wid/2); out.leaf.push(ao, tone, seed)
+    out.corner.push(cx*len/2, cy*wid/2); out.leaf.push(ao, tone, seed); out.dab.push(dab)
     const tx = (tile[0] + u)/4, ty = (tile[1] + (cy < 0 ? 1 : 0))/4
     out.uv.push(tx, ty); void v
   }
@@ -181,35 +252,48 @@ function addStroke(out, r, { q, n, t, len, wid, tile, pivot, ao, tone, wind }){
 // rows 0-1 of the atlas hold the body brush, rows 2-3 the edge brush; the last tile is the underpainting
 const randTile = (r, edge = false) => { const x = Math.floor(r()*4), y = Math.floor(r()*2) + (edge ? 2 : 0); return x === 3 && y === 3 ? [0, 2] : [x, y] }
 
-function emitFoliage(sp, r, clumps, root, scale, out){
+function emitFoliage(sp, r, clumps, root, scale, out, cores){
   const H = sp.height*scale, turn = sp.strokeAngle*Math.PI/180, jitter = sp.strokeJitter*Math.PI/180
   const swayAt = y => .32*scale*(clamp((y - root[1])/H)**1.6)*(sp.height > 4 ? 1 : .5)
   const len0 = sp.cardSize*scale, wid0 = len0*sp.brushWidth
+  // the crown as one form: its bounds give every stroke a place on the whole tree, so one light runs across it
+  const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]
+  for (const { c, r: q } of clumps) for (let a = 0; a < 3; a++){ lo[a] = Math.min(lo[a], c[a] - q); hi[a] = Math.max(hi[a], c[a] + q) }
+  const crown = lo.map((v, a) => (v + hi[a])/2), half = lo.map((v, a) => Math.max((hi[a] - v)/2, .1))
   for (const cl of clumps){
-    const { c, r: rad, mass } = cl, pivot = add(c, sub(mass, c), sp.massBlend), tone = r(), sw = swayAt(c[1])
-    const away = norm(sub(c, mass)), wind = [root[0], root[2], sw, .6]
-    if (sp.core) for (let i = 0; i < 6; i++){                        // underpainting: broad dark scrubs that hold the mass together
-      const d = randDir(r), q = [c[0] + d[0]*rad*.3, c[1] + d[1]*rad*.3*sp.squash, c[2] + d[2]*rad*.3]
-      addStroke(out, r, { q, n: d, t: randDir(r), len: rad*1.5, wid: rad*1.4*Math.max(sp.squash, .6), tile: [3, 3], pivot, ao: .04, tone, wind })
+    const { c, r: rad, mass } = cl, tone = r(), sw = swayAt(c[1])
+    const pivot = add(add(c, sub(mass, c), sp.massBlend), sub(crown, add(c, sub(mass, c), sp.massBlend)), sp.crownBlend), wind = [root[0], root[2], sw, .6]
+    if (sp.core){
+      const base = cores.pos.length/3, wob = r()*9
+      for (const d of ICO.v){
+        const k = rad*(.62 + .07*Math.sin(d[0]*4 + wob)*Math.cos(d[2]*3 + wob))
+        cores.pos.push(c[0] + d[0]*k, c[1] + d[1]*k*sp.squash, c[2] + d[2]*k); cores.nor.push(...d); cores.uv.push(0, 0)
+        cores.center.push(...pivot); cores.wind.push(...wind)
+      }
+      for (const [a, b, e] of ICO.f) cores.idx.push(base + a, base + b, base + e)
     }
     // lobes: the lumps a painter blocks in first. Strokes take their tone and much of their normal from their lobe, so light
     // falls on groups of dabs, and the valleys between lobes stay dark.
     const L = Math.round(clamp(rad/len0*4.5, 4, 12)), lobes = Array.from({ length: L }, () => { const dir = randDir(r); return { dir, tone: clamp(tone + (r() - .5)*.7) } })
     const n = Math.max(5, Math.round(sp.coverage*4*Math.PI*rad*rad/(len0*wid0)))
-    // three passes: the body of the clump, smaller accents on the crowns of the lobes, then strays that break the silhouette
-    for (let layer = 0; layer < 3; layer++) for (let i = 0; i < n*[1.5, .9, sp.strays][layer]; i++){
+    // Big, middle, small. Plates are a few large shapes per lobe that state the mass; they are always drawn. Middle dabs and small
+    // accents exist everywhere, but the shader only opens them where the light asks for them (FOLIAGE_FAN in main.js), so shadow
+    // stays plates and detail gathers along the lit edge at any time of day. Strays break the silhouette.
+    for (let layer = 0; layer < 4; layer++) for (let i = 0, count = [L*sp.plates, n*1.1, n*.9, n*sp.strays][layer]; i < count; i++){
       const d = randDir(r)
       let lobe = lobes[0], b = -2
       for (const l of lobes){ const q = dot(d, l.dir); if (q > b){ b = q; lobe = l } }
-      if (layer === 1 && b < .72) continue
+      if (layer === 2 && b < .45) continue
       const rise = clamp((b - .45)/.5), bump = .8 + .26*rise*rise + (r() - .5)*.06
-      const k = rad*(layer === 2 ? bump + lerp(.14, .36, r()) : bump + (layer ? .05 : 0)), q = [c[0] + d[0]*k, c[1] + d[1]*k*sp.squash, c[2] + d[2]*k], nS = norm(add(d, lobe.dir, .8))
+      const k = rad*(layer === 3 ? bump + lerp(.14, .36, r()) : bump + [-.04, 0, .05][layer]), q = [c[0] + d[0]*k, c[1] + d[1]*k*sp.squash, c[2] + d[2]*k]
+      const onCrown = norm(q.map((v, a) => (v - crown[a])/half[a])), nS = norm(add(add(lobe.dir, d, .3), onCrown, sp.crownBlend*1.6))   // a stroke takes its light from its lobe and crown, so lit strokes join up
       // strokes run over the form: down the sides of the clump, turned by the species' stroke angle
       const flow = sub([0, -1, 0], [d[0]*-d[1], d[1]*-d[1], d[2]*-d[1]])
       const t = rotateAbout(norm(dot(flow, flow) > .02 ? flow : randDir(r)), d, turn + (r() - .5)*2*jitter)
-      const ao = clamp(.1 + .46*(d[1]*.5 + .5) + .2*(dot(d, away)*.5 + .5) + .34*rise, .1, 1)
-      const size = [lerp(.85, 1.35, r()), lerp(.4, .72, r()), lerp(.3, .55, r())][layer]
-      addStroke(out, r, { q, n: nS, t, len: len0*size, wid: wid0*size, tile: randTile(r, layer > 0), pivot, ao, tone: clamp(lobe.tone + (r() - .5)*.2), wind })
+      const ao = clamp(.26 + .4*(onCrown[1]*.5 + .5) + .2*Math.hypot(onCrown[0], onCrown[2]) + .16*rise, .1, 1)
+      const plate = rad*lerp(.7, 1.1, r())*sp.plateSize, size = [0, lerp(.8, 1.3, r()), lerp(.38, .66, r()), lerp(.3, .5, r())][layer]
+      addStroke(out, r, { q, n: nS, t, len: layer ? len0*size : plate, wid: layer ? wid0*size : plate*.85, tile: randTile(r, layer > 1), pivot, ao,
+        tone: clamp(lobe.tone + (r() - .5)*.2), wind, dab: [0, 1, 2, 2][layer] })
     }
   }
 }
@@ -245,12 +329,14 @@ function emitStrands(sp, r, tips, clumps, root, scale, out){
   }
 }
 
-export function generatePlant(sp, seed, root, scale, wood, foliage){
+export function generatePlant(sp, seed, root, scale, wood, foliage, cores = newBuffer()){
   const r = mulberry32(seed*2654435761 >>> 0), tips = []
-  const branches = growSkeleton(sp, r, root, scale, tips), clumps = makeClumps(sp, r, tips, scale, root)
+  const branches = growSkeleton(sp, r, root, scale, tips)
+  shapeCrown(sp, r, root, scale, branches, tips)
+  const clumps = makeClumps(sp, r, tips, scale, root)
   prune(sp, tips, clumps)
-  emitWood(sp, r, root, scale, branches, wood)
-  emitFoliage(sp, r, clumps, root, scale, foliage)
+  emitWood(sp, r, root, scale, branches, wood, clumps)
+  emitFoliage(sp, r, clumps, root, scale, foliage, cores)
   if (sp.hang > 0) emitStrands(sp, r, tips, clumps, root, scale, foliage)
   return clumps.length
 }

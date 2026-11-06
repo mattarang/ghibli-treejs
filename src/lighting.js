@@ -42,6 +42,7 @@ export function applyLighting(p, L){
   const lum = .2126*color.r + .7152*color.g + .0722*color.b
   U.uSunLum.value = lum*I
   U.uSunUp.value = Math.max(dir.y, .22)
+  U.uSunDir.value.copy(dir)
   const dayness = THREE.MathUtils.clamp(I/2.2, .12, 1)
   U.uDay.value = dayness
   // the sun tint: colour pulled halfway to white (a max-normalised sun alone reads orange), then scaled by how bright it is
