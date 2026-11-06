@@ -4,6 +4,7 @@
 // Added here:
 //  - a four-stop palette ramp after craftzdog/ghibli-style-shader (MIT): the band picks a painted colour instead of only
 //    a brightness, so shadow turns teal and light turns yellow-green. uPaletteMix slides between the two looks.
+//  - afterClip: runs once gl_Position is set, for changes to depth alone.
 //  - afterView: fans a stroke out in view space after the world position is fixed. worldPosition stays at the stroke's
 //    anchor, so the shadow lookup (like the normal) is the same over the whole stroke: one stroke, one colour.
 //  - wind phase from the tree root and the clump centre, so branches and clumps move as bodies, and an analytic lantern.
@@ -95,7 +96,8 @@ export function patch(mat, o){
         vWPos = wPos.xyz;
         mvPosition = viewMatrix*wPos;
         ${o.afterView || ''}
-        gl_Position = projectionMatrix*mvPosition;`)
+        gl_Position = projectionMatrix*mvPosition;
+        ${o.afterClip || ''}`)
       .replace('#include <worldpos_vertex>', `
         #if defined( USE_SHADOWMAP ) || defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0
           vec4 worldPosition = wPos;

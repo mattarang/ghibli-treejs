@@ -35,9 +35,9 @@ const vertexShader = /* glsl */`
       // Light belongs to the mass. main.js gives every clump its place against its mass's terminator; a stroke adds only the turn of its own
       // form, so whole clumps fall on one side together, and the border between light and shadow is a chain of clump-sized shapes.
       int id = int(aPatch.z);
-      score = texelFetch(tSun, ivec2(id%256, id/256), 0).r*4. - 2. + dot(n, uSunDir)*.45 + aPatch.x*uLightShape*.9;
+      score = texelFetch(tSun, ivec2(id%256, id/256), 0).r*4. - 2. + dot(n, uSunDir)*.6 + aPatch.x*uLightShape*.9;
       float along = score + (aLeaf.z - .5)*.16;                                 // across the terminator, dabs decide one by one
-      F = mix(.05, .46 + .24*smoothstep(0., .6, score) + aPatch.y*.05, smoothstep(-.015, .015, along));
+      F = mix(.05, .46 + .42*smoothstep(0., .85, score) + aPatch.y*.05, smoothstep(-.015, .015, along));   // the more it faces the sun, the brighter
       closed = (aDab > .5 && !small && score < -.16 && aLeaf.z > .4) || (small && abs(score) > .13 && rimV < .4);   // detail lives on the terminator and the rim
     } else {
       F = (max(dot(n, uSunDir), 0.)*(.72 + .28*aLeaf.x) + (aLeaf.x - .5)*.2 + (aLeaf.z - .5)*.02 + aPatch.x*uLightShape*1.8)*.95;
@@ -58,7 +58,7 @@ const vertexShader = /* glsl */`
                         : core ? .03 : .015 + .12*aLeaf.x + (aLeaf.y - .5)*.05 + (aLeaf.z - .5)*.1;
     float kk = mix(dark, mix(light, smoothstep(.16, .74, light), .45), calm), lit = clamp(kk, 0., 1.), x = mix(lit, toonRamp(lit), calm);
     float spread = .22*calm*uPigment;
-    vec3 tint = mix(vec3(1.), mix(vec3(.88, 1., 1.06), vec3(1.08, 1.02, .86), aLeaf.y), calm), base = palRamp(x);
+    vec3 tint = mix(vec3(1.), mix(vec3(.88, 1., 1.06), massed ? vec3(1.04, 1.01, .94) : vec3(1.08, 1.02, .86), aLeaf.y), calm), base = palRamp(x);
     float mod0 = mix(1., 1. + (aLeaf.y - .5)*.2, calm), toSun = toonRamp(lit);
     vec3 scale = (1. + uShadowFill*uShadowFillK*(1. - lit)*1.6)*mod0*tint, wash = mix(uAmbTint, uSunTint, toSun);
     float back = pow(clamp(dot(-V, uSunDir), 0., 1.), 3.)*uSss*F;

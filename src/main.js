@@ -12,7 +12,10 @@ import { makeClouds } from './clouds.js'
 import { applyLighting } from './lighting.js'
 
 const qs = new URLSearchParams(location.search)
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false, alpha: false })   // coverage alpha must not reach the page
+// An opaque context of our own: three turns alpha back on for any context it creates, and alpha-to-coverage would then leave partial alpha in the
+// canvas, which reads back as a dark outline round every lit stroke
+const canvas = document.createElement('canvas')
+const renderer = new THREE.WebGLRenderer({ canvas, context: canvas.getContext('webgl2', { alpha: false, antialias: true, stencil: false, preserveDrawingBuffer: false }) })
 const view = { resolution: Math.min(devicePixelRatio, 1.5), hold60: true }     // 1.5x with MSAA holds a stroke's edge; the extra pixels of 2x cost a third of the frame
 renderer.setPixelRatio(view.resolution)
 renderer.setSize(innerWidth, innerHeight)
@@ -42,7 +45,7 @@ const L = { sun, hemi, sky, clouds, scene, reach: 80 }
 const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('species') : 'Great camphor'
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
-  grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 34000,
+  showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 34000,
   time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 5, cloudSeed: 4, haze: .35, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
   windOn: true, wind: 1, autoRotate: false, exposure: 1,
@@ -83,7 +86,7 @@ const GROUND_PIGMENT = '(fld(vWPos.xz*vec2(.2, .62)) - .5)*.9'
 // the foliage reads once per vertex: each clump's place relative to its terminator.
 const sunTable = new THREE.DataTexture(new Uint8Array(256*64), 256, 64, THREE.RedFormat)
 sunTable.magFilter = sunTable.minFilter = THREE.NearestFilter
-const HERO_SHARE = .62, LAST_SHARE = .15
+const HERO_SHARE = .62, LAST_SHARE = .15, LINE_LOW = -.1, LINE_HIGH = .15, OWN_TURN = .6
 let heldClumps = []
 function bakeSun(){
   const s = U.uSunDir.value, data = sunTable.image.data, n = Math.min(heldClumps.length, data.length), plants = new Map()
@@ -106,7 +109,7 @@ function bakeSun(){
         const x = e.c[0] - a.c[0], y = e.c[1] - a.c[1], z = e.c[2] - a.c[2], t = x*s.x + y*s.y + z*s.z
         if (t < a.r*.25) continue
         const yy = y/k, sy = s.y/k, tt = (x*s.x + yy*sy + z*s.z)/(s.x*s.x + sy*sy + s.z*s.z), px = x - tt*s.x, py = yy - tt*sy, pz = z - tt*s.z
-        const q = Math.min(Math.max((1.15 - Math.sqrt(px*px + py*py + pz*pz)/e.r)/.6, 0), 1)
+        const q = Math.min(Math.max((.95 - Math.sqrt(px*px + py*py + pz*pz)/e.r)/.5, 0), 1)     // the shade of what really stands in the way: anything the sun can see past stays lit
         vis *= 1 - .55*q*q*(3 - 2*q)
       }
       face[i] = a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z - (1 - vis)*1.1*U.uSelfShade.value
@@ -118,8 +121,11 @@ function bakeSun(){
       let seen = 0, line = face[order[order.length - 1]] - .5                 // walk down from the sunniest clump until the share is spent
       if (up === 0) line = 9
       else for (const i of order){ seen += heldClumps[i].r**2; if (seen >= share*up*area){ line = face[i] - 1e-3; break } }
-      // the shader adds .45 of each stroke's own turn to the sun, so the clump's centre lands exactly on its place against the line
-      for (const i of g){ const a = heldClumps[i]; data[i] = Math.min(Math.max((face[i] - line - .45*(a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z) + 2)/4, 0), 1)*255 }
+      // the shader adds OWN_TURN of each stroke's own turn to the sun, so the clump's centre lands exactly on its place against the line
+      // The share only arranges the light where the sun leaves it open. Foliage that faces the sun with nothing in the way is always lit, and foliage
+      // turned away from it never is, whatever its mass's rank.
+      if (up > 0) line = Math.min(Math.max(line, LINE_LOW), LINE_HIGH)
+      for (const i of g){ const a = heldClumps[i]; data[i] = Math.min(Math.max((face[i] - line - OWN_TURN*(a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z) + 2)/4, 0), 1)*255 }
     })
   }
   sunTable.needsUpdate = true
@@ -133,11 +139,15 @@ const foliageDepth = patch(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGB
 //  lichen:  pale blotches on the warmer patches
 //  moss:    greens that climb from the roots and sit on top of limbs, in painted shapes with firm edges
 // Sun lands in broken plates on big wood; wood buried in the crown goes to the crown's shadow; the foot of the trunk takes the ground's colour.
+const sink = { value: 1 }, crownDark = { value: 1 }    // both only mean anything with foliage there to hide the wood
 const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughness: .9 }), {
   toon: true, wind: true, softRamp: true, pigment: 'gRidge*.3',
-  vertexPars: 'attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
+  // Wood inside a clump sinks behind the leaves in depth alone, the amount it is buried: it stays where it is on screen, so a limb runs up to the
+  // foliage and goes in, and never shows as a loose piece floating in front of a clump's body. Its shadow doesn't move.
+  afterClip: 'if (aLeaf.x < -.5 && uCrownDark < .5) gl_Position = vec4(2., 2., 2., 1.); else if (vLeafA.y > 0.){ vec4 sunk = projectionMatrix*vec4(mvPosition.xy, mvPosition.z - uSink*vLeafA.y, 1.); gl_Position.z = sunk.z/sunk.w*gl_Position.w; }',
+  vertexPars: 'uniform float uSink, uCrownDark; attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
   vertexBegin: 'vLeafA = aLeaf; vB = vec3(cos(uv.x*6.28318), sin(uv.x*6.28318), uv.y); vWN = normal; vH = position.y - clusterCenter.y;',
-  fragmentPars: `varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow;
+  fragmentPars: `varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow, uCrownDark;
     float gRidge = 0., gMoss = 0., gLichen = 0., gCrack = 0., gHue = 0.;`,
   color: `{ vec2 ring = normalize(vB.xy); float thick = vLeafA.x;
     float big = fbm3(vec3(ring*1.7, vB.z*.2) + 3.), fine = fbm3(vec3(ring*5.5, vB.z*.7));
@@ -154,20 +164,23 @@ const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughne
   // bark is painted in three values: a deep side away from the sun, a middle, and mottled dabs of light on the sun side. Noise along the
   // grain breaks the borders between them into brush marks. Under a canopy the lit dabs thin out to the patches the sun reaches.
   shade: `{ vec2 rg = normalize(vB.xy); float thick = vLeafA.x, f = dot(normalize(vWN), uSunDir)*.5 + .5;
-    float broad = fbm3(vec3(rg*3., vB.z*.6) + 41.) - .5, small = fbm3(vec3(rg*9., vB.z*1.7) + 5.) - .5;     // short dabs along the grain, not long rails
-    float v = f + (broad*.32 + small*.16)*(.3 + .7*vLeafA.z);          // the form decides the value; noise only breaks its edge
-    float sun = max(gSeen, smoothstep(.5, .6, fbm3(vec3(rg*2.2, vB.z*.5) + gRidge*.5 + 17.)));
-    kk = mix(.06, .3, smoothstep(.5, .6, v));
-    kk = mix(kk, .76, smoothstep(.6, .68, v + (sun - 1.)*.3)*smoothstep(.15, .6, thick)*vLeafA.z);
+    float broad = fbm3(vec3(rg*3., vB.z*.6) + 41.) - .5, small = fbm3(vec3(rg*5., vB.z*1.1) + 5.) - .5;     // short dabs along the grain, not long rails
+    float v = f + (broad*.3 + small*.08)*(.3 + .7*vLeafA.z);          // the form decides the value; noise only breaks its edge
+    float seen = mix(1., gSeen, smoothstep(.12, .4, gNdl));   // near the terminator the form alone decides: a shadow map can only stair-step a surface it grazes
+    float sun = max(seen, smoothstep(.5, .6, fbm3(vec3(rg*2.2, vB.z*.5) + gRidge*.5 + 17.)));
+    kk = mix(.06, .3, smoothstep(.47, .62, v));
+    kk = mix(kk, .76, smoothstep(.58, .7, v + (sun - 1.)*.3)*smoothstep(.15, .6, thick)*vLeafA.z);
     kk += gRidge*.05 - gCrack*.2;
-    kk = mix(.08 + .22*smoothstep(.5, .62, f), kk, vLeafA.z); }
+    // where axes meet, the same light without the noise: paint calms down there, but it doesn't change value
+    float calm = mix(.06, .3, smoothstep(.47, .62, f)); calm = mix(calm, .76, smoothstep(.58, .7, f)*smoothstep(.15, .6, thick));
+    kk = mix(calm, kk, vLeafA.z); }
     gTint = mix(vec3(.92, 1., 1.06), vec3(1.14, .99, .82), mix(.5, gHue, uBarkVar));
-    kk = mix(kk, .1, vLeafA.y); gMod = mix(gMod, 1., vLeafA.y); gTint = mix(gTint, vec3(1.), vLeafA.y);`,
+    { float deep = vLeafA.y*uCrownDark; kk = mix(kk, .1, deep); gMod = mix(gMod, 1., deep); gTint = mix(gTint, vec3(1.), deep); }`,
   palLine: `pal = mix(pal, vec3(.34, .4, .32)*(.55 + .8*clamp(kk, 0., 1.)), gLichen*.6*(1. - gCrack));
     pal = mix(pal, mix(vec3(.035, .06, .025), vec3(.14, .2, .05), smoothstep(.12, .62, kk)), gMoss*(1. - .6*gCrack));
-    pal = mix(pal, uFootColor, smoothstep(.34, .0, vH)*.75);
-    pal = mix(pal, uInk, vLeafA.y);`,
-  uniforms: { ...paletteUniforms(pals.bark), uInk: pals.foliage[0], uFootColor: pals.ground[0] } })
+    pal = mix(pal, uFootColor, smoothstep(.6, -.1, vH)*.6);
+    pal = mix(pal, mix(uPal0, uInk, .2), vLeafA.y*uCrownDark);`,  // wood deep in the crown goes to its own darkest bark, barely touched by the crown's colour: never painted as foliage
+  uniforms: { ...paletteUniforms(pals.bark), uInk: pals.foliage[0], uFootColor: pals.ground[0], uSink: sink, uCrownDark: crownDark } })
 // ivy: its own leafy brushes and dark greens, standing a step off the bark
 const ivyPal = newPalette(['#15352a', '#27583c', '#4f8848', '#94bc68'])
 const ivyMat = patch(new THREE.MeshStandardMaterial({ color: '#27604e', roughness: .9, alphaMap: makeBrushAtlas('clover', 'spray', 5), alphaTest: .36, alphaToCoverage: true, side: THREE.DoubleSide }), {
@@ -238,7 +251,7 @@ function setStats(ms, clumps){
 
 const trees = []
 function rebuild(){
-  U.uHueVar.value = p.hueVar
+  U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius : 0
   const t0 = performance.now(), woodB = newBuffer(), leafB = newBuffer(), coreB = newBuffer(), ivyB = newBuffer()
   const { plants, bushes } = layoutScene(p)
   trees.length = 0
@@ -287,6 +300,14 @@ function frame(){
 // ---- panel ----
 const gui = new GUI({ title: 'Foliage' })
 const treeF = gui.addFolder('Plant')
+// wood alone, for reviewing structure: leaves, ivy and their shadows go, and buried wood comes back to its true depth
+function applyFoliage(){
+  foliage.visible = core.visible = caster.visible = ivy.visible = p.showFoliage
+  sink.value = p.showFoliage ? p.clumpRadius : 0; crownDark.value = p.showFoliage ? 1 : 0
+  renderer.shadowMap.needsUpdate = true
+}
+applyFoliage()
+treeF.add(p, 'showFoliage').name('Show foliage').onChange(applyFoliage)
 treeF.add(p, 'species', Object.keys(SPECIES)).name('Species').onChange(name => {
   Object.assign(p, structuredClone(SPECIES[name])); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); rebuild(); rebuildGrass(); frame() })
 treeF.add(p, 'seed', 1, 9999, 1).name('Seed').onChange(later).listen()
@@ -294,8 +315,8 @@ treeF.add({ dice(){ p.seed = 1 + Math.floor(Math.random()*9998); rebuild(); rebu
 treeF.add(p, 'height', 1.5, 26, .1).name('Height').onChange(later)
 treeF.add(p, 'trunkRadius', .06, 1.4, .01).name('Trunk radius').onChange(later)
 treeF.add(p, 'trunkFrac', .15, .85, .01).name('Bare trunk').onChange(later)
-treeF.add(p, 'stems', 1, 6, 1).name('Stems').onChange(later)
-treeF.add(p, 'forkHeight', .03, .4, .01).name('Fork height').onChange(later)
+treeF.add(p, 'stems', 1, 3, 1).name('Sub-trunks').onChange(later)
+treeF.add(p, 'forkHeight', .04, .4, .01).name('Bole height').onChange(later)
 treeF.add(p, 'stemSpread', 4, 50, 1).name('Stem spread').onChange(later)
 treeF.add(p, 'sinuous', 0, 1.5, .01).name('Sinuous').onChange(later)
 treeF.add(p, 'gesture', GESTURE_NAMES).name('Gesture').onChange(later)
