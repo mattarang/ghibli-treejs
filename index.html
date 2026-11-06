@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghibli Foliage</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #16201f; overflow: hidden; }
+  canvas { display: block; touch-action: none; }
+  #hud { position: fixed; left: 16px; bottom: 14px; color: #fff; font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
+         text-shadow: 0 1px 3px #0009; pointer-events: none; opacity: .9; }
+  #hud b { font-size: 15px; font-weight: 600; display: block; }
+</style>
+</head>
+<body>
+<div id="hud"><b>Ghibli Foliage</b><span id="stats"></span><br>Drag: orbit · Shift+drag: move the sun · Scroll: zoom</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
