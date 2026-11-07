@@ -4,6 +4,7 @@
 // The last tile is a broad scrubbed blob: the underpainting that gives each clump its dark mass.
 import * as THREE from 'three'
 import { mulberry32 } from './generator.js'
+import { MAPLE, MAPLE_CUT } from './leaf-shapes.js'
 
 const STYLE = {
   willow:  { bristles: 20, body: .26, tail: .55, bow: .05 }, // a long thin pull
@@ -65,6 +66,23 @@ function spray(g, r, x0, y0, T, paint){
     g.quadraticCurveTo(len*.45, wid*1.2, len, 0); g.quadraticCurveTo(len*.45, -wid*1.2, 0, 0); g.fill(); g.restore()
   }
 }
+
+// real leaf outlines: a few leaves at a time, overlapping, each its own shade and turn, stems toward the stroke's start
+function leafPath(g, path, x, y, size, angle){
+  const c = Math.cos(angle), s = Math.sin(angle), at = i => [x + (path[i]*c - path[i + 1]*s)*size, y + (path[i]*s + path[i + 1]*c)*size], n = path.length/6
+  g.beginPath(); g.moveTo(...at(2))
+  for (let k = 0; k < n; k++){ const a = k*6, b = ((k + 1)%n)*6; g.bezierCurveTo(...at(a + 4), ...at(b), ...at(b + 2)) }
+  g.closePath()
+}
+// a spray of real-size leaves: ~20 to a mark, so a leaf is about a sixth of the stroke (8 cm or so on a 45 cm dab), stems toward the middle
+function leaves(path){ return (g, r, x0, y0, T, paint) => {
+  const n = 18 + Math.floor(r()*6), cx = x0 + T/2, cy = y0 + T/2
+  for (let i = 0; i < n; i++){
+    const a = r()*Math.PI*2, d = Math.sqrt((i + r())/n)*T*.34, size = T*(.13 + r()*.08)*(1 - .25*d/(T*.34))
+    leafPath(g, path, cx + Math.cos(a)*d, cy + Math.sin(a)*d*.9, size, a + Math.PI/2 + (r() - .5)*.8)
+    g.fillStyle = paint(.25 + r()*.6); g.fill()
+  }
+} }
 
 // dry paint dragged across the tooth of the paper: a thinning cloud of specks
 function scumble(g, r, x0, y0, T, paint){
@@ -146,6 +164,7 @@ const BRUSH = {
   clover, spray, scumble,
   blossom: dots, needle: fan,
   willow: (g, r, x, y, T, p) => dab(g, r, x, y, T, STYLE.willow, p),
+  maple: leaves(MAPLE), mapleCut: leaves(MAPLE_CUT),
 }
 
 export function makeBrushAtlas(body, edge = body, seed = 3){
