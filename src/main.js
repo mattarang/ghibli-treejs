@@ -46,7 +46,7 @@ const L = { sun, hemi, sky, clouds, scene, reach: 80 }
 const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('species') : 'Camphor tree'
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
-  useRings: qs.get('grow') === 'rings', showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 34000,
+  showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 34000,
   time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 5, cloudSeed: 4, haze: .35, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
   windOn: true, wind: 1, autoRotate: false, exposure: 1,
@@ -364,7 +364,6 @@ function applyFoliage(){
 }
 applyFoliage()
 treeF.add(p, 'showFoliage').name('Show foliage').onChange(applyFoliage)
-treeF.add(p, 'useRings').name('Ring growth (prototype)').onChange(() => { rebuild() })
 treeF.add(p, 'species', Object.keys(SPECIES).sort()).name('Species').onChange(name => {
   compare.species(name)
   Object.assign(p, structuredClone(SPECIES[name])); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); rebuild(); rebuildGrass(); frame() })
@@ -374,31 +373,17 @@ treeF.add(p, 'height', 1.5, 26, .1).name('Height').onChange(later)
 treeF.add(p, 'size', .3, 4, .01).name('Mature size').onChange(() => { later(); frame() })
 treeF.add(p, 'trunkRadius', .06, 1.4, .01).name('Trunk radius').onChange(later)
 treeF.add(p, 'trunkFrac', .15, .85, .01).name('Bare trunk').onChange(later)
-treeF.add(p, 'stems', 1, 3, .1).name('Sub-trunks (average)').onChange(later)
 treeF.add(p, 'variety', 0, 1.5, .01).name('Seed variety').onChange(later)
-treeF.add(p, 'forkHeight', .04, .4, .01).name('Bole height').onChange(later)
-treeF.add(p, 'stemSpread', 4, 50, 1).name('Stem spread').onChange(later)
-treeF.add(p, 'sinuous', 0, 1.5, .01).name('Sinuous').onChange(later)
-treeF.add(p, 'gesture', GESTURE_NAMES).name('Gesture').onChange(later)
+treeF.add(p, 'sinuous', 0, 1.5, .01).name('Trunk bends').onChange(later)
 treeF.add(p, 'crownWidth', .08, 1.1, .01).name('Crown width').onChange(later)
 treeF.add(p, 'asym', 0, .6, .01).name('Asymmetry').onChange(later)
 treeF.add(p, 'windLean', 0, .7, .01).name('Wind lean').onChange(later)
-treeF.add(p, 'notches', 0, 8, 1).name('Notches').onChange(later)
-treeF.add(p, 'massVar', 0, 1, .01).name('Mass variety').onChange(later)
-treeF.add(p, 'crown', CROWNS).name('Branch reach').onChange(later)
+treeF.add(p, 'notches', 0, 8, 1).name('Bays in the crown').onChange(later)
 const branchF = treeF.addFolder('Branching').close()
-branchF.add(p, 'levels', 1, 4, 1).name('Levels').onChange(later)
-branchF.add(p, 'forkTop', 0, 1, 1).name('Sub-trunks end in forks').onChange(later)
-branchF.add(p, 'sideShoots', 0, 10, 1).name('Side shoots').onChange(later)
-branchF.add(p, 'whorls', 0, 8, 1).name('Limbs per tier').onChange(later)
-branchF.add(p, 'opposite', 0, 1, 1).name('Opposite pairs').onChange(later)
-branchF.add(p, 'fastigiate', 0, 40, 1).name('Upright limbs').onChange(later)
-branchF.add(p, 'arch', 0, .4, .01).name('Arching limbs').onChange(later)
-branchF.add(p, 'children', 2, 10, 1).name('Children').onChange(later)
-branchF.add(p, 'childAngle', 8, 95, 1).name('Angle').onChange(later)
-branchF.add(p, 'lengthRatio', .25, 1.3, .01).name('Length').onChange(later)
-branchF.add(p, 'childStart', .05, .8, .01).name('First branch').onChange(later)
-branchF.add(p, 'gnarl', 0, .5, .01).name('Gnarl').onChange(later)
+branchF.add(p, 'children', 2, 10, 1).name('Main limbs').onChange(later)
+branchF.add(p, 'childAngle', 8, 95, 1).name('Branch angle').onChange(later)
+branchF.add(p, 'lengthRatio', .25, 1.3, .01).name('Branch length').onChange(later)
+branchF.add(p, 'gnarl', 0, .5, .01).name('Crookedness').onChange(later)
 branchF.add(p, 'upward', -.2, .2, .005).name('Tropism').onChange(later)
 branchF.add(p, 'droop', 0, .3, .005).name('Droop').onChange(later)
 branchF.add(p, 'lean', 0, .4, .01).name('Lean').onChange(later)

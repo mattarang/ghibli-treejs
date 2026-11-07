@@ -207,28 +207,43 @@ function outward(v, at, trunk, near, k){
 // Space colonisation: the crown is filled with points of open space, and wood grows towards whichever are nearest, claiming them as it reaches them. So branches
 // go where there's room, and they can't help filling the shape. Girth comes last and bottom up, after da Vinci: every twig is the same, and where branches
 // join the areas add, r^a = r1^a + r2^a. So radius can never jump, and thick wood is simply wood with a lot of tree beyond it.
-function growColonise(sp, r, root, scale){
-  const g = sp.rings, c = g.colonise, H = sp.height*scale, R = sp.trunkRadius*scale, least = leastWood(sp, scale), step = c.step*scale, nodes = []
-  const a1 = r()*7, a2 = r()*7, lobes = th => 1 + c.lobes*(.6*Math.sin(2*th + a1) + .4*Math.sin(3*th + a2))              // no two trees fill the outline quite alike
-  const reachAt = y => { const u = clamp((y - root[1])/H)*(g.outline.length - 1), i = Math.min(Math.floor(u), g.outline.length - 2); return H*lerp(g.outline[i], g.outline[i + 1], u - i) }
-  const y0 = root[1] + H*c.bottom, wide = H*Math.max(...g.outline)*1.3
+function growColonise(sp, r, root, size){
+  const g = sp.rings, c = g.colonise, base = g.base, was = k => base[k] ? sp[k]/base[k] : 1, tau = Math.PI*2, scale = size*(g.unit ?? 1)    // a slider or a seed moves a setting away from the species' own value: 'was' is by how much
+  const H = sp.height*size, R = sp.trunkRadius*size, least = leastWood(sp, size), step = c.step*scale, nodes = [], v = sp.variety
+  // No two trees fill the outline alike. Each works from its own copy of it: wider or narrower, its widest point higher or lower, lopsided, streaming with the wind, with bays bitten out
+  const a1 = r()*7, a2 = r()*7, a3 = r()*7, bendTo = r()*tau, widen = was('crownWidth'), bottom = Math.min(c.bottom*was('trunkFrac'), .8), peak = (r() - .5)*.3*v, W = H*Math.max(...g.outline)*widen
+  const lobes = th => 1 + sp.asym*(.5*Math.sin(th + a1) + .3*Math.sin(2*th + a2) + .2*Math.sin(3*th + a3)) + c.lobes*(.6*Math.sin(2*th + a2) + .4*Math.sin(3*th + a3))
+  // the tree's centre line: dead upright unless lean tilts it or wind carries it off, more the higher it is. The trunk wanders about this line, and the crown stands on it
+  const leanTo = r()*tau, tiltBy = sp.lean + (r() - .5)*.02*v
+  const axis = y => { const t = clamp((y - root[1])/H), k = t*t*W*sp.windLean, m = tiltBy*(y - root[1]); return [root[0] + Math.cos(bendTo)*k + Math.cos(leanTo)*m, root[2] + Math.sin(bendTo)*k + Math.sin(leanTo)*m] }
+  const reachAt = y => { const t = clamp((y - root[1] - H*bottom)/(H*(1 - bottom))), w = clamp(t + peak*Math.sin(Math.PI*t)), u = (c.bottom + w*(1 - c.bottom))*(g.outline.length - 1), i = Math.min(Math.floor(u), g.outline.length - 2); return H*widen*lerp(g.outline[i], g.outline[i + 1], u - i) }
+  const bays = Array.from({ length: Math.round(sp.notches + r()*v*2) }, () => { const y = root[1] + H*lerp(bottom + .1, .92, r()), th = r()*tau, m = reachAt(y)*.95; return { p: [root[0] + Math.cos(th)*m, y, root[2] + Math.sin(th)*m], r: W*lerp(.25, .45, r()) } })
+  const y0 = root[1] + H*bottom, wide = W*1.6 + H*sp.windLean
   // the bare trunk comes first and takes no part: nothing grows from it until it reaches the crown
   const add0 = (p, parent, stage) => { const n = { p, parent, stage, kids: [], pull: [0, 0, 0], pulled: 0, d: parent ? norm(sub(p, parent.p)) : [0, 1, 0] }; nodes.push(n); if (parent) parent.kids.push(n); return n }
   let tip = add0(add(root, [0, -.3*sp.flare*R, 0]), null, -1)
-  const lean = norm([(r() - .5)*sp.lean*2, 1, (r() - .5)*sp.lean*2]), rungs = Math.ceil(H*g.bare/step)
-  { let d = lean; for (let i = 0; i < rungs; i++){ if (i%c.trunkRun === 0) d = norm(add(add(d, randDir(r), c.trunkKink), lean, .35)); tip = add0(add(tip.p, d, step), tip, i === rungs - 1 ? 0 : -1) } }
-  // the central stem grows next, wandering a little: it's the tallest wood on the tree, and nothing rises past it
-  for (let d = lean, i = 0; tip.p[1] < root[1] + H*c.leader; i++){ if (i%c.leaderRun === 0) d = norm(add(add(d, randDir(r), c.leaderKink), [0, 1, 0], .3)); tip = add0(add(tip.p, d, step), tip, 0); tip.leader = true }   // straight lengths too, with a small change of line between them
+  // up the centre line in straight lengths, each aimed at a point a little to one side of it, so the trunk bends and never drifts
+  const climbTo = (top, run, kink, stage, leader) => { for (let i = 0, d = [0, 1, 0]; tip.p[1] < top; i++){
+    if (i%run === 0){ const y = tip.p[1] + run*step, [x, z] = axis(y), a = r()*tau, off = kink*was('sinuous')*run*step*.55*r(); d = norm(sub([x + Math.cos(a)*off, y, z + Math.sin(a)*off], tip.p)) }
+    tip = add0(add(tip.p, d, step), tip, stage); if (leader) tip.leader = true } }
+  climbTo(root[1] + H*g.bare*was('trunkFrac'), c.trunkRun, c.trunkKink, -1, false)
+  tip.stage = 0
+  const rungs = nodes.length - 1
+  climbTo(root[1] + Math.max(c.leader*was('trunkFrac'), bottom + .08)*H*lerp(1 - .12*v, 1 + .1*v, r()), c.leaderRun, c.leaderKink, 0, true)
   const ceiling = root[1] + H*c.crownTop                                // the stem stops short of the top, so the upper crown has room to rise and spread above it
   // Every branch is one straight shoot, set off at an angle to its parent that stays within fixed limits, so wood can't curl. Open space still decides: of the ways a shoot
   // could go, it takes the one that claims the most unclaimed crown, and it ends at the outline. Each generation is shorter and more numerous than the last.
-  const leaderNodes = nodes.filter(n => n.leader), space = [], tau = Math.PI*2
+  const leaderNodes = nodes.filter(n => n.leader), space = []
   const inHeart = q => { const u = (q[0] - root[0])/(H*.34), v = (q[1] - root[1] - H*.6)/(H*.34), k = u*u + v*v - 1; return k*k*k - u*u*v*v*v < 0 && Math.abs(q[2] - root[2]) < H*g.slab }     // a test of the method, not a tree: any shape will do
-  const inside = g.heart ? inHeart : q => q[1] < ceiling && Math.hypot(q[0] - root[0], q[2] - root[2]) < c.inset*reachAt(q[1])*lobes(Math.atan2(q[2] - root[2], q[0] - root[0]))
+  const inside = g.heart ? inHeart : q => { if (q[1] >= ceiling) return false; const [x, z] = axis(q[1]), dx = q[0] - x, dz = q[2] - z
+    if (Math.hypot(dx, dz) >= c.inset*reachAt(q[1])*lobes(Math.atan2(dz, dx))) return false
+    for (const b of bays){ const d = sub(q, b.p); if (dot(d, d) < b.r*b.r) return false }
+    return true }
   for (let t = 0; space.length < c.points && t < c.points*30; t++){ const q = [root[0] + (r()*2 - 1)*wide, lerp(y0, ceiling, r()), root[2] + (r()*2 - 1)*wide]; if (inside(q)) space.push(q) }
   const near = (q, o, d, len, rad) => { const v = sub(q, o), t = clamp(dot(v, d)/len), x = v[0] - d[0]*len*t, y = v[1] - d[1]*len*t, z = v[2] - d[2]*len*t; return x*x + y*y + z*z < rad*rad }
   // angles are measured from the heading of the bough, not from the parent shoot: a chain of children all leaning the same way would add up to an arc, this way it can only zig-zag about its line
   // sunlight: a top-down map of the wood so far. A shoot that would lie under other wood counts for less, so branches spread round the crown instead of stacking
+  const tilt = (r() - .5)*14*v, climb = c.up + sp.upward - base.upward, sag = c.sag + sp.droop - base.droop
   const shade = new Map(), cellOf = q => Math.floor(q[0]/c.sunCell) + 4096*Math.floor(q[2]/c.sunCell), shadeOn = (o, d, len) => { let t = 0; for (let i = 1; i <= 4; i++) t += shade.get(cellOf(add(o, d, len*i/4))) ?? 0; return t/4 }
   // wood already grown, in a coarse grid: a shoot can't take a line that runs into it. Girth isn't known until the tree is finished, so each generation has an expected radius
   const woodGrid = new Map(), woodCell = 1.2*scale, woodKey = (x, y, z) => Math.floor(x/woodCell) + 2048*(Math.floor(y/woodCell) + 2048*Math.floor(z/woodCell))
@@ -240,10 +255,10 @@ function growColonise(sp, r, root, scale){
       const d = sub(e.q, q), gap = e.rad + rad + c.clear*scale; if (dot(d, d) < gap*gap) return true }
     return false }
   const shoot = (from, pd, k, turn, rise, wide, aim, to) => {
-    const sh = c.gens[k], around = perpTo(pd)
+    const sh = c.gens[k], around = perpTo(pd), spreadBy = was('childAngle')
     let best = null, top = 0
     for (let t = 0, tries = k < 3 ? 14 : 7; t < tries; t++){
-      const open = (wide ? lerp(c.sideMin, c.sideMax, r()) : rise === undefined ? lerp(sh.min, sh.max, r()) : lerp(c.limbLow, c.limbHigh, rise) + (r() - .5)*c.limbVar)*Math.PI/180, az = turn + (r() - .5)*(.8 + t/(tries - 1)*(tau - .8)),    way = rotateAbout(around, pd, az), d = aim ? norm(add(aim, randDir(r), t ? .22 : 0)) : norm(add([pd[0]*Math.cos(open), pd[1]*Math.cos(open), pd[2]*Math.cos(open)], way, Math.sin(open)))
+      const open = (wide ? lerp(c.sideMin, c.sideMax, r()) : rise === undefined ? lerp(sh.min, sh.max, r()) : lerp(c.limbLow + tilt, c.limbHigh + tilt, rise) + (r() - .5)*c.limbVar)*spreadBy*Math.PI/180, az = turn + (r() - .5)*(.8 + t/(tries - 1)*(tau - .8)),    way = rotateAbout(around, pd, az), d = aim ? norm(add(aim, randDir(r), t ? .22 : 0)) : norm(add([pd[0]*Math.cos(open), pd[1]*Math.cos(open), pd[2]*Math.cos(open)], way, Math.sin(open)))
       const high = clamp((from.p[1] - root[1] - H*c.highFrom)/(H*.3))   // the lower crown hangs and the upper crown climbs
       if (d[1] < lerp(wide ? c.droopSide : lerp(c.droop, c.droopTip, k/(c.gens.length - 1)), c.highRise, high)) continue    // thick wood holds itself up, fine wood hangs, and side boughs may dip to reach the lower crown
       const x = from.p[0] - root[0], z = from.p[2] - root[2], m = Math.hypot(x, z)
@@ -252,16 +267,16 @@ function growColonise(sp, r, root, scale){
       // a shoot takes a share of the room left to the outline, so lengths shrink geometrically on the way out and the wood ends in many short twigs at the edge
       let room = 0; while (room < H && inside(add(from.p, d, room + step))) room += step
       if (room < step) continue
-      const len = Math.min(to ? Math.min(room, to) : Math.min(room, Math.max(step, Math.max(room*c.share*lerp(.8, 1.2, r()), c.tip*scale))), (c.longest ?? 1e3)*scale*(c.shrink ?? 1)**k*lerp(.8, 1.1, r())),   // no generation runs further than this, however much room lies ahead: it has to divide
+      const len = Math.min(to ? Math.min(room, to) : Math.min(room, Math.max(step, Math.max(room*c.share*was('lengthRatio')*lerp(.8, 1.2, r()), c.tip*scale))), (c.longest ?? 1e3)*scale*was('lengthRatio')*(c.shrink ?? 1)**k*lerp(.8, 1.1, r())),   // no generation runs further than this, however much room lies ahead: it has to divide
         rad = clamp(len*c.claim, c.claimLeast*scale, c.claimMost*scale)
       const mine = girthOf(k), skip = (aim ? R*.8 : girthOf(Math.max(k - 1, 0))*2) + mine*2 + c.clear*scale
       // the shoot's own kinks are planned before it grows, side to side about its line, so the clearance check runs along the wood as it will really stand
-      const crook = c.crook*Math.min(1, .3 + k*.25), parts = clamp(Math.round(len/(c.crookLen*scale)), 1, 5), side0 = rotateAbout(perpTo(d), d, r()*tau), path = []
+      const crook = c.crook*was('gnarl')*Math.min(1, .3 + k*.25), parts = clamp(Math.round(len/(c.crookLen*scale)), 1, 5), side0 = rotateAbout(perpTo(d), d, r()*tau), path = []
       for (let i = 0, was = 0; i < parts; i++){ const lean = i%2 ? -1 : 1, off = lean*crook*lerp(.5, 1.5, r()), turnTo = parts > 1 ? off - was*.6 : 0; was = off
         path.push({ v: i ? norm(add(add(d, side0, turnTo), randDir(r), crook*.4)) : d, n: Math.max(Math.round(len/parts/step), 1) }) }
       { let blocked = false, q = from.p, u = 0, far = 0; for (const seg of path) for (let i = 0; i < seg.n && !blocked; i++){ q = add(q, seg.v, step); u += step; const out = Math.hypot(q[0] - root[0], q[2] - root[2]); far = Math.max(far, out); if (!above && out < R*c.core && out < far - .15*scale) blocked = true; else if (u >= skip) blocked = hits(q, mine, from.p, skip) } if (blocked) continue }
       let score = 0; for (const q of space) if (near(q, from.p, d, len, rad)) score++
-      score *= (1 + (c.up + high)*d[1])/(1 + c.sun*shadeOn(from.p, d, len))/len       // space claimed per metre: a long flat run earns nothing for its length
+      score *= (1 + (climb + high)*d[1])/(1 + c.sun*shadeOn(from.p, d, len))/len       // space claimed per metre: a long flat run earns nothing for its length
       if (score > top){ top = score; best = { d, len, rad, path } }
     }
     if (!best) return null
@@ -274,15 +289,15 @@ function growColonise(sp, r, root, scale){
   // big wood goes first, so finer wood fills what's left
   for (const n of nodes) noteWood(n.p, n.stage < 0 ? R : R*.7)
   const shoots = []
-  const limbs = leaderNodes.length, spin = r()*tau
-  for (let i = 0; i < c.limbs; i++){ const at = leaderNodes[Math.floor(lerp(1, limbs*c.limbTop, (i + r()*.5)/c.limbs))]; if (at) shoots.push({ from: at, pd: [0, 1, 0], k: 0, turn: spin + i*2.4, rise: i/(c.limbs - 1) }) }      // low limbs leave nearly level and high ones climb, so the crown fills to its corners and its top
+  const limbs = leaderNodes.length, spin = r()*tau, count = Math.max(Math.round(c.limbs*was('children')), 3)
+  for (let i = 0; i < count; i++){ const at = leaderNodes[Math.floor(lerp(1, limbs*c.limbTop, (i + r()*.5)/count))]; if (at) shoots.push({ from: at, pd: [0, 1, 0], k: 0, turn: spin + i*2.4, rise: i/(count - 1) }) }      // low limbs leave nearly level and high ones climb, so the crown fills to its corners and its top
   for (let i = 0, spun = r()*tau; i < c.crownLimbs; i++) shoots.unshift({ from: tip, pd: [0, 1, 0], k: 0, turn: spun + i/c.crownLimbs*tau, rise: 1.25 })      // the stem divides at its head into a few steep limbs, which fill the upper middle of the crown
   const spreadOut = most => { for (let made = 0; shoots.length && made < most; made++){
     const o = shoots.shift(), got = shoot(o.from, o.pd, o.k, o.turn, o.rise, o.wide, o.aim, o.to), next = o.k + 1
     if (!got || next >= c.gens.length) continue
     const sh = c.gens[next], chain = []; for (let n = got.tip; n !== o.from; n = n.parent) chain.push(n)
     // the first boughs climb, then wood spreads for the light: each generation leans further out from the middle of the crown, so the tips radiate from it like a burr
-    const out = norm(sub(got.tip.p, [root[0], root[1] + H*c.middle, root[2]])), heading = norm(add(add(o.heading ? norm(add(o.heading, got.d, c.follow)) : got.d, out, c.spread[Math.min(next, c.spread.length - 1)]), [0, 1, 0], -c.sag*next*(1 - clamp((got.tip.p[1] - root[1])/(H*c.highFrom)))))     // and the outer wood sags under its weight, most of all low in the crown
+    const out = norm(sub(got.tip.p, [root[0], root[1] + H*c.middle, root[2]])), heading = norm(add(add(o.heading ? norm(add(o.heading, got.d, c.follow)) : got.d, out, c.spread[Math.min(next, c.spread.length - 1)]), [0, 1, 0], -sag*next*(1 - clamp((got.tip.p[1] - root[1])/(H*c.highFrom)))))     // and the outer wood sags under its weight, most of all low in the crown
     let turn = r()*tau
     for (let i = 0; i < sh.fork; i++){ shoots.push({ from: got.tip, pd: heading, heading, k: next, turn }); turn += tau/sh.fork }
     for (let i = 0; i < sh.sides; i++){ const at = chain[Math.floor(lerp(.2, .75, (i + r())/sh.sides)*chain.length)]; if (at) shoots.push({ from: at, pd: heading, heading, k: next, turn: (turn += 2.4), wide: next <= c.wideTo && at.p[1] < root[1] + H*c.wideBelow }) }     // side branches leave wider than forks: that's what carries the crown out from rising limbs
@@ -349,122 +364,6 @@ function growColonise(sp, r, root, scale){
     for (const q of sides) queue.push({ start: q.k, parent: rec, atSection: q.at, level: o.level + 1 })
     tips.push({ p: pts[pts.length - 1], d: rec.trail[rec.sections].d, r: least, branch: rec, section: rec.sections })
   }
-  return { branches, tips }
-}
-
-// Ring growth, one repeated step: grow an axis, place rings along it, each ring spawns child axes, and at the tip it forks or stops. The trunk is the first axis.
-// Wood looks where it's going: each section takes the first direction that is clear of wood already grown, doesn't drop below its joint, doesn't head back at
-// the trunk and stays inside the crown. If none is, the branch simply stops. Thick wood grows first, so thin wood finds its way around it.
-function growRings(sp, r, root, scale){
-  const g = sp.rings, H = sp.height*scale, R = sp.trunkRadius*scale, branches = [], tips = [], queue = [], holdsUp = !sp.droop && !sp.arch && !(sp.hang > 0), levels = g.levels, env = ENVELOPE[sp.crown] || ENVELOPE.dome
-  const cell = Math.max(1.2*scale, R*1.3), grid = new Map(), keyOf = (x, y, z) => Math.floor(x/cell) + 4096*(Math.floor(y/cell) + 4096*Math.floor(z/cell))
-  const place = (e, was, o) => { const steps = was ? Math.ceil(Math.hypot(...sub(e.p, was.p))/(.3*scale)) : 1     // along the wood, close enough that nothing slips between
-    for (let i = 1; i <= steps; i++){ const u = i/steps, q = was ? add(was.p, sub(e.p, was.p), u) : e.p, k = keyOf(...q); (grid.get(k) ?? grid.set(k, []).get(k)).push({ p: q, rad: was ? lerp(was.rad, e.rad, u) : e.rad, o }) } }
-  const blocked = (q, rad, rec, near) => {
-    for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) for (const e of grid.get(keyOf(q[0] + x*cell, q[1] + y*cell, q[2] + z*cell)) ?? []){
-      if (e.o === rec || near && (e.o === rec.parent || e.o.parent === rec.parent || e.o === rec.parent?.parent)) continue
-      const d = sub(e.p, q), gap = e.rad + rad + g.gap*scale
-      if (dot(d, d) < gap*gap) return true
-    }
-    return false
-  }
-  const reachAt = y => { const t = (y - root[1] - H*g.bare*.7)/(H*(1 - g.bare*.7))
-    if (g.outline){ const u = clamp((y - root[1])/H)*(g.outline.length - 1), i = Math.min(Math.floor(u), g.outline.length - 2); return H*lerp(g.outline[i], g.outline[i + 1], u - i) }   // the silhouette of the real tree: width at each height
-    if (!g.shell) return H*g.width*env(clamp(t))
-    const u = (t - g.shell)/(t < g.shell ? g.shell + .12 : 1 - g.shell); return H*g.width*Math.sqrt(Math.max(0, 1 - u*u)) }      // a dome: every branch reaches for its surface
-  // how far wood can run along a direction before it leaves the crown: a branch is as long as the space in front of it
-  const toShell = (p, d) => { let s = 0; for (const step = .6*scale; s < H*1.2; s += step){ const q = add(p, d, s + step); if (q[1] > root[1] + H || Math.hypot(q[0] - root[0], q[2] - root[2]) > reachAt(q[1])) break } return s }
-  let ceiling = 1e9                                                     // the central stem is the tallest wood on the tree: it grows first, and nothing else rises past it
-  const fits = (q, from, a, rec, rad, near) => { if ((holdsUp && rec.level && q[1] < a[1]) || q[1] > root[1] + H*1.04 || (!rec.leader && q[1] > ceiling) || (rec.level && !rec.leader && Math.hypot(q[0] - root[0], q[2] - root[2]) > reachAt(q[1]))) return false
-    const steps = Math.ceil(Math.hypot(...sub(q, from))/(.3*scale)); for (let i = 1; i <= steps; i++) if (blocked(add(from, sub(q, from), i/steps), rad, rec, near)) return false
-    return true }
-  const sectors = new Float64Array(16), sectorOf = q => Math.floor(((Math.atan2(q[2] - root[2], q[0] - root[0]) + Math.PI*2)%(Math.PI*2))/(Math.PI/8))%16      // how much wood each side of the crown holds
-  const sink = .3*sp.flare*R, spin = r()*7
-  queue.push({ p: add(root, [0, -sink, 0]), d: norm([(r() - .5)*sp.lean*2, 1, (r() - .5)*sp.lean*2]), len: H*g.bare + sink, level: 0, r0: R, parent: null })
-  while (queue.length && branches.length < 1200){
-    const o = queue.shift(), sections = o.level ? Math.round(clamp(o.len/(.6*scale), 5, 28)) : 18, ds = o.len/sections, main = !o.level, trail = [], side = o.out ?? [Math.cos(spin), 0, Math.sin(spin)]
-    const rec = { ...o, trail, sections, radial: o.stem ? 18 : [36, 12, 7, 5][Math.min(o.level, 3)], roots: 5 + Math.floor(r()*3), kept: true, s: r()*9 }
-    let p = o.p, d = o.d, stopped = false
-    const n0 = perpTo(d), sideA = r()*7, L0 = o.level, size = g.ring[L0] ?? 1, nodes = o.stem || L0 ? g.nodes[L0] ?? 0 : 0, plan = new Map()
-    let phase = r()*7                                                    // where the rings go is decided first, because the wood bends at each one
-    if (L0 < levels) for (let k = 0; k < nodes; k++){
-      phase += size > 1 ? Math.PI/size + (r() - .5)*.4 : 2.4 + (r() - .5)*.3
-      if (r() >= g.skip) plan.set(Math.max(Math.round(lerp(g.start[L0]*sections, sections - 1, (k + .2 + r()*.6)/nodes)), 1), phase)
-    }
-    trail.push({ p, d, n: n0, rad: o.r0 })
-    for (let i = 0; i < sections; i++){
-      const t = (i + 1)/sections, rad = Math.max(o.r0*lerp(1, .2, t), .03*scale), w = o.target && i < 4 ? clamp((i + 1)/4) : 0, steer = w ? norm([lerp(o.d[0], o.target[0], w), lerp(o.d[1], o.target[1], w), lerp(o.d[2], o.target[2], w)]) : d
-      const thin = Math.min(TWIG_REF*R/rad, 4), pull = main ? .06 : o.leader ? .16 : g.up*thin, bow = main ? Math.sin(t*5 + sideA)*sp.sinuous*.08 : 0
-      const nd = norm(add(add(add(steer, side, bow), randDir(r), sp.gnarl*(main ? .2 : o.leader ? 1.3 : 1)), [0, 1, 0], pull))
-      if (g.kink && plan.has(i)){ const away = rotateAbout(perpTo(d), d, plan.get(i) + Math.PI); nd[0] += away[0]*g.kink; nd[1] += away[1]*g.kink; nd[2] += away[2]*g.kink; const m = Math.hypot(...nd); nd[0] /= m; nd[1] /= m; nd[2] /= m }   // wood bends away from each branch it gives off: that's the zig-zag of an oak
-      if (o.level && !o.leader) outward(nd, p, root, R, 1)
-      const near = i < 4
-      let step = null
-      for (let k = 0; k < 7 && !step; k++){
-        const v = k ? norm(add(nd, rotateAbout(perpTo(nd), nd, sideA + k*2.1), .18 + .1*k)) : nd
-        if (o.level && !o.leader) outward(v, p, root, R, 1)
-        const q = add(p, v, ds)
-        if (fits(q, p, o.p, rec, rad, near)) step = v
-      }
-      if (!step){ if (main || o.leader) step = nd; else { stopped = true; break } }
-      d = step; p = add(p, d, ds)
-      trail.push({ p, d, n: n0, rad })
-    }
-    if (trail.length < 3) continue                                       // nowhere to go: it never starts
-    rec.sections = trail.length - 1; rec.len = ds*rec.sections
-    if (rec.parent) rec.parent.hasKids = true
-    branches.push(rec); retangent(rec)
-    if (o.leader) ceiling = trail[trail.length - 1].p[1] - .03*H
-    trail.forEach((e, i) => place(e, trail[i - 1], rec))
-    if (o.level) for (const e of trail) if (Math.hypot(e.p[0] - root[0], e.p[2] - root[2]) > 2*scale) sectors[sectorOf(e.p)] += ds
-    const tip = trail[rec.sections], last = rec.sections, L = o.level
-    // the trunk divides into its stems
-    if (L === 0 && !o.stem){
-      const n = g.stems[0] + Math.floor(r()*(g.stems[1] - g.stems[0] + 1)), start = r()*7, spread = g.spread*Math.PI/180
-      for (let i = 0; i < n; i++){
-        const out = rotateAbout(perpTo(tip.d), tip.d, start + i/n*Math.PI*2 + (r() - .5)*.7), tilt = n > 1 ? spread*lerp(.75, 1.15, r()) : 0, target = norm(add([tip.d[0]*Math.cos(tilt), tip.d[1]*Math.cos(tilt), tip.d[2]*Math.cos(tilt)], out, Math.sin(tilt)))
-        const fromAt = n > 1 ? Math.round(last*.8) : last, from = trail[fromAt], each = R*BOLE_TOP*stemGirth(n), ring = n > 1 ? each*.2 : 0
-        queue.push({ p: add(from.p, out, ring), d: n > 1 ? target : tip.d, target, out, atSection: fromAt, continues: n === 1, stem: true, level: 0, r0: each, len: H*(g.tip === 'lead' ? 1 - g.bare : g.stemLen)*lerp(.92, 1.08, r()), parent: rec })
-      }
-      continue
-    }
-    // rings along the axis: a ring of one, turned on from the last, is how broadleaf trees set their branches
-    for (const [at, az0] of plan){
-      if (at >= last) continue
-      const e = trail[at], pd = e.d, spreadA = g.angle[L + 1]*Math.PI/180*lerp(.85, 1.15, r())
-      for (let c = 0; c < size; c++){
-        // a shoot heads for the light: of a few ways it could leave, it takes the one into the emptiest part of the crown
-        let cd = null, least = 1e12
-        for (let t = 0, tries = g.seek ?? 1; t < tries; t++){
-          const az = az0 + c/size*Math.PI*2 + t/tries*Math.PI*2 + (r() - .5)*.3, way = rotateAbout(perpTo(pd), pd, az), v = norm(add([pd[0]*Math.cos(spreadA), pd[1]*Math.cos(spreadA), pd[2]*Math.cos(spreadA)], way, Math.sin(spreadA)))
-          outward(v, e.p, root, R, 2)
-          if (holdsUp) v[1] = Math.max(v[1], .08)
-          const q = add(e.p, v, o.len*.4), crowded = sectors[sectorOf(q)]
-          if (crowded < least){ least = crowded; cd = v }
-        }
-        const room = g.shell ? toShell(e.p, cd)*lerp(g.fill ?? .8, 1, r()) : 1e9, len = Math.min(room, L === 0 ? H*g.reach*env(clamp((e.p[1] - root[1] - H*g.bare)/(H*(1 - g.bare))))*lerp(.8, 1.1, r()) : o.len*g.len[L + 1]*(g.shell ? 1 : 1 - .45*at/last)*lerp(.8, 1.15, r()))
-        if (len < 1.2*scale) continue
-        queue.push({ p: e.p, d: pd, target: cd, atSection: at, level: L + 1, r0: Math.max(e.rad*sp.limbRatio, .03*scale), len, parent: rec })
-      }
-    }
-    // at the tip it forks or stops
-    if (!stopped && g.tip === 'fork' && L < levels && L <= (g.forkTo ?? levels)){
-      rec.forks = true
-      const n = g.forks[0] + Math.floor(r()*(g.forks[1] - g.forks[0] + 1)), start = r()*7
-      const order = Array.from({ length: n }, (_, i) => (i + .5)/n)
-      for (let i = n - 1; i > 0; i--){ const j = Math.floor(r()*(i + 1)); [order[i], order[j]] = [order[j], order[i]] }
-      for (let i = 0; i < n; i++){
-        // the limbs share the circle evenly: the leader goes up the middle and takes no part of it. Steep and flat limbs are dealt out at random, or the tree leans to one side
-        const centre = g.centre && i === 0, around = n - (g.centre ? 1 : 0), slot = i - (g.centre ? 1 : 0), out = rotateAbout(perpTo(tip.d), tip.d, start + slot/around*Math.PI*2 + (r() - .5)*.4), tilt = centre ? .14 : g.forkAngle*Math.PI/180*lerp(.5, 1.3, order[slot]), target = norm(add([tip.d[0]*Math.cos(tilt), tip.d[1]*Math.cos(tilt), tip.d[2]*Math.cos(tilt)], out, Math.sin(tilt)))
-        if (!centre) outward(target, tip.p, root, R, 2)
-        queue.push({ p: tip.p, d: tip.d, target, atSection: last, fork: true, leader: centre, level: L + 1, r0: tip.rad*.78, len: centre ? H*g.centre*lerp(.92, 1.06, r()) : g.shell ? toShell(tip.p, target)*lerp(g.fill ?? .85, 1, r()) : (L === 0 && g.limbLen ? H*g.limbLen : o.len*g.forkLen)*lerp(.85, 1.1, r()), parent: rec })
-      }
-    }
-  }
-  // leaves live on the wood that ends, and on the outer half of what's finest
-  for (const b of branches){ if (branches.some(k => k.parent === b && k.fork) || !b.level) continue
-    tips.push({ p: b.trail[b.sections].p, d: b.trail[b.sections].d, r: .03*scale, branch: b, section: b.sections })
-    const section = Math.round(b.sections*.55), m = b.trail[section]; if (b.level >= Math.max(levels - 1, 1)) tips.push({ p: m.p, d: m.d, r: .03*scale, branch: b, section }) }
   return { branches, tips }
 }
 
@@ -1288,13 +1187,12 @@ function individual(sp, seed){
 }
 
 export function generatePlant(species, seed, root, scale, wood, foliage, ivy = newBuffer()){
-  const sp = individual(species.useRings && species.rings?.variety !== undefined ? { ...species, variety: species.rings.variety } : species, seed)
+  const sp = individual(species, seed)
   scale *= species.size                                                // a species' true mature size: everything grows together, so proportions hold
   const r = mulberry32(seed*2654435761 >>> 0)
   let tips = [], branches, clumps
-  if (species.useRings && sp.rings?.colonise){
+  if (sp.rings?.colonise){
     sp.trunkRadius *= sp.rings.girth ?? 1
-    Object.assign(sp, sp.rings.as)                                       // what this growth changes about the species: its lean and its leaf masses
     ;({ branches, tips } = growColonise(sp, r, root, scale))
     clumps = makeClumps(sp, r, tips, scale, root)
     for (const b of branches) b.kids = branches.filter(k => k.parent === b)
@@ -1302,7 +1200,7 @@ export function generatePlant(species, seed, root, scale, wood, foliage, ivy = n
     clotheWood(sp, r, branches, clumps, root, scale)
     // every branch ends in leaves: a tip no foliage reached gets its own small spray
     for (const t of tips){ const over = clumps.some(c => { const d = sub(t.p, c.c); d[1] /= sp.squash; return dot(d, d) < (c.r*.8)**2 })
-      if (!over){ const near = clumps.reduce((m, o) => { const d = sub(o.c, t.p), dd = dot(d, d); return dd < m.dd ? { dd, o } : m }, { dd: 1e12, o: clumps[0] }).o, c = add(t.p, t.d, sp.clumpRadius*scale*.25); clumps.push({ c, r: sp.clumpRadius*scale*.62, shelf: near.shelf, rim: .5, mass: near.mass, anchor: { b: t.branch, sec: t.section, p: t.p } }) } }
+      if (!over){ const near = clumps.reduce((m, o) => { const d = sub(o.c, t.p), dd = dot(d, d); return dd < m.dd ? { dd, o } : m }, { dd: 1e12, o: clumps[0] }).o ?? {}, c = add(t.p, t.d, sp.clumpRadius*scale*.25); clumps.push({ c, r: sp.clumpRadius*scale*.62, shelf: near.shelf, rim: .5, mass: near.mass ?? t.p, anchor: { b: t.branch, sec: t.section, p: t.p } }) } }
     // seen from above the crown has no holes: an open patch takes a spray on the highest fine wood beneath it, so the leaves are always on real wood
     { const reach = Math.max(...clumps.map(c => Math.hypot(c.c[0] - root[0], c.c[2] - root[2]) + c.r)), cell = 1.5*scale, rad = sp.clumpRadius*scale*.8, g = sp.rings.colonise
       for (let x = -reach; x <= reach; x += cell) for (let z = -reach; z <= reach; z += cell){
@@ -1314,26 +1212,6 @@ export function generatePlant(species, seed, root, scale, wood, foliage, ivy = n
         const near = clumps.reduce((m, o) => { const d = sub(o.c, best.p), dd = dot(d, d); return dd < m.dd ? { dd, o } : m }, { dd: 1e12, o: clumps[0] }).o
         clumps.push({ c: add(best.p, [0, rad*sp.squash*.2, 0]), r: rad, shelf: near.shelf, rim: .5, mass: near.mass, anchor: best })
       } }
-  } else if (species.useRings && sp.rings){
-    sp.limbRatio = sp.rings.side ?? sp.limbRatio
-    sp.trunkRadius *= sp.rings.girth ?? 1
-    ;({ branches, tips } = growRings(sp, r, root, scale))
-    clumps = makeClumps(sp, r, tips, scale, root)
-    for (const c of clumps) if (c.anchor) c.anchor.b.carries = true
-    for (const b of branches) b.kids = branches.filter(k => k.parent === b)
-    girth(sp, branches, scale)
-    sp.tipsOnly = true
-    clotheWood(sp, r, branches, clumps, root, scale)
-    trimTips(sp, branches, clumps)
-    for (let pass = 0; pass < 3; pass++){
-      girth(sp, branches, scale)
-      for (const b of [...branches].reverse()) if (b.kept && b.level && !b.stem && !b.fork && !b.continues && !branches.some(k => k.kept && k.parent === b)){     // a branch is long enough for its girth, or it's a horn
-        const end = Math.min(b.cut ?? b.trail.length - 1, b.trail.length - 1); let L = 0
-        for (let i = 1; i <= end; i++) L += Math.hypot(...sub(b.trail[i].p, b.trail[i - 1].p))
-        if (L < SLENDER*b.trail[0].rad) b.kept = false
-      }
-    }
-    girth(sp, branches, scale)
   } else {
   branches = growSkeleton(sp, r, root, scale, tips)
   shapeCrown(sp, r, root, scale, branches, tips)
