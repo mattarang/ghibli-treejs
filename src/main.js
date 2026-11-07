@@ -158,7 +158,7 @@ const foliageDepth = patch(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGB
 const barkLook = { uBarkScale: { value: 1 }, uBarkStretch: { value: 1 }, uBarkPlates: { value: 0 }, uBarkBands: { value: 0 } }
 const sink = { value: 1 }, crownDark = { value: 1 }    // both only mean anything with foliage there to hide the wood
 const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughness: .9 }), {
-  toon: true, wind: true, softRamp: true, pigment: 'gRidge*.3',
+  toon: true, wind: true, flatShadow: true, softRamp: true, pigment: 'gRidge*.3',
   // Wood inside a clump sinks behind the leaves in depth alone, the amount it is buried: it stays where it is on screen, so a limb runs up to the
   // foliage and goes in, and never shows as a loose piece floating in front of a clump's body. Its shadow doesn't move.
   afterClip: 'if (aLeaf.x < -.5 && uCrownDark < .5) gl_Position = vec4(2., 2., 2., 1.); else if (vLeafA.y > 0.){ vec4 sunk = projectionMatrix*vec4(mvPosition.xy, mvPosition.z - uSink*vLeafA.y, 1.); gl_Position.z = sunk.z/sunk.w*gl_Position.w; }',
@@ -334,6 +334,7 @@ const compareF = gui.addFolder('Compare').close()
 compareF.add({ person: false }, 'person').name('Person for scale (1.7 m)').onChange(v => { person.visible = v; placePerson() })
 compareF.add({ on: false }, 'on').name('Show reference').onChange(v => { compare.set(v); frame() })
 compareF.add({ next(){ compare.next() } }, 'next').name('Next reference')
+compareF.add({ forget(){ compare.forget() } }, 'forget').name('Forget my picture')
 const treeF = gui.addFolder('Plant')
 // wood alone, for reviewing structure: leaves, ivy and their shadows go, and buried wood comes back to its true depth
 function applyFoliage(){

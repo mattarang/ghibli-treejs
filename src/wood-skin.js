@@ -27,6 +27,7 @@ export function skinWood(axes, wood, sway, root, finest){
   const nx = Math.ceil((hi[0] - lo[0])/h) + 3, ny = Math.ceil((hi[1] - lo[1])/h) + 3, nz = Math.ceil((hi[2] - lo[2])/h) + 3, cells = nx*ny*nz, row = nx*ny
   const x0 = lo[0] - h, y0 = lo[1] - h, z0 = lo[2] - h
   if (S.length < cells){ S = new Float32Array(cells); peak = new Float32Array(cells); owner = new Uint16Array(cells) } else { S.fill(0, 0, cells); owner.fill(0, 0, cells) }
+  const rowLo = new Int32Array(ny*nz).fill(1 << 30), rowHi = new Int32Array(ny*nz).fill(-1)
   // axes of one group are one piece of wood: within it the strongest field wins, so a continuing limb doesn't swell where its pieces meet
   const q = [0, 0, 0]
   for (const x of axes){
@@ -46,6 +47,7 @@ export function skinWood(axes, wood, sway, root, finest){
             const f = Math.exp(-SOFT*(Math.sqrt(dd)/r - 1))
             if (owner[c] !== id){ owner[c] = id; peak[c] = 0 }
             if (f > peak[c]){ S[c] += f - peak[c]; peak[c] = f }
+            { const rw = y + z*ny; if (k < rowLo[rw]) rowLo[rw] = k; if (k > rowHi[rw]) rowHi[rw] = k }
           }
         }
       }
@@ -54,10 +56,11 @@ export function skinWood(axes, wood, sway, root, finest){
   // surface nets: one vertex in every cell the surface passes through, joined across the edges it crosses
   const pos = [], nor = [], tris = [], here = new Int32Array(row).fill(-1); let before = new Int32Array(row).fill(-1), now = here
   const CORNER = [0, 1, nx, nx + 1, row, row + 1, row + nx, row + nx + 1], EDGES = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]]
-  const place = (a, b) => a < 0 ? 0 : (1 - a)/(b - a)
+  const XR = new Int32Array(ny*2)
   for (let z = 0; z < nz - 1; z++){
     now.fill(-1)
-    for (let y = 0; y < ny - 1; y++) for (let x = 0, c = y*nx + z*row; x < nx - 1; x++, c++){
+    for (let y = 0; y < ny - 1; y++){ const r0 = y + z*ny, r1 = r0 + 1, r2 = r0 + ny, r3 = r2 + 1, X0 = Math.max(Math.min(rowLo[r0], rowLo[r1], z < nz - 1 ? rowLo[r2] : 1 << 30, z < nz - 1 ? rowLo[r3] : 1 << 30) - 1, 0), X1 = Math.min(Math.max(rowHi[r0], rowHi[r1], z < nz - 1 ? rowHi[r2] : -1, z < nz - 1 ? rowHi[r3] : -1) + 1, nx - 1); XR[y*2] = X0; XR[y*2 + 1] = X1
+    for (let x = X0, c = x + y*nx + z*row; x < X1; x++, c++){
       let mask = 0
       for (let k = 0; k < 8; k++) if (S[c + CORNER[k]] > 1) mask |= 1 << k
       if (mask === 0 || mask === 255) continue
@@ -76,8 +79,8 @@ export function skinWood(axes, wood, sway, root, finest){
       let gx = log(g - 1) - log(g + 1), gy = log(g - nx) - log(g + nx), gz = log(g - row) - log(g + row), l = Math.hypot(gx, gy, gz) || 1
       nor.push(gx/l, gy/l, gz/l)
       now[x + y*nx] = v
-    }
-    for (let y = 0; y < ny - 1; y++) for (let x = 0, c = y*nx + z*row; x < nx - 1; x++, c++){
+    } }
+    for (let y = 0; y < ny - 1; y++) for (let x = XR[y*2], c = x + y*nx + z*row; x < XR[y*2 + 1]; x++, c++){
       const v = now[x + y*nx]
       if (v < 0) continue
       const s = S[c] > 1, quad = (a, b, d) => {

@@ -31,7 +31,7 @@ export function makeCompare(onLayout){
     big.onload = () => {
       const k = Math.min(1, 1000/Math.max(big.width, big.height)), c = document.createElement('canvas')
       c.width = big.width*k; c.height = big.height*k; c.getContext('2d').drawImage(big, 0, 0, c.width, c.height)
-      if (!remember(state.species, c.toDataURL('image/jpeg', .85))) note.textContent = 'Shown, but too large to remember'
+      if (!remember(state.species, c.toDataURL('image/jpeg', .85))) { note.textContent = 'Shown, but too large to remember'; img.src = shown }
       else show()
     }
     big.src = shown
@@ -40,6 +40,7 @@ export function makeCompare(onLayout){
     get width(){ return state.on ? box.offsetWidth : 0 },
     set(on){ state.on = on; box.style.display = on ? 'flex' : 'none'; if (on) show(); onLayout() },
     species(name){ state.species = name; if (state.on) show() },
-    next(){ forget(state.species); state.studio++; show() },
+    next(){ state.studio++; note.textContent = 'Studio reference'; img.onerror = null; img.src = STUDIO[state.studio%STUDIO.length] },
+    forget(){ forget(state.species); show() },
   }
 }

@@ -23,6 +23,7 @@ export function makeSky(){
       }`,
   })
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), mat)
+  mesh.scale.setScalar(1000)                                           // from the start, so a render before the first frame still has a sky
   mesh.frustumCulled = false; mesh.renderOrder = 10                 // last: six octaves per pixel, so only the pixels still empty pay for them
   mesh.update = s => { u.uTop.value.copy(s.top); u.uHorizon.value.copy(s.horizon); u.uSun.value.copy(s.sunDir); u.uSunColor.value.copy(s.sunColor)
     u.uCloud.value = s.cloud; u.uNight.value = s.night; u.uAmb.value = Math.min(1, s.ambK) }
