@@ -99,7 +99,7 @@ export function skinWood(axes, wood, sway, root, finest){
   // an edge is as smooth as the wood's own curve however coarse the grid. Bark, weathering and wind are read from every axis nearby, in proportion to its
   // field, so they cross a fillet as smoothly as the surface does.
   const base = wood.pos.length/3, groups = axes.reduce((m, x) => Math.max(m, x.group), 0) + 1, best = new Float32Array(groups), gx = new Float32Array(groups), gy = new Float32Array(groups), gz = new Float32Array(groups), rec = new Array(groups)
-  const near = [], rings = axes, crease = new Float32Array(pos.length/3)
+  const near = [], crease = new Float32Array(pos.length/3)
   for (const x of axes) x.reach = x.rings.map((b, i) => { if (!i) return null
     const a = x.rings[i - 1], half = Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2])/2, far = half + Math.max(a.r, b.r)*REACH
     return [(a.p[0] + b.p[0])/2, (a.p[1] + b.p[1])/2, (a.p[2] + b.p[2])/2, far*far] })
@@ -115,7 +115,7 @@ export function skinWood(axes, wood, sway, root, finest){
   for (let v = 0; v < pos.length/3; v++){
     q[0] = pos[v*3]; q[1] = pos[v*3 + 1]; q[2] = pos[v*3 + 2]
     near.length = 0
-    for (const x of rings) if (q[0] > x.lo[0] - h && q[0] < x.hi[0] + h && q[1] > x.lo[1] - h && q[1] < x.hi[1] + h && q[2] > x.lo[2] - h && q[2] < x.hi[2] + h) near.push(x)
+    for (const x of axes) if (q[0] > x.lo[0] - h && q[0] < x.hi[0] + h && q[1] > x.lo[1] - h && q[1] < x.hi[1] + h && q[2] > x.lo[2] - h && q[2] < x.hi[2] + h) near.push(x)
     let nx = nor[v*3], ny = nor[v*3 + 1], nz = nor[v*3 + 2]
     for (let step = 0; step < 3; step++){
       read()

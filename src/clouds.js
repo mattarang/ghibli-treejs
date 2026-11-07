@@ -38,7 +38,7 @@ export function makeClouds(){
         }
       }
       const fromV = b.pos.length/3
-      emitFoliage(SP, r, clumps, [0, 0, 0], 1, b, newBuffer())
+      emitFoliage(SP, r, clumps, [0, 0, 0], 1, b)
       // into place: cloud space is x across, y up, z toward the viewer
       const out = new THREE.Vector3(Math.cos(az)*Math.cos(el), Math.sin(el), Math.sin(az)*Math.cos(el)), right = new THREE.Vector3(-Math.sin(az), 0, Math.cos(az))
       const up = new THREE.Vector3().crossVectors(right, out).normalize(); if (up.y < 0) up.negate()

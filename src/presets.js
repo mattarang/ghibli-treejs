@@ -2,7 +2,7 @@
 const MEADOW = ['#1f6a4a', '#2f8f4e', '#66b54a', '#b0d868']
 const BARK = ['#1e1e10', '#38391f', '#7a7044', '#b4b078']
 
-const DEFAULTS = { fused: 0, midSize: 2.4, lobePoint: 0, lobeTilt: 0, lobeRough: 1, lobeStretch: null, barkScale: 1, barkStretch: 1, barkPlates: 0, barkBands: 0, barkFurrow: 1, form: 0, colorPick: 0, colors: null, envTop: 2, envHeart: 0, envCone: 0, envW: 0, envPeak: .4, envFill: 46, realMarks: true, size: 1, keepWood: 0, clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, sleeve: 3.5, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
+const DEFAULTS = { fused: 0, midSize: 2.4, lobePoint: 0, lobeTilt: 0, lobeRough: 1, lobeStretch: null, barkScale: 1, barkStretch: 1, barkPlates: 0, barkBands: 0, barkFurrow: 1, form: 0, colorPick: 0, colors: null, envTop: 2, envHeart: 0, envCone: 0, envW: 0, envPeak: .4, envFill: 46, realMarks: true, size: 1, keepWood: 0, clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
 
 export const SPECIES = {
   'Camphor tree': {
@@ -19,7 +19,7 @@ export const SPECIES = {
     sinuous: .35, ivy: .4,
     moss: 0.45,
     gesture: 'dome', crownWidth: .78, asym: .2, notches: 1, massVar: 0.45,
-    height: 12.5, trunkRadius: .72, trunkFrac: .26, lean: .06, flare: 0.7, levels: 4, children: 7, childAngle: 40, lengthRatio: 1,
+    height: 12.5, trunkRadius: .72, trunkFrac: .26, lean: .06, flare: 0.7, levels: 3, children: 7, childAngle: 40, lengthRatio: 1,
     childStart: .6, gnarl: .1, upward: 0, crown: 'dome',
     clumpRadius: 1.25, clumpVar: .45, clumpsPerTip: 1.1, clumpSpacing: .72, squash: .78, massBlend: .72, lift: 1.8, cardSize: 0.96, coverage: 1.5, core: true,
     leaf: 'round', edge: 'pointed', palette: ['#143f3a', '#2a7040', '#5a9e4a', '#8cc468'], bark: BARK, ground: MEADOW, sss: '#b0d470', rim: '#84c473', fleck: .45,
@@ -37,7 +37,7 @@ export const SPECIES = {
     stems: 1, sinuous: .25, ivy: .3,
     moss: 0.8,
     gesture: 'dome', crownWidth: .66, asym: .22, windLean: 0, notches: 0, massVar: .5,
-    height: 10, trunkRadius: .62, trunkFrac: .28, lean: .06, flare: 0.7, levels: 4, children: 8, childAngle: 38, lengthRatio: .95,
+    height: 10, trunkRadius: .62, trunkFrac: .28, lean: .06, flare: 0.7, levels: 3, children: 8, childAngle: 38, lengthRatio: .95,
     childStart: .55, gnarl: .14, upward: .04, crown: 'dome',
     clumpRadius: 1.35, clumpVar: .55, clumpsPerTip: 1.1, clumpSpacing: .72, squash: .68, massBlend: .72, lift: 1.5, cardSize: 0.90, coverage: 1.5, core: true,
     leaf: 'round', edge: 'pointed', palette: ['#1c4226', '#33703a', '#649c44', '#94c462'], bark: BARK, ground: MEADOW, sss: '#bcd478', rim: '#9ac878', fleck: .55,
@@ -76,7 +76,7 @@ export const SPECIES = {
     stems: 2, forkHeight: .16, stemSpread: 30, sinuous: .35,
     moss: 0.25,
     gesture: 'umbrella', crownWidth: .62, asym: .24, notches: 1, massVar: 0.45,
-    height: 8.5, trunkRadius: 0.5, trunkFrac: .34, lean: .14, flare: .7, levels: 3, children: 4, childAngle: 60, lengthRatio: .74,
+    height: 8.5, trunkRadius: 0.5, trunkFrac: .34, lean: .14, flare: .7, levels: 2, children: 4, childAngle: 60, lengthRatio: .74,
     childStart: .6, gnarl: .12, upward: 0, crown: 'umbrella',
     clumpRadius: 1, clumpVar: .5, clumpsPerTip: 1.3, clumpSpacing: .75, squash: .6, massBlend: .75, lift: 1.8, cardSize: 0.72, coverage: 1, core: true,
     leaf: 'round', edge: 'pointed', palette: ['#b4688e', '#e08eaa', '#f6b8ca', '#ffdedd'], bark: ['#2c2220', '#4a3428', '#7e5a42', '#caa282'], ground: MEADOW, sss: '#ffc4c8', rim: '#ffd9e0', fleck: 0,
@@ -100,14 +100,13 @@ export const SPECIES = {
     sinuous: .55,
     moss: 0.35,
     gesture: 'dome', crownWidth: .5, asym: .3, notches: 1, massVar: .4,
-    height: 9, trunkRadius: .38, trunkFrac: .34, lean: .06, flare: .7, levels: 3, children: 6, childAngle: 50, lengthRatio: .66,
+    height: 9, trunkRadius: .38, trunkFrac: .34, lean: .06, flare: .7, levels: 2, children: 6, childAngle: 50, lengthRatio: .66,
     childStart: .4, gnarl: .1, upward: 0, crown: 'oval',
     clumpRadius: .75, clumpVar: .45, clumpsPerTip: 1.1, clumpSpacing: .6, squash: .42, massBlend: .65, lift: 1.3, cardSize: 0.81, coverage: 1.5, core: true,
     strays: .2, leaf: 'pointed', edge: 'spray', palette: ['#7c3c3e', '#b84f34', '#ea8a40', '#ffdc76'], bark: ['#2a3034', '#4a5052', '#7c807a', '#bcbcae'], ground: ['#6a6240', '#8e8244', '#bc9e4e', '#e8cf84'], sss: '#ffc25a', rim: '#ffcf80', fleck: .35,
   },
   'Stone pine': {
     crownBlend: .3, lobes: 7, tighten: .1,
-    sleeve: 0,
     lift: 1.4,
     forkAngle: 34, variety: 1.1,
     sideShoots: 3,
@@ -138,7 +137,7 @@ export const SPECIES = {
     shelves: 5,
     stems: 2.3, forkHeight: .07, stemSpread: 24, sinuous: .4, ivy: .3, moss: .55,
     gesture: 'dome', crownWidth: .5, asym: .24, notches: 1, massVar: .6,
-    height: 7.5, trunkRadius: .32, trunkFrac: .32, lean: .05, flare: .8, levels: 3, children: 5, childAngle: 42, lengthRatio: .78,
+    height: 7.5, trunkRadius: .32, trunkFrac: .32, lean: .05, flare: .8, levels: 2, children: 5, childAngle: 42, lengthRatio: .78,
     childStart: .45, gnarl: .12, upward: 0, crown: 'vase',
     clumpRadius: .85, clumpVar: .45, clumpsPerTip: 1.2, clumpSpacing: .85, squash: .72, massBlend: .6, cardSize: .65, coverage: 1.4, core: true, lift: 1.3,
     leaf: 'round', edge: 'pointed', palette: ['#1e4430', '#30743c', '#62a44a', '#90c666'], bark: BARK, ground: MEADOW, sss: '#b0d470', rim: '#84c473', fleck: .35,
@@ -146,7 +145,6 @@ export const SPECIES = {
   'Japanese cedar': {
     ownBough: 1, shell: .6, lobes: 14, tighten: .15,
     cover: .8, crownLine: 0.24,
-    sleeve: 0,
     maxLimb: .14, arch: .03,
     whorls: 4, sideShoots: 2,
     leader: .5,
@@ -297,3 +295,8 @@ for (const k in SPECIES) SPECIES[k] = { ...DEFAULTS, ...SPECIES[k] }
 
 export const CROWNS = ['dome', 'oval', 'column', 'cone', 'umbrella', 'vase']
 export const BRUSHES = { 'Gouache blot': 'round', 'Jagged blot': 'pointed', 'Clover': 'clover', 'Leaf sprig': 'spray', 'Dry scumble': 'scumble', 'Sponge dots': 'blossom', 'Needle fan': 'needle', 'Long pull': 'willow' }
+
+// Ring growth (prototype): each list is per level, trunk first. nodes = rings on an axis, ring = branches in a ring, angle = how far they leave it, len = length against the parent.
+SPECIES['Lombardy poplar'].rings = { bare: .06, stems: [1, 1], spread: 0, tip: 'lead', nodes: [18, 2, 2], ring: [3, 1, 1], angle: [0, 18, 24, 26], len: [0, 0, .45, .45], start: [.04, .3, .3], skip: .12, width: .13, reach: .24, up: .1, levels: 2, gap: .06 }
+SPECIES['English oak'].rings = { colonise: { points: 3200, step: .5, kill: 1.05, reach: 4.5, bottom: .21, straight: 1.2, up: .1, lobes: .1, turn: .985, zig: .16, least: 2, runCore: 16, runTip: 2, split: .36, thorn: 11 }, seek: 4, outline: [0.27,0.27,0.27,0.27,0.27,0.289,0.331,0.398,0.484,0.52,0.504,0.495,0.508,0.525,0.529,0.516,0.507,0.518,0.542,0.564,0.567,0.551,0.534,0.517,0.488,0.432,0.352,0.294,0.274,0.255,0.197,0.101,0], shell: .42, centre: .8, girth: .72, side: .5, bare: .14, stems: [1, 1], spread: 0, stemLen: .04, tip: 'fork', forkTo: 0, fill: .95, forks: [5, 6], forkAngle: 68, limbLen: .6, nodes: [0, 8, 5, 3], ring: [1, 1, 1, 1], angle: [0, 44, 46, 44], len: [0, 0, .7, .6], start: [.3, .1, .15, .2], skip: .12, width: .6, reach: .34, up: .007, kink: .34, levels: 3, gap: .05 }
+SPECIES['Japanese cedar'].rings = { bare: .16, stems: [1, 1], spread: 0, tip: 'lead', nodes: [18, 3, 2], ring: [4, 1, 1], angle: [0, 76, 50, 45], len: [0, 0, .42, .42], start: [.03, .3, .3], skip: .1, width: .24, reach: .26, up: -.015, levels: 2, gap: .06 }

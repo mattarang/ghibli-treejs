@@ -53,6 +53,6 @@ export function applyLighting(p, L){
 
   const state = { top, horizon, sunDir: dir, sunColor: color, cloud: p.clouds, night: 1 - THREE.MathUtils.smoothstep(I, .35, 1.2), ambK }
   L.sky.update(state); L.clouds.light(state)
-  L.scene.fog.color.copy(horizon).lerp(top, .15)
+  L.scene.fog.color.copy(horizon)
   L.scene.fog.near = 220; L.scene.fog.far = 240 + 520*(1 - p.haze)   // haze belongs to the far landscape: trees at any viewing distance keep their true colour
 }

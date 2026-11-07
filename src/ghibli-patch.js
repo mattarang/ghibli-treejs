@@ -11,11 +11,10 @@
 import * as THREE from 'three'
 
 export const U = {
-  uTime: { value: 0 }, uWind: { value: 0 }, uSunLum: { value: 1 }, uSunUp: { value: 1 }, uDay: { value: 1 },
-  uPuff: { value: .72 }, uBands: { value: 4 }, uSoft: { value: .1 }, uToonMix: { value: .85 }, uPaletteMix: { value: 1 }, 
-  uSss: { value: .55 }, uRim: { value: .3 }, uFleck: { value: .45 }, uFleckScale: { value: 3.2 },
+  uTreeN: { value: 24 }, uTime: { value: 0 }, uWind: { value: 0 }, uSunLum: { value: 1 }, uSunUp: { value: 1 }, uDay: { value: 1 },
+  uBands: { value: 4 }, uSoft: { value: .1 }, uToonMix: { value: .85 }, uPaletteMix: { value: 1 }, 
+  uSss: { value: .55 }, uRim: { value: .3 }, uFleck: { value: .45 }, 
   uSway: { value: 1 }, uFlutter: { value: .035 },
-  uBarkWarm: { value: new THREE.Color(0x8a5a36) }, uBarkWarmMix: { value: .35 }, uBarkGrain: { value: .45 }, uBarkRootAO: { value: .45 }, uBarkCanopyAO: { value: .3 },
   uShadowFill: { value: new THREE.Color(0xffb27a) }, uShadowFillK: { value: .05 },
   uPigment: { value: 1 }, uLightShape: { value: .34 }, uSelfShade: { value: 1 }, uMass: { value: 1 }, uHueVar: { value: 1 }, uAir: { value: 1 }, uMoss: { value: .6 }, uBarkVar: { value: 1 }, uFurrow: { value: 1 }, uTrees: { value: Array.from({ length: 24 }, () => new THREE.Vector3(1e5, 1e5, 1)) }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uAmbTint: { value: new THREE.Color(1, 1, 1) }, uSunTint: { value: new THREE.Color(1, 1, 1) },
   uLanternPos: { value: new THREE.Vector3(3, 2, 3) }, uLanternColor: { value: new THREE.Color(0xffb35a) }, uLanternI: { value: 0 },
@@ -26,10 +25,9 @@ export const setPalette = (pal, hexes) => pal.forEach((u, i) => u.value.set(hexe
 export const paletteUniforms = pal => ({ uPal0: pal[0], uPal1: pal[1], uPal2: pal[2], uPal3: pal[3] })
 
 const PARS = /* glsl */`
-  uniform float uPuff, uBands, uSoft, uToonMix, uPaletteMix, uSss, uRim, uFleck, uFleckScale, uBarkWarmMix, uBarkGrain, uBarkRootAO, uBarkCanopyAO,
-    uShadowFillK, uSunLum, uSunUp, uDay, uLanternI, uPigment;
-  uniform vec3 uRimColor, uSssColor, uBarkWarm, uShadowFill, uAmbTint, uSunTint, uLanternPos, uLanternColor, uPal0, uPal1, uPal2, uPal3;
-  float gFleck = 0., gMod = 1.; vec3 gGlow = vec3(0.), gTint = vec3(1.);`
+  uniform float uBands, uSoft, uToonMix, uPaletteMix, uShadowFillK, uSunLum, uSunUp, uDay, uLanternI, uPigment;
+  uniform vec3 uShadowFill, uAmbTint, uSunTint, uLanternPos, uLanternColor, uPal0, uPal1, uPal2, uPal3;
+  float gMod = 1.; vec3 gTint = vec3(1.);`
 
 const GLSL_NOISE = /* glsl */`
   float h21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
@@ -69,10 +67,6 @@ const GLSL_LIT = /* glsl */`
       tl.color *= clamp(toonRamp(ndl)/max(ndl, 1e-3), 0., 4.);
     #endif
     RE_Direct_Physical(tl, gp, gn, gv, gcn, m, rl);
-    #ifdef G_SSS
-      float back = pow(saturate(dot(-gv, dl.direction)), 3.)*uSss*seen;
-      gGlow += back*uSssColor*uSunTint*(.35 + m.diffuseColor)*uDay;
-    #endif
   }`
 
 export function patch(mat, o){
@@ -83,12 +77,10 @@ export function patch(mat, o){
     Object.assign(sh.uniforms, U, o.uniforms || {})
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
-        uniform float uTime, uWind, uSway, uFlutter; varying vec3 vWPos; varying vec3 vLocal; ${GLSL_NOISE} ${o.wind ? 'attribute vec4 aWind;' + GLSL_WIND : ''}
-        ${o.puff ? 'attribute vec3 clusterCenter; varying vec3 vSphN;' : ''} ${o.vertexPars || ''}`)
+        uniform float uTime, uWind, uSway, uFlutter; varying vec3 vWPos; ${GLSL_NOISE} ${o.wind ? 'attribute vec4 aWind;' + GLSL_WIND : ''}
+        ${o.vertexPars || ''}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vLocal = position; ${o.vertexBegin || ''}`)
-      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
-        ${o.puff ? `{ vec3 d = position - clusterCenter; vec3 sN = dot(d,d) > 1e-8 ? normalize(d) : objectNormal; vSphN = normalize(normalMatrix*sN); }` : ''}`)
+        ${o.vertexBegin || ''}`)
       .replace('#include <project_vertex>', `
         vec4 mvPosition = vec4(transformed, 1.0);
         vec4 wPos = modelMatrix*mvPosition;
@@ -104,8 +96,8 @@ export function patch(mat, o){
         #endif`)
     if (!sh.fragmentShader.includes('#include <common>')) return
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      ${o.toon ? '#define G_TOON' : ''} ${o.sss ? '#define G_SSS' : ''}
-      varying vec3 vWPos; varying vec3 vLocal; ${PARS} ${GLSL_NOISE} ${o.puff ? 'varying vec3 vSphN;' : ''} ${o.fragmentPars || ''}`)
+      ${o.toon ? '#define G_TOON' : ''}
+      varying vec3 vWPos; ${PARS} ${GLSL_NOISE} ${o.fragmentPars || ''}`)
     if (!sh.fragmentShader.includes('lights_physical_pars_fragment')) return   // depth materials stop here
     // three dithers its soft shadow samples per screen pixel. A stroke takes one shadow lookup for its whole area, so that dither
     // has nothing to average against and prints as a weave across any stroke sitting on a shadow edge. Hold the rotation still.
@@ -116,40 +108,22 @@ export function patch(mat, o){
         ${GLSL_LIT}`)
       .replace('#include <lights_fragment_begin>', THREE.ShaderChunk.lights_fragment_begin.replaceAll('RE_Direct( directLight,', 'RE_Direct_Toon( directLight,'))
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
-        { reflectedLight.indirectDiffuse += BRDF_Lambert(diffuseColor.rgb)*uShadowFill*uShadowFillK*(1. - gLit)*PI;
-          ${o.rim ? `#if NUM_DIR_LIGHTS > 0
-            float rimF = pow(1. - saturate(dot(normal, geometryViewDir)), 3.)*uRim*(.3 + .7*saturate(dot(normal, directionalLights[0].direction) + .3));
-            gGlow += uRimColor*uSunTint*rimF*(.4 + diffuseColor.rgb)*uDay;
-          #endif` : ''}
-        }`)
+        { reflectedLight.indirectDiffuse += BRDF_Lambert(diffuseColor.rgb)*uShadowFill*uShadowFillK*(1. - gLit)*PI; }`)
       .replace('#include <opaque_fragment>', `
         { float kk = gLit; ${o.shade || ''}
           // pigment shifts the colour after the band is chosen, so a stroke stays one stroke with paint moving inside it
-          vec3 pal = palRamp(${o.softRamp ? 'clamp(kk, 0., 1.)' : o.ramp || 'toonRamp(clamp(kk, 0., 1.))'} + (${o.pigment || '0.'})*uPigment*.34);
+          vec3 pal = palRamp(${o.softRamp ? 'clamp(kk, 0., 1.)' : 'toonRamp(clamp(kk, 0., 1.))'} + (${o.pigment || '0.'})*uPigment*.34);
           ${o.palLine || ''}
           float lit = clamp(kk, 0., 1.);
           pal = max(pal*(1. + uShadowFill*uShadowFillK*(1. - lit)*1.6)*gMod*gTint, uPal0*.9)*mix(uAmbTint, uSunTint, toonRamp(lit));   // the deepest paint is the palette's shadow colour, never black
           outgoingLight = mix(outgoingLight, pal, uPaletteMix);
           vec3 lv = (viewMatrix*vec4(uLanternPos, 1.)).xyz + vViewPosition; float d2 = dot(lv, lv);
-          outgoingLight += uLanternColor*(.3 + .7*saturate(dot(normal, normalize(lv))))*uLanternI/(1. + d2*.18)*(.4 + diffuseColor.rgb);
-          outgoingLight += gGlow; }
+          outgoingLight += uLanternColor*(.3 + .7*saturate(dot(normal, normalize(lv))))*uLanternI/(1. + d2*.18)*(.4 + diffuseColor.rgb); }
         #include <opaque_fragment>`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-      ${o.flecks ? `{ vec3 fp = vLocal*uFleckScale; float f1 = vn3(fp*2.3), f2 = fbm3(fp*.55 + 7.3);
-        diffuseColor.rgb *= 1. - .35*uFleck*smoothstep(.35, .65, f2);
-        float pop = uFleck*smoothstep(.66, .84, f1);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb*vec3(1.55,1.45,.65) + vec3(.06,.08,0.), pop);
-        gFleck = pop*.3 - .16*uFleck*smoothstep(.35, .65, f2); }` : ''}
-      ${o.bark ? `{ float hh = ${o.bark};
-        float g1 = vn(vec2((vLocal.x + vLocal.z)*7., vLocal.y*.9)), g2 = fbm2(vec2((vLocal.x - vLocal.z)*3.5, vLocal.y*.45));
-        float m = 1. + (g2 - .5)*uBarkGrain*1.6 + (g1 - .5)*uBarkGrain*.7;
-        m *= mix(1. - uBarkRootAO, 1., smoothstep(0., 1.8, hh));
-        m *= mix(1., 1. - uBarkCanopyAO, smoothstep(3.2, 6.5, hh));
-        diffuseColor.rgb = mix(diffuseColor.rgb, uBarkWarm, uBarkWarmMix)*m; gMod = m; }` : ''}
       ${o.color || ''}`)
-    if (o.puff || o.normal) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-      ${o.puff ? 'normal = normalize(mix(normal, normalize(vSphN), uPuff));' : ''}
-      ${o.normal || ''}`)
+    if (o.normal) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+      ${o.normal}`)
     o.onShader?.(sh)
   }
   return mat

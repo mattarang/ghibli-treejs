@@ -46,7 +46,7 @@ const L = { sun, hemi, sky, clouds, scene, reach: 80 }
 const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('species') : 'Camphor tree'
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
-  showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 34000,
+  useRings: qs.get('grow') === 'rings', showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 34000,
   time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 5, cloudSeed: 4, haze: .35, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
   windOn: true, wind: 1, autoRotate: false, exposure: 1,
@@ -64,7 +64,6 @@ const STROKE_PARS = 'attribute vec2 aCorner; attribute vec3 aStroke;'
 const STROKE_FAN = `{ vec2 sd = (viewMatrix*vec4(aStroke, 0.)).xy; sd = normalize(sd + vec2(0., 1e-3));
   mvPosition.xy += sd*aCorner.x + vec2(-sd.y, sd.x)*aCorner.y; }`
 // only plates cast: the shadow of a tree is its big shapes, and they are fanned toward the light in the shadow pass
-const FOLIAGE_DEPTH_FAN = `{ vec2 sd = (viewMatrix*vec4(aStroke, 0.)).xy; sd = normalize(sd + vec2(0., 1e-3)); mvPosition.xy += sd*aCorner.x + vec2(-sd.y, sd.x)*aCorner.y; }`
 // The field is painted in the ground: long drifts of colour running one way across the land, warped so they never look ruled,
 // with their edges broken by a streak along the same direction.
 const fieldTex = { value: makeFieldTexture() }                            // the field's noise, baked: a pixel of grass costs one lookup, not six fbms
@@ -75,12 +74,12 @@ const GROUND_SHADE = `{ vec2 w = vWPos.xz + 14.*vec2(fld(vWPos.xz*.012), fld(vWP
   kk = min(gLit/uSunUp, 1.)*(.54 + .24*field) + .1;
   gMod *= 1. + (drift - .5)*.12;
   gTint = mix(vec3(.92, 1., 1.03), vec3(1.05, 1.01, .9), field);
-  float near = 1e3; for (int i = 0; i < 24; i++) near = min(near, length(vWPos.xz - uTrees[i].xy)/uTrees[i].z);
+  float near = 1e3; for (int i = 0; i < uTreeN; i++) near = min(near, length(vWPos.xz - uTrees[i].xy)/uTrees[i].z);
   near += (fld(vWPos.xz*1.3) - .5)*.8;
   gFoot = 1. - smoothstep(.5, 1.5, near);
   kk *= 1. - .34*gFoot; }`
 const GROUND_PAL = 'pal = mix(pal, mix(vec3(.11, .1, .05), vec3(.26, .24, .1), smoothstep(.1, .5, kk)), gFoot*.72);'
-const GROUND_FRAG = 'uniform vec3 uTrees[24]; uniform sampler2D tField; float gFoot = 0.; float fld(vec2 p){ return texture2D(tField, p/16.).r; }'
+const GROUND_FRAG = 'uniform int uTreeN; uniform vec3 uTrees[24]; uniform sampler2D tField; float gFoot = 0.; float fld(vec2 p){ return texture2D(tField, p/16.).r; }'
 const GROUND_PIGMENT = '(fld(vWPos.xz*vec2(.2, .62)) - .5)*.9'
 // Light is given out per mass, the way a painter blocks it in: the mass the sun favours most gets most of its area lit, the one it favours least
 // a sliver, and each mass gets one terminator, placed to give it that share. Rebaked only when the sun or the plants change, into a small table
@@ -148,7 +147,7 @@ function bakeSun(){
 }
 const foliageMat = makeFoliageMaterial(atlas.tex, sunTable, pals.foliage, sssColor, rimColor)
 const foliageDepth = patch(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide, alphaMap: atlas.tex, alphaTest: .36 }),
-  { wind: true, clumpExpr: 'clusterCenter', vertexPars: STROKE_PARS + ' attribute vec3 clusterCenter;', afterView: FOLIAGE_DEPTH_FAN })
+  { wind: true, clumpExpr: 'clusterCenter', vertexPars: STROKE_PARS + ' attribute vec3 clusterCenter;', afterView: STROKE_FAN })
 // Bark runs along the wood: vB wraps the noise around each limb, so everything follows the grain and never seams.
 //  furrows: long dark cracks, broken by the light bands
 //  zones:   slow drifts between warm and cool bark, so a trunk is never one colour
@@ -161,7 +160,7 @@ const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughne
   toon: true, wind: true, flatShadow: true, softRamp: true, pigment: 'gRidge*.3',
   // Wood inside a clump sinks behind the leaves in depth alone, the amount it is buried: it stays where it is on screen, so a limb runs up to the
   // foliage and goes in, and never shows as a loose piece floating in front of a clump's body. Its shadow doesn't move.
-  afterClip: 'if (aLeaf.x < -.5 && uCrownDark < .5) gl_Position = vec4(2., 2., 2., 1.); else if (vLeafA.y > 0.){ vec4 sunk = projectionMatrix*vec4(mvPosition.xy, mvPosition.z - uSink*vLeafA.y, 1.); gl_Position.z = sunk.z/sunk.w*gl_Position.w; }',
+  afterClip: 'if (vLeafA.y > 0.){ vec4 sunk = projectionMatrix*vec4(mvPosition.xy, mvPosition.z - uSink*vLeafA.y, 1.); gl_Position.z = sunk.z/sunk.w*gl_Position.w; }',
   vertexPars: 'varying float vCrack; uniform float uSink, uCrownDark; attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
   vertexBegin: 'vCrack = smoothstep(.45, .85, abs(aLeaf.z)); vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); { float round = abs(aLeaf.z)*clusterCenter.x/.5; vB = vec3(cos(uv.x*6.28318)*round, sin(uv.x*6.28318)*round, uv.y); }   /* the way round the wood, in real distance: clusterCenter.x carries the girth */ vWN = normal; vH = position.y - clusterCenter.y;',
   fragmentPars: `varying float vCrack; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow, uCrownDark;
@@ -170,7 +169,7 @@ const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughne
     float big = fbm3(vec3(ring*1.7, gB.z*.2) + 3.), fine = fbm3(vec3(ring*5.5, gB.z*.7));
     gRidge = ((big - .5)*1.1 + (fine - .5)*.4)*(.25 + .75*vLeafA.z);
     float flow = fbm3(vec3(ring*3.4, gB.z*.14) + 11.);
-    gCrack = (1. - smoothstep(.0, .05, abs(flow - .5)))*thick*uFurrow*vCrack;   // cracks stay out of forks, where the pattern's coordinates bunch up
+    gCrack = (1. - smoothstep(.0, max(.05, fwidth(flow)*1.5), abs(flow - .5)))*thick*uFurrow*vCrack;   // cracks stay out of forks, where the pattern's coordinates bunch up
     float plates = 1. - smoothstep(.0, .05, abs(fbm3(vec3(ring*3.4, gB.z*1.1) + 51.) - .5));   // cross cracks, for bark that breaks into plates
     gCrack = max(gCrack, plates*uBarkPlates*thick*vCrack*smoothstep(.35, .65, fbm3(vec3(ring*1.2, gB.z*.3) + 7.)));
     gCrack = max(gCrack, smoothstep(.57, .72, fbm3(vec3(ring*1.4, gB.z*7.) + 61.))*uBarkBands*.6*thick*vCrack);   // lenticels: the short bands across cherry bark
@@ -206,10 +205,8 @@ const ivyMat = patch(new THREE.MeshStandardMaterial({ color: '#27604e', roughnes
   toon: true, wind: true, flatShadow: true, afterView: STROKE_FAN, pigment: '(gPaint - .5)*.8',
   vertexPars: STROKE_PARS + ' attribute vec3 aLeaf; varying vec3 vLeafA;', vertexBegin: 'vLeafA = aLeaf;', fragmentPars: 'varying vec3 vLeafA; float gPaint = .5;',
   color: 'gPaint = texture2D(alphaMap, vAlphaMapUv).r;', shade: 'kk = gLit*.6 + gNdl*.2 + (vLeafA.y - .5)*.2 + .08;', uniforms: paletteUniforms(ivyPal) })
-// solid cores share the calm shadow value exactly, so they melt into the plates
-const coreDepth = patch(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), { wind: true, clumpExpr: 'clusterCenter', vertexPars: 'attribute vec3 clusterCenter;' })
 const woodDepth = patch(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), { wind: true })
-const groundMat = patch(new THREE.MeshStandardMaterial({ color: p.ground[2], roughness: 1 }), { toon: true, shade: GROUND_SHADE, pigment: GROUND_PIGMENT, palLine: GROUND_PAL, fragmentPars: GROUND_FRAG, uniforms: { ...paletteUniforms(pals.ground), tField: fieldTex } })
+const groundMat = patch(new THREE.MeshStandardMaterial({ color: p.ground[2], roughness: 1 }), { toon: true, flatShadow: true, shade: GROUND_SHADE, pigment: GROUND_PIGMENT, palLine: GROUND_PAL, fragmentPars: GROUND_FRAG, uniforms: { ...paletteUniforms(pals.ground), tField: fieldTex } })
 // rooted: only the tips of a tuft move in the wind
 const grassAtlas = makeGrassAtlas()
 const grassMat = patch(new THREE.MeshStandardMaterial({ color: p.ground[2], roughness: 1, alphaMap: grassAtlas, alphaTest: .42, side: THREE.DoubleSide }), {
@@ -251,12 +248,14 @@ function toGeometry(b){
 }
 const addMesh = (mat, depth, cast, name) => { const m = new THREE.Mesh(new THREE.BufferGeometry(), mat); m.name = name
   m.frustumCulled = false; m.castShadow = cast; m.receiveShadow = true; if (depth) m.customDepthMaterial = depth; scene.add(m); return m }
-const foliage = addMesh(foliageMat, null, false, 'foliage'), caster = addMesh(new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }), foliageDepth, true, 'caster'), wood = addMesh(woodMat, woodDepth, true, 'wood'), core = addMesh(foliageMat, coreDepth, true, 'core'), ivy = addMesh(ivyMat, null, false, 'ivy')
-foliage.receiveShadow = core.receiveShadow = caster.receiveShadow = false
+const foliage = addMesh(foliageMat, null, false, 'foliage'), caster = addMesh(new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }), foliageDepth, true, 'caster'), wood = addMesh(woodMat, woodDepth, true, 'wood'), ivy = addMesh(ivyMat, null, false, 'ivy')
+foliage.receiveShadow = caster.receiveShadow = false
+caster.onBeforeRender = (r, sc, cam, geometry) => geometry.setDrawRange(0, 0)     // the caster exists for the shadow pass: the main pass skips it
+caster.onAfterRender = (r, sc, cam, geometry) => geometry.setDrawRange(0, Infinity)
 // nearest and most solid first: everything drawn after is rejected wherever something already stands in front of it, and the pricey wide
 // surfaces (the field, then the sky) only pay for the pixels left over
 const ground = addMesh(groundMat, null, false, 'ground'), grass = addMesh(grassMat, null, false, 'grass')
-core.renderOrder = -.3; foliage.renderOrder = -.2; wood.renderOrder = -.1; ground.renderOrder = .1
+foliage.renderOrder = -.2; wood.renderOrder = -.1; ground.renderOrder = .1
 ground.geometry.dispose(); ground.geometry = toGeometry(generateGround(620))
 
 const lantern = new THREE.Mesh(new THREE.SphereGeometry(.14, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }))
@@ -265,25 +264,46 @@ scene.add(lantern)
 const statsEl = document.getElementById('stats')
 let size = '', placePerson = null
 function setStats(ms, clumps){
-  const strokes = (foliage.geometry.index?.count || 0)/6, tris = [foliage, wood, grass, core, ivy].reduce((n, m) => n + (m.geometry.index?.count || 0)/3, 0)
+  const strokes = (foliage.geometry.index?.count || 0)/6, tris = [foliage, wood, grass, ivy].reduce((n, m) => n + (m.geometry.index?.count || 0)/3, 0)
   statsEl.textContent = `${size} · ${clumps} clumps · ${strokes.toLocaleString()} strokes · ${(tris/1000).toFixed(0)}k tris · generated in ${ms.toFixed(0)} ms`
 }
 
 const trees = []
+// Bushes barely change between rebuilds and took most of their time: each is grown once at the origin, then copied into place
+const bushCache = new Map()
+function placeBush(bush, q, woodB, leafB){
+  const key = q.seed + ':' + q.scale
+  if (!bushCache.has(key)){ const wood = newBuffer(), leaf = newBuffer(), n = generatePlant(bush, q.seed, [0, 0, 0], q.scale, wood, leaf); bushCache.set(key, { wood, leaf, n }) }
+  const { wood, leaf, n } = bushCache.get(key), y = groundHeight(q.x, q.z) - .05, plant = leafB.held?.length ? leafB.held[leafB.held.length - 1].plant + 1 : 0, ids = (leafB.held ??= []).length
+  const copy = (src, dst) => {
+    const base = dst.pos.length/3
+    for (let i = 0; i < src.pos.length; i += 3) dst.pos.push(src.pos[i] + q.x, src.pos[i + 1] + y, src.pos[i + 2] + q.z)
+    for (const k of ['nor', 'uv', 'leaf', 'corner', 'stroke', 'dab']) for (const v of src[k]) dst[k].push(v)
+    for (let i = 0; i < src.wind.length; i += 4) dst.wind.push(src.wind[i] + q.x, src.wind[i + 1] + q.z, src.wind[i + 2], src.wind[i + 3])
+    for (const v of src.idx) dst.idx.push(v + base)
+  }
+  copy(wood, woodB); copy(leaf, leafB)
+  for (let i = 0; i < wood.center.length; i += 3) woodB.center.push(wood.center[i], wood.center[i + 1] + y, wood.center[i + 2] + q.z)    // x carries the girth
+  for (let i = 0; i < leaf.center.length; i += 3) leafB.center.push(leaf.center[i] + q.x, leaf.center[i + 1] + y, leaf.center[i + 2] + q.z)
+  for (let i = 0; i < leaf.patch.length; i += 3) leafB.patch.push(leaf.patch[i], leaf.patch[i + 1], leaf.patch[i + 2] < 0 ? -1 : leaf.patch[i + 2] + ids)
+  for (const c of leaf.held) leafB.held.push({ ...c, plant, c: [c.c[0] + q.x, c.c[1] + y, c.c[2] + q.z] })
+  return n
+}
+
 function rebuild(){
   U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5 : 0
-  const t0 = performance.now(), woodB = newBuffer(), leafB = newBuffer(), coreB = newBuffer(), ivyB = newBuffer()
+  const t0 = performance.now(), woodB = newBuffer(), leafB = newBuffer(), ivyB = newBuffer()
   const { plants, bushes } = layoutScene({ ...p, height: p.height*p.size, groveRadius: p.groveRadius*Math.max(1, p.size) })
   trees.length = 0
   for (const q of plants) trees.push({ x: q.x, z: q.z, r: p.trunkRadius*p.size*q.scale*(1 + p.flare*.5)*1.7 })
   for (const q of bushes) trees.push({ x: q.x, z: q.z, r: .5*q.scale })
+  U.uTreeN.value = Math.min(trees.length, 24)
   U.uTrees.value.forEach((v, i) => { const t = trees[i]; if (t) v.set(t.x, t.z, t.r); else v.set(1e5, 1e5, 1) })
   let clumps = 0
-  for (const q of plants) clumps += generatePlant(p, q.seed, [q.x, groundHeight(q.x, q.z) - .08, q.z], q.scale, woodB, leafB, coreB, ivyB)
+  for (const q of plants) clumps += generatePlant(p, q.seed, [q.x, groundHeight(q.x, q.z) - .08, q.z], q.scale, woodB, leafB, ivyB)
   const bush = { ...SPECIES['Round bush'] }
-  for (const q of bushes) clumps += generatePlant(bush, q.seed, [q.x, groundHeight(q.x, q.z) - .05, q.z], q.scale, woodB, leafB, coreB)
+  for (const q of bushes) clumps += placeBush(bush, q, woodB, leafB)
   ivy.geometry.dispose(); ivy.geometry = ivyB.pos.length ? toGeometry(ivyB) : new THREE.BufferGeometry()
-  core.geometry.dispose(); core.geometry = coreB.pos.length ? toGeometry(coreB) : new THREE.BufferGeometry()
   foliage.geometry.dispose(); foliage.geometry = toGeometry(leafB)
   heldClumps = leafB.held || []; shaders.clear()
   caster.geometry.dispose(); caster.geometry = toGeometry(platesOf(leafB))
@@ -338,12 +358,13 @@ compareF.add({ forget(){ compare.forget() } }, 'forget').name('Forget my picture
 const treeF = gui.addFolder('Plant')
 // wood alone, for reviewing structure: leaves, ivy and their shadows go, and buried wood comes back to its true depth
 function applyFoliage(){
-  foliage.visible = core.visible = caster.visible = ivy.visible = p.showFoliage
+  foliage.visible = caster.visible = ivy.visible = p.showFoliage
   sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5 : 0; crownDark.value = p.showFoliage ? 1 : 0
   renderer.shadowMap.needsUpdate = true
 }
 applyFoliage()
 treeF.add(p, 'showFoliage').name('Show foliage').onChange(applyFoliage)
+treeF.add(p, 'useRings').name('Ring growth (prototype)').onChange(() => { rebuild() })
 treeF.add(p, 'species', Object.keys(SPECIES).sort()).name('Species').onChange(name => {
   compare.species(name)
   Object.assign(p, structuredClone(SPECIES[name])); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); rebuild(); rebuildGrass(); frame() })
@@ -416,7 +437,6 @@ leafF.add(p, 'strandLength', .15, 1, .01).name('Strand length').onChange(later)
 leafF.add(p, 'leaf', BRUSHES).name('Body brush').onChange(later)
 leafF.add(p, 'edge', BRUSHES).name('Edge brush').onChange(later)
 leafF.add(p, 'strays', 0, 1, .01).name('Stray strokes').onChange(later)
-leafF.add(p, 'core').name('Underpainting').onChange(later)
 const colF = gui.addFolder('Colour').close()
 for (const [key, label] of [['palette', 'Foliage'], ['bark', 'Bark'], ['ground', 'Ground']])
   [`${label} shadow`, `${label} dark`, `${label} mid`, `${label} light`].forEach((n, i) =>
@@ -460,7 +480,6 @@ uni(U, 'uToonMix', 'Toon strength', 0, 1, .01)
 uni(U, 'uSss', 'Backlight glow', 0, 1.5, .01)
 uni(U, 'uRim', 'Rim light', 0, 1.5, .01)
 shadeF.add(p, 'fleck', 0, 1, .01).name('Leaf flecks').onChange(applyLook)
-uni(U, 'uFleckScale', 'Fleck scale', .5, 8, .1)
 uni(U, 'uLightShape', 'Light shapes', 0, 1, .01)
 uni(U, 'uSelfShade', 'Mass shadows', 0, 1, .01)
 shadeF.add(p, 'hueVar', 0, 2, .01).name('Hue variation').onChange(v => { U.uHueVar.value = v })
@@ -530,7 +549,7 @@ renderer.setAnimationLoop(now => {
   U.uTime.value += dt; sky.tick(U.uTime.value)
   if (p.autoTime){ p.time = (p.time + dt*.4)%24; relight() }
   controls.update(); sky.position.copy(camera.position); sky.scale.setScalar(1000); clouds.position.copy(camera.position)
-  if (++frameNo%3 === 0) renderer.shadowMap.needsUpdate = true
+  if (++frameNo%3 === 0 && U.uWind.value > 0) renderer.shadowMap.needsUpdate = true     // shadows only need redrawing while things move
   holdFrameRate()
   renderer.render(scene, camera)
   fps.st.end(); ms.st.end()

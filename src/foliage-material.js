@@ -30,7 +30,7 @@ const vertexShader = /* glsl */`
     vec4 mvPosition = viewMatrix*wPos;
     vec3 n = normalize(normal), V = normalize(cameraPosition - wPos.xyz);
     float rimV = smoothstep(.5, .82, 1. - abs(dot(n, V)));
-    bool small = aDab > 1.5, core = aDab < -.5, massed = uMass > .5 && aPatch.z >= 0., closed;
+    bool small = aDab > 1.5, massed = uMass > .5 && aPatch.z >= 0., closed;
     float F, score = 0., hueOf = 0.;
     if (massed){
       // Light belongs to the mass. main.js gives every clump its place against its mass's terminator; a stroke adds only the turn of its own
@@ -54,12 +54,12 @@ const vertexShader = /* glsl */`
     if (aDab > .1 && aDab < .4) mvPosition.z += length(aCorner)*.4;              // a clump's body stands just behind its strokes, ahead of the wood inside it
     gl_Position = projectionMatrix*mvPosition;
     #include <fog_vertex>
-    float calm = core && massed ? 0. : smoothstep(.11, .28, F);                 // 0 in shadow: paint only moves in the light. Cores never take it
+    float calm = smoothstep(.11, .28, F);                 // 0 in shadow: paint only moves in the light
     float light = .02 + F + aPatch.y*uFleck*.15;
-    if (massed && !core && !small) light += (aLeaf.z - .5)*(aDab > .4 && aDab < .9 ? .26 : .1) + (aLeaf.y - .5)*.14;   // paint steps through several tones inside a light shape, never one flat value
+    if (massed && !small) light += (aLeaf.z - .5)*(aDab > .4 && aDab < .9 ? .26 : .1) + (aLeaf.y - .5)*.14;   // paint steps through several tones inside a light shape, never one flat value
     if (small) light += massed ? (aLeaf.z - .5)*.3 : F > .62 ? .14 : (aLeaf.z - .5)*.62;   // small dabs alone break the big shape
-    float dark = massed ? (core ? .04 + .3*smoothstep(-.1, .1, score) : .02 + .3*aLeaf.x + (aLeaf.y - .5)*.05 + .24*smoothstep(-.55, -.02, score + (aLeaf.z - .5)*.3))
-                        : core ? .03 : .015 + .12*aLeaf.x + (aLeaf.y - .5)*.05 + (aLeaf.z - .5)*.1;
+    float dark = massed ? (.02 + .3*aLeaf.x + (aLeaf.y - .5)*.05 + .24*smoothstep(-.55, -.02, score + (aLeaf.z - .5)*.3))
+                        : .015 + .12*aLeaf.x + (aLeaf.y - .5)*.05 + (aLeaf.z - .5)*.1;
     float kk = mix(dark, mix(light, smoothstep(.16, .74, light), .45), calm), lit = clamp(kk, 0., 1.), x = mix(lit, toonRamp(lit), calm);
     float spread = .22*calm*uPigment;
     vec3 tint = mix(vec3(1.), mix(vec3(.88, 1., 1.06), massed ? vec3(1.04, 1.01, .94) : vec3(1.08, 1.02, .86), aLeaf.y), calm), base = palRamp(x);
