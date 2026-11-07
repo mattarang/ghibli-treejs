@@ -2,7 +2,7 @@
 const MEADOW = ['#1f6a4a', '#2f8f4e', '#66b54a', '#b0d868']
 const BARK = ['#1e1e10', '#38391f', '#7a7044', '#b4b078']
 
-const DEFAULTS = { form: 0, colorPick: 0, colors: null, envTop: 2, envHeart: 0, envCone: 0, envW: 0, envPeak: .4, envFill: 46, realMarks: true, size: 1, keepWood: 0, clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, sleeve: 3.5, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
+const DEFAULTS = { midSize: 2.4, lobePoint: 0, lobeTilt: 0, lobeRough: 1, lobeStretch: null, barkScale: 1, barkStretch: 1, barkPlates: 0, barkBands: 0, barkFurrow: 1, form: 0, colorPick: 0, colors: null, envTop: 2, envHeart: 0, envCone: 0, envW: 0, envPeak: .4, envFill: 46, realMarks: true, size: 1, keepWood: 0, clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, sleeve: 3.5, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
 
 export const SPECIES = {
   'Camphor tree': {
@@ -240,6 +240,47 @@ const COLORS = {
   'Garden tree': [{ name: 'plum', share: .25, palette: ['#2c1c30', '#54283e', '#84404e', '#b8786a'] }],
 }
 for (const k in SPECIES) SPECIES[k].colors = COLORS[k] ?? null
+// Bark: palette, then pattern size, how far it runs along the wood, fissures, plates, and bands across the trunk
+const BARKS = {
+  'English oak': [['#1c1a16', '#3a342a', '#6a6050', '#a09682'], 1.3, 1, 1.4, .6, 0],
+  'Camphor tree': [['#221c16', '#42382c', '#6e6048', '#a89878'], 1.4, 1.4, 1.2, .3, 0],
+  'Japanese zelkova': [['#2c2a26', '#55524a', '#8a8676', '#c4bca4'], .9, .9, .3, .5, 0],
+  'Ginkgo': [['#262420', '#4a453a', '#7a7262', '#aea48e'], 1.2, 1.8, 1.3, .2, 0],
+  'Yoshino cherry': [['#1e1418', '#40262a', '#6e4440', '#a87c6c'], 1, .8, .2, 0, 1],
+  'Japanese maple': [['#2a3030', '#4c5450', '#7c847a', '#b4baa8'], .8, 1.2, .15, 0, 0],
+  'Stone pine': [['#2e2018', '#5a3a26', '#946038', '#d4a470'], .8, 1, .9, 1, 0],
+  'Japanese black pine': [['#18181a', '#323234', '#5a5a58', '#8e8c84'], 1, 1.1, 1.3, .9, 0],
+  'Japanese red pine': [['#3a1c14', '#7e3a22', '#bc6a3a', '#eeb080'], .8, 1, .7, 1, 0],
+  'Japanese cedar': [['#241814', '#4e2e20', '#86563a', '#bc8a66'], 1.6, 3, 1.2, 0, 0],
+  'Hinoki cypress': [['#2a1a16', '#583226', '#925e44', '#c8987a'], 1.6, 3, 1, 0, 0],
+  'Lombardy poplar': [['#20201c', '#3e3e36', '#6e6e5e', '#a4a490'], 1.2, 1.6, 1.6, .4, 0],
+  'Garden tree': [BARK, 2.6, 1.4, 1, .2, 0],
+  'Round bush': [BARK, 3.6, 1.4, 1, .2, 0],
+  'Weeping willow': [['#1e1a14', '#3c3428', '#665a46', '#9a8c70'], 1.4, 1.2, 1.5, .8, 0],
+}
+for (const k in BARKS){ const [bark, barkScale, barkStretch, barkFurrow, barkPlates, barkBands] = BARKS[k]; Object.assign(SPECIES[k], { bark, barkScale, barkStretch, barkFurrow, barkPlates, barkBands }) }
+// Lobe shapes: how each species masses its leaves. rough = knobbliness, point = tufts narrow upward (negative hangs), tilt = sprays lean from the trunk, stretch = lobe width and height
+const LOBES = {
+  'English oak': { lobeRough: 1.5, lobeStretch: [1, .9] },
+  'Camphor tree': { lobeRough: .8, lobePoint: .1, lobeStretch: [1.12, .8] },
+  'Japanese zelkova': { lobeRough: 1.1, lobePoint: .2, lobeStretch: [.95, 1.15] },
+  'Ginkgo': { lobePoint: -.25, lobeTilt: -.25, lobeStretch: [.9, 1.12] },
+  'Yoshino cherry': { lobeRough: .7, lobeTilt: -.15, lobeStretch: [1.2, .7] },
+  'Japanese maple': { lobeRough: .6, lobeTilt: -.3, lobeStretch: [1.2, .6] },
+  'Japanese cedar': { lobeRough: 1.2, lobePoint: .45, lobeStretch: [.9, 1.1], midSize: 1.8 },
+  'Hinoki cypress': { lobePoint: .25, lobeTilt: -.35, lobeStretch: [1.15, .8], midSize: 1.8 },
+  'Lombardy poplar': { lobePoint: .5, lobeStretch: [.7, 1.6], midSize: 1.8 },
+  'Stone pine': { lobeRough: .5, lobeStretch: [1.2, .7] },
+  'Japanese black pine': { lobeRough: .6, lobeTilt: -.1, lobeStretch: [1.2, .75] },
+  'Japanese red pine': { lobeRough: .6, lobeStretch: [1.2, .75] },
+  'Weeping willow': { midSize: 0 },
+  'Round bush': { lobeRough: 1.2, midSize: 2 },
+}
+for (const k in LOBES) Object.assign(SPECIES[k], LOBES[k])
+// a crown's edge is leaves, not a line: loose leaf-sized marks break the outline
+for (const [k, v] of Object.entries({ 'English oak': .22, 'Camphor tree': .18, 'Japanese zelkova': .22, 'Ginkgo': .2, 'Yoshino cherry': .16, 'Japanese maple': .24, 'Garden tree': .22, 'Round bush': .18, 'Hinoki cypress': .14, 'Japanese cedar': .14, 'Lombardy poplar': .16 })) SPECIES[k].strays = v
+Object.assign(SPECIES['Ginkgo'], { squash: .85, clumpRadius: 1, lobes: 14, tighten: .08, clumpVar: .6 })
+Object.assign(SPECIES['Japanese maple'], { squash: .6, lobes: 16, tighten: .1, clumpVar: .55 })
 for (const k in MATURE) SPECIES[k].size = MATURE[k]/SPECIES[k].height
 for (const k in SPECIES) SPECIES[k] = { ...DEFAULTS, ...SPECIES[k] }
 

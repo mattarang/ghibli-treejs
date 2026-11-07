@@ -56,8 +56,9 @@ const vertexShader = /* glsl */`
     #include <fog_vertex>
     float calm = core && massed ? 0. : smoothstep(.11, .28, F);                 // 0 in shadow: paint only moves in the light. Cores never take it
     float light = .02 + F + aPatch.y*uFleck*.15;
+    if (massed && !core && !small) light += (aLeaf.z - .5)*(aDab > .4 && aDab < .9 ? .26 : .1) + (aLeaf.y - .5)*.14;   // paint steps through several tones inside a light shape, never one flat value
     if (small) light += massed ? (aLeaf.z - .5)*.3 : F > .62 ? .14 : (aLeaf.z - .5)*.62;   // small dabs alone break the big shape
-    float dark = massed ? (core ? .04 + .3*smoothstep(-.1, .1, score) : .02 + .34*aLeaf.x + (aLeaf.y - .5)*.05)
+    float dark = massed ? (core ? .04 + .3*smoothstep(-.1, .1, score) : .02 + .3*aLeaf.x + (aLeaf.y - .5)*.05 + .24*smoothstep(-.55, -.02, score + (aLeaf.z - .5)*.3))
                         : core ? .03 : .015 + .12*aLeaf.x + (aLeaf.y - .5)*.05 + (aLeaf.z - .5)*.1;
     float kk = mix(dark, mix(light, smoothstep(.16, .74, light), .45), calm), lit = clamp(kk, 0., 1.), x = mix(lit, toonRamp(lit), calm);
     float spread = .22*calm*uPigment;

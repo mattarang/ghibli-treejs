@@ -155,35 +155,39 @@ const foliageDepth = patch(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGB
 //  lichen:  pale blotches on the warmer patches
 //  moss:    greens that climb from the roots and sit on top of limbs, in painted shapes with firm edges
 // Sun lands in broken plates on big wood; wood buried in the crown goes to the crown's shadow; the foot of the trunk takes the ground's colour.
+const barkLook = { uBarkScale: { value: 1 }, uBarkStretch: { value: 1 }, uBarkPlates: { value: 0 }, uBarkBands: { value: 0 } }
 const sink = { value: 1 }, crownDark = { value: 1 }    // both only mean anything with foliage there to hide the wood
 const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughness: .9 }), {
   toon: true, wind: true, softRamp: true, pigment: 'gRidge*.3',
   // Wood inside a clump sinks behind the leaves in depth alone, the amount it is buried: it stays where it is on screen, so a limb runs up to the
   // foliage and goes in, and never shows as a loose piece floating in front of a clump's body. Its shadow doesn't move.
   afterClip: 'if (aLeaf.x < -.5 && uCrownDark < .5) gl_Position = vec4(2., 2., 2., 1.); else if (vLeafA.y > 0.){ vec4 sunk = projectionMatrix*vec4(mvPosition.xy, mvPosition.z - uSink*vLeafA.y, 1.); gl_Position.z = sunk.z/sunk.w*gl_Position.w; }',
-  vertexPars: 'uniform float uSink, uCrownDark; attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
-  vertexBegin: 'vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); { float round = abs(aLeaf.z)*clusterCenter.x/.5; vB = vec3(cos(uv.x*6.28318)*round, sin(uv.x*6.28318)*round, uv.y); }   /* the way round the wood, in real distance: clusterCenter.x carries the girth */ vWN = normal; vH = position.y - clusterCenter.y;',
-  fragmentPars: `varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow, uCrownDark;
-    float gRidge = 0., gMoss = 0., gLichen = 0., gCrack = 0., gHue = 0.;`,
-  color: `{ vec2 ring = vB.xy; float thick = vLeafA.x;
-    float big = fbm3(vec3(ring*1.7, vB.z*.2) + 3.), fine = fbm3(vec3(ring*5.5, vB.z*.7));
+  vertexPars: 'varying float vCrack; uniform float uSink, uCrownDark; attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
+  vertexBegin: 'vCrack = smoothstep(.45, .85, abs(aLeaf.z)); vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); { float round = abs(aLeaf.z)*clusterCenter.x/.5; vB = vec3(cos(uv.x*6.28318)*round, sin(uv.x*6.28318)*round, uv.y); }   /* the way round the wood, in real distance: clusterCenter.x carries the girth */ vWN = normal; vH = position.y - clusterCenter.y;',
+  fragmentPars: `varying float vCrack; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow, uCrownDark;
+    uniform float uBarkScale, uBarkStretch, uBarkPlates, uBarkBands; vec3 gB = vec3(0.); float gRidge = 0., gMoss = 0., gLichen = 0., gCrack = 0., gHue = 0.;`,
+  color: `{ gB = vec3(vB.xy*uBarkScale, vB.z*uBarkScale/uBarkStretch); vec2 ring = gB.xy; float thick = vLeafA.x;
+    float big = fbm3(vec3(ring*1.7, gB.z*.2) + 3.), fine = fbm3(vec3(ring*5.5, gB.z*.7));
     gRidge = ((big - .5)*1.1 + (fine - .5)*.4)*(.25 + .75*vLeafA.z);
-    float flow = fbm3(vec3(ring*3.4, vB.z*.14) + 11.);
-    gCrack = (1. - smoothstep(.0, .05, abs(flow - .5)))*thick*uFurrow*vLeafA.z;
-    float zone = fbm3(vec3(ring*.9, vB.z*.08) + 21.);
+    float flow = fbm3(vec3(ring*3.4, gB.z*.14) + 11.);
+    gCrack = (1. - smoothstep(.0, .05, abs(flow - .5)))*thick*uFurrow*vCrack;   // cracks stay out of forks, where the pattern's coordinates bunch up
+    float plates = 1. - smoothstep(.0, .05, abs(fbm3(vec3(ring*3.4, gB.z*1.1) + 51.) - .5));   // cross cracks, for bark that breaks into plates
+    gCrack = max(gCrack, plates*uBarkPlates*thick*vCrack*smoothstep(.35, .65, fbm3(vec3(ring*1.2, gB.z*.3) + 7.)));
+    gCrack = max(gCrack, smoothstep(.57, .72, fbm3(vec3(ring*1.4, gB.z*7.) + 61.))*uBarkBands*.6*thick*vCrack);   // lenticels: the short bands across cherry bark
+    float zone = fbm3(vec3(ring*.9, gB.z*.08) + 21.);
     gHue = mix(.5, smoothstep(.38, .62, zone), vLeafA.z);     // joints stay neutral, so a limb and its parent paint as one form
-    gLichen = smoothstep(.6, .63, fbm3(vec3(ring*3.2, vB.z*.8) + 31.))*smoothstep(.45, .6, zone)*thick*.75*uBarkVar*vLeafA.z;
+    gLichen = smoothstep(.6, .63, fbm3(vec3(ring*3.2, gB.z*.8) + 31.))*smoothstep(.45, .6, zone)*thick*.75*uBarkVar*vCrack;
     float up = normalize(vWN).y*.5 + .5, low = 1. - smoothstep(.1, 3.2, vH);
-    float m = fbm3(vec3(ring*2.3, vB.z*.3) + 9.) + .1*low + .55*(up - .55);    // moss lies on what faces the sky and gathers at the foot
+    float m = fbm3(vec3(ring*2.3, gB.z*.3) + 9.) + .1*low + .55*(up - .55);    // moss lies on what faces the sky and gathers at the foot
     gMoss = smoothstep(.79 - .3*uMoss, .82 - .3*uMoss, m)*smoothstep(.1, .6, thick)*vLeafA.z;
     gMod = 1. + gRidge*.08; diffuseColor.rgb *= gMod; }`,
   // bark is painted in three values: a deep side away from the sun, a middle, and mottled dabs of light on the sun side. Noise along the
   // grain breaks the borders between them into brush marks. Under a canopy the lit dabs thin out to the patches the sun reaches.
-  shade: `{ vec2 rg = vB.xy; float thick = vLeafA.x, f = dot(normalize(vWN), uSunDir)*.5 + .5;
-    float broad = fbm3(vec3(rg*3., vB.z*.6) + 41.) - .5, small = fbm3(vec3(rg*5., vB.z*1.1) + 5.) - .5;     // short dabs along the grain, not long rails
+  shade: `{ vec2 rg = gB.xy; float thick = vLeafA.x, f = dot(normalize(vWN), uSunDir)*.5 + .5;
+    float broad = fbm3(vec3(rg*3., gB.z*.6) + 41.) - .5, small = fbm3(vec3(rg*5., gB.z*1.1) + 5.) - .5;     // short dabs along the grain, not long rails
     float v = f + (broad*.3 + small*.08)*(.3 + .7*vLeafA.z);          // the form decides the value; noise only breaks its edge
     float seen = mix(1., gSeen, smoothstep(.12, .4, gNdl));   // near the terminator the form alone decides: a shadow map can only stair-step a surface it grazes
-    float sun = max(seen, smoothstep(.5, .6, fbm3(vec3(rg*2.2, vB.z*.5) + gRidge*.5 + 17.)));
+    float sun = max(seen, smoothstep(.5, .6, fbm3(vec3(rg*2.2, gB.z*.5) + gRidge*.5 + 17.)));
     kk = mix(.06, .3, smoothstep(.47, .62, v));
     kk = mix(kk, .76, smoothstep(.58, .7, v + (sun - 1.)*.3)*smoothstep(.15, .6, thick));
     kk += gRidge*.05 - gCrack*.2;
@@ -192,9 +196,10 @@ const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughne
     { float deep = vLeafA.y*uCrownDark; kk = mix(kk, .1, deep); gMod = mix(gMod, 1., deep); gTint = mix(gTint, vec3(1.), deep); }`,
   palLine: `pal = mix(pal, vec3(.34, .4, .32)*(.55 + .8*clamp(kk, 0., 1.)), gLichen*.6*(1. - gCrack));
     pal = mix(pal, mix(vec3(.035, .06, .025), vec3(.14, .2, .05), smoothstep(.12, .62, kk)), gMoss*(1. - .6*gCrack));
+    pal *= 1. - .4*gCrack;
     pal = mix(pal, uFootColor, smoothstep(.6, -.1, vH)*.6);
     pal = mix(pal, mix(uPal0, uInk, .2), vLeafA.y*uCrownDark);`,  // wood deep in the crown goes to its own darkest bark, barely touched by the crown's colour: never painted as foliage
-  uniforms: { ...paletteUniforms(pals.bark), uInk: pals.foliage[0], uFootColor: pals.ground[0], uSink: sink, uCrownDark: crownDark } })
+  uniforms: { ...paletteUniforms(pals.bark), uInk: pals.foliage[0], uFootColor: pals.ground[0], uSink: sink, uCrownDark: crownDark, ...barkLook } })
 // ivy: its own leafy brushes and dark greens, standing a step off the bark
 const ivyPal = newPalette(['#15352a', '#27583c', '#4f8848', '#94bc68'])
 const ivyMat = patch(new THREE.MeshStandardMaterial({ color: '#27604e', roughness: .9, alphaMap: makeBrushAtlas('clover', 'spray', 5), alphaTest: .36, alphaToCoverage: true, side: THREE.DoubleSide }), {
@@ -305,6 +310,7 @@ function rebuildGrass(){
 let queued = 0
 const later = () => { clearTimeout(queued); queued = setTimeout(() => { rebuild(); rebuildGrass() }, 60) }
 function applyLook(){
+  barkLook.uBarkScale.value = p.barkScale; barkLook.uBarkStretch.value = p.barkStretch; barkLook.uBarkPlates.value = p.barkPlates; barkLook.uBarkBands.value = p.barkBands; U.uFurrow.value = p.barkFurrow
   ;(p.colors ?? []).forEach((f, k) => f.palette.forEach((hex, n) => foliageMat.uniforms.uPalV.value[k*4 + n].set(hex)))
   setPalette(pals.foliage, p.palette); setPalette(pals.bark, p.bark); setPalette(pals.ground, p.ground)
   woodMat.color.set(p.bark[2]); groundMat.color.set(p.ground[2]); grassMat.color.set(p.ground[2])
@@ -392,6 +398,10 @@ leafF.add(p, 'squash', .3, 2, .01).name('Height of clumps').onChange(later)
 leafF.add(p, 'massBlend', 0, .9, .01).name('Merge into masses').onChange(later)
 leafF.add(p, 'crownBlend', 0, 1, .01).name('Light as one crown').onChange(later)
 leafF.add(p, 'cardSize', .3, 3.5, .01).name('Dab size').onChange(later)
+leafF.add(p, 'midSize', 0, 5, .05).name('Middle marks').onChange(later)
+leafF.add(p, 'lobeRough', 0, 2, .01).name('Lobe knobbliness').onChange(later)
+leafF.add(p, 'lobePoint', -.8, .8, .01).name('Lobe point').onChange(later)
+leafF.add(p, 'lobeTilt', -.6, .6, .01).name('Lobe tilt').onChange(later)
 leafF.add(p, 'realMarks').name('Real-size brush marks').onChange(later)
 leafF.add(p, 'plateSize', .3, 1.8, .01).name('Plate size').onChange(later)
 leafF.add(p, 'plates', 0, 8, .1).name('Plates per lobe').onChange(later)

@@ -186,7 +186,7 @@ function pipeModel(sp, branches, scale, clumps){
     for (let pass = 0; pass < 3; pass++) rads = rads.map((v, i) => (rads[Math.max(i - 1, 0)] + 2*v + rads[Math.min(i + 1, rads.length - 1)])/4)
     // trunks and stems hold their girth to where they divide: thinning is for limbs, or the trunk grows a waist under its own fork
     // the bole and sub-trunks taper by rule, so the main axis of a tree can never step: whatever leaves it, it carries on
-    if (b === trunk){ const n = b.kids.filter(c => c.stem).length; rads = rads.map((_, sec) => { const u = sec/b.sections; return R*lerp(1, BOLE_TOP, u)*(n > 1 && u > .8 ? lerp(1, .55, (u - .8)/.2) : 1) }) }
+    if (b === trunk){ const n = b.kids.filter(c => c.stem).length; rads = rads.map((_, sec) => { const u = sec/b.sections; return R*lerp(1, BOLE_TOP, u)*(n > 1 && u > .5 ? lerp(1, .3, ((u - .5)/.5)**1.4) : 1) }) }   // a bole narrows away inside its stems, so they rise out of it with no shoulder
     else if (b.stem){ const n = trunk.kids.filter(c => c.stem).length, each = R*BOLE_TOP*subGirth(n); rads = rads.map((_, sec) => each*lerp(1, STEM_END, sec/b.sections)) }
     b.trail.forEach((e, sec) => { e.rad = rads[sec] })
     const t = sec => sec/b.sections
@@ -269,7 +269,7 @@ function growSkeleton(sp, r, root, scale, tips){
       for (let i = 0; i < n; i++){
         const az = start + i/n*Math.PI*2 + (r() - .5)*.7, tilt = n > 1 ? spread*lerp(.75, 1.15, r()) : 0, out = rotateAbout(perpTo(tip.d), tip.d, az)
         const target = norm(add([tip.d[0]*Math.cos(tilt), tip.d[1]*Math.cos(tilt), tip.d[2]*Math.cos(tilt)], out, Math.sin(tilt)))
-        const fromAt = n > 1 ? Math.round(sections*.8) : sections, from = trail[fromAt], top = b.r*BOLE_TOP, each = top*subGirth(n), ring = n > 1 ? top - each*.92 : 0
+        const fromAt = n > 1 ? Math.round(sections*.55) : sections, from = trail[fromAt], top = b.r*BOLE_TOP, each = top*subGirth(n), ring = n > 1 ? top - each*.92 : 0
         const offset = [out[0]*ring, out[1]*ring, out[2]*ring]              // each sits flush with the bole's edge, so together they fill it
         queue.push({ p: add(from.p, offset), d: n > 1 ? target : tip.d, n0: from.n, target, out, atSection: fromAt, fromSection: fromAt, offset, continues: n === 1, attach: { a: from.p, d: from.d }, r: each,
           len: H*(sp.trunkFrac - sp.forkHeight)*lerp(.92, 1.1, r()), level: 0, stem: true, s: r()*9, parent: rec })
@@ -346,7 +346,8 @@ function emitWood(sp, r, root, scale, branches, wood, clumps){
     easeJoint(rings, false, forks.length + 1)
     for (const k of forks) easeJoint(all.get(k), true, forks.length + 1)
   }
-  const fine = Math.max(.05*scale, skinCell(lo, hi, .062*scale)*1.7)         // wood finer than the skin can hold stays a tube, or it breaks into dashes
+  const cell = Math.min(.062*scale, sp.trunkRadius*scale*.16)          // the mesh is fine enough for the trunk it wraps, or thin stems facet
+  const fine = Math.max(.05*scale, skinCell(lo, hi, cell)*1.7)         // wood finer than the skin can hold stays a tube, or it breaks into dashes
   for (const b of branches){
     if (!b.kept) continue
     const rings = all.get(b)
@@ -367,7 +368,7 @@ function emitWood(sp, r, root, scale, branches, wood, clumps){
     wood.pos.push(...tip); wood.nor.push(...e.d); wood.uv.push(0, e.v); wood.wind.push(root[0], root[2], sway(tip), 0); wood.center.push(e.r, root[1], root[2]); wood.leaf.push(0, e.buried, 1)
     for (let k = 0; k < radial; k++) wood.idx.push(ring + k, ring + k + 1, centre)
   }
-  skinWood(axes, wood, sway, root, .062*scale)
+  skinWood(axes, wood, sway, root, cell)
 }
 
 // Surface roots: buttresses that run out from the trunk and sink into the ground, so a tree grows out of the land rather than sitting on it.
@@ -687,7 +688,7 @@ function clotheWood(sp, r, branches, clumps, root, scale){
 function splitLobes(sp, r, clumps, scale){
   if (!sp.lobes || clumps.length < sp.lobes*2) return
   // Painters don't block in equal balls: more lobes are found than wanted, then some merge with a neighbour, so a crown has a big, a middle and a small.
-  const K = Math.round(sp.lobes), { centers, asg } = kmeans(clumps.map(c => [c.c[0], c.c[1]*1.5, c.c[2]]), Math.round(K*1.6), r), R = sp.clumpRadius*scale
+  const K = Math.round(sp.lobes), { centers, asg } = kmeans(clumps.map(c => [c.c[0], c.c[1]*(sp.envW && sp.envW < .9 ? .7 : 1.5), c.c[2]]), Math.round(K*1.6), r), R = sp.clumpRadius*scale
   const sets = centers.map(() => [])
   clumps.forEach((c, i) => sets[asg[i]].push(c))
   const mid = g => [0, 1, 2].map(a => g.reduce((t, q) => t + q.c[a], 0)/g.length)
@@ -703,6 +704,7 @@ function splitLobes(sp, r, clumps, scale){
     const m = [0, 1, 2].map(a => g.reduce((t, q) => t + q.c[a], 0)/g.length)
     if (sp.tighten) for (const c of g){ const to = sub(m, c.c), far = Math.hypot(...to), uneven = lerp(.15, 1.5, noise3(c.c[0]*.5, c.c[1]*.5, c.c[2]*.5)), k = Math.min(sp.tighten*pull*uneven*(sp.envW ? 1.5 : 1), c.r*(sp.envW ? .7 : .5)/Math.max(far, 1e-3));   // an uneven pull: some edges tuck in, some stay out, so a lobe isn't a ball
       c.c = [c.c[0] + to[0]*k, c.c[1] + to[1]*k*.6, c.c[2] + to[2]*k] }   // never far enough to leave its wood
+    if (sp.lobeStretch) for (const c of g){ const [h, v] = sp.lobeStretch, to = [(c.c[0] - m[0])*(h - 1), (c.c[1] - m[1])*(v - 1), (c.c[2] - m[2])*(h - 1)], far = Math.hypot(...to), k = Math.min(1, c.r*.7/Math.max(far, 1e-3)); c.c = add(c.c, to, k) }   // lobes take the species' own shape, never moving a clump off its wood
     const low = Math.min(...g.map(c => c.c[1] - c.r*sp.squash*.7)), top = Math.max(...g.map(c => c.c[1] + c.r*sp.squash)), rx = Math.max(...g.map(c => Math.hypot(c.c[0] - m[0], c.c[2] - m[2]) + c.r*.6), R*.8)
     const sh = { tips: [], hue, cx: m[0], cz: m[2], bottom: low, rx, h: Math.max(top - low, R*.6), phase: r()*7 }
     for (const c of g){ c.shelf = sh; c.mass = [m[0], low + sh.h*.4, m[2]] }
@@ -739,13 +741,14 @@ function fitCrown(sp, r, branches, clumps, root, scale){
   const sprout = (q, rad, deep) => {
     let best = 1e12, from = null, sec = 0
     for (const b of wood){ const n = Math.min(b.cut ?? b.trail.length - 1, b.trail.length - 1); for (let i = 1; i <= n; i++){ const t = b.trail[i]; if (t.p[1] > q[1] + c0) continue; const d = sub(t.p, q), dd = dot(d, d)*(t.rad > .3*scale ? 2.5 : 1); if (dd < best){ best = dd; from = b; sec = i } } }
-    if (!from || best > (H*.2)**2) return false
+    if (!from || best > (H*.26)**2) return false
     const near = clumps.reduce((m, o) => { const d = sub(o.c, q), dd = dot(d, d); return dd < m.dd ? { dd, o } : m }, { dd: 1e12, o: clumps[0] }).o
-    const st = from.trail[sec], rad0 = Math.min(st.rad*.7, .1*scale), trail = [], dir = norm(sub(q, st.p)), len = Math.hypot(...sub(q, st.p)), n0 = perpTo(dir)
-    for (let i = 0; i <= 4; i++){ const t = i/4; trail.push({ p: add(add(st.p, dir, len*t), [0, 1, 0], -.06*len*t*(t - 1)), d: dir, n: n0, rad: lerp(rad0, .03*scale, t) }) }
-    const tw = { trail, sections: 4, radial: 6, roots: 3, kept: true, carries: true, level: Math.min(from.level + 1, 3), parent: from, atSection: sec, r: rad0, len, s: r()*9, kids: [], v0: from.v0 ?? 0, v1: (from.v0 ?? 0) + len }
-    branches.push(tw); wood.push(tw); from.kids?.push(tw)
-    clumps.push({ c: add(q, [0, c0*.15, 0]), r: rad, deep, shelf: near.shelf, rim: .5, mass: near.mass, anchor: { b: tw, sec: 4, p: q } })
+    // a side branch: it leaves along its limb and curves up towards its leaves. Girth is set with all the other wood, once the tree is final
+    const st = from.trail[sec], len = Math.hypot(...sub(q, st.p)), bend = add(add(st.p, st.d, len*.4), [0, 1, 0], len*.12), n0 = perpTo(norm(sub(q, st.p))), trail = []
+    for (let i = 0; i <= 6; i++){ const t = i/6, a0 = add(st.p, sub(bend, st.p), t), a1 = add(bend, sub(q, bend), t); trail.push({ p: add(a0, sub(a1, a0), t), d: norm(sub(a1, a0)), n: n0, rad: .03*scale }) }
+    const tw = { trail, sections: 6, radial: 6, roots: 3, kept: true, carries: true, fill: true, level: Math.min(from.level + 1, 3), parent: from, atSection: sec, r: .03*scale, len, s: r()*9, kids: [], v0: from.v0 ?? 0, v1: (from.v0 ?? 0) + len }
+    branches.push(tw); from.kids?.push(tw)                          // twigs grow from limbs, never from each other
+    clumps.push({ c: add(q, [0, c0*.15, 0]), r: rad, deep, shelf: near.shelf, rim: .5, mass: near.mass, anchor: { b: tw, sec: 6, p: q } })
     return true
   }
   // A crown's middle is a body of shaded leaves: sky never shows through a tree, and every seam and bay ends in dark foliage
@@ -763,7 +766,7 @@ function fitCrown(sp, r, branches, clumps, root, scale){
   for (let v = 0, Nv = Math.ceil((top - base)/(c0*1.05)); v <= Nv && made < sp.envFill; v++){
     const u = (v + .3)/(Nv + .6), w = widthAt(u)*.84, y = base + (top - base)*u*.96, Na = Math.max(1, Math.round(Math.PI*2*w/(c0*1.15)))
     for (let k = 0, spin = r()*7; k < Na && made < sp.envFill; k++){
-      const th = spin + k/Na*Math.PI*2, e0 = w*edge(th), q0 = [root[0] + Math.cos(th)*e0, y, root[2] + Math.sin(th)*e0], b0 = bay(q0), e = e0*lerp(.72, 1.08, b0), q = [root[0] + Math.cos(th)*e, y + (r() - .5)*c0*.4, root[2] + Math.sin(th)*e]
+      const th = spin + k/Na*Math.PI*2, e0 = w*edge(th), q0 = [root[0] + Math.cos(th)*e0, y, root[2] + Math.sin(th)*e0], b0 = bay(q0), e = e0*lerp(.72, 1.08, b0), q = [root[0] + Math.cos(th)*e, y + (Math.sin(th*2 + spin) + (r() - .5)*1.6)*c0*.8, root[2] + Math.sin(th)*e]   // never in level rows, or a crown reads as a stack
       if (b0 < .36) continue                                            // a bay: sky comes in here
       if (clumps.some(o => { const d = sub(o.c, q); d[1] /= sp.squash; return dot(d, d) < (o.r*.95 + c0*.35)**2 })) continue
       if (sprout(q, c0*lerp(.85, 1.15, r()))) made++
@@ -771,29 +774,27 @@ function fitCrown(sp, r, branches, clumps, root, scale){
   }
 }
 
+// A puff of leaves cut off from the crown is a lollipop: small groups that don't touch the main body go, and their wood goes with them.
+function dropIslands(sp, clumps){
+  const id = clumps.map((_, i) => i), find = i => { while (id[i] !== i) i = id[i] = id[id[i]]; return i }
+  for (let i = 0; i < clumps.length; i++) for (let j = 0; j < i; j++){ const q = sub(clumps[i].c, clumps[j].c); q[1] /= sp.squash; if (dot(q, q) < ((clumps[i].r + clumps[j].r)*.95)**2) id[find(i)] = find(j) }
+  const size = new Map(); let total = 0
+  clumps.forEach((c, i) => { const g = find(i), v = c.r**3; size.set(g, (size.get(g) ?? 0) + v); total += v })
+  for (let i = clumps.length - 1; i >= 0; i--) if (size.get(find(i)) < total*.1) clumps.splice(i, 1)
+}
+
 // Twigs exist to carry leaves: from the tips back, wood with none around it goes, so nothing pokes out past the outline of the crown.
 function tidyWood(sp, branches, clumps){
   const covered = q => clumps.some(c => { const d = sub(q, c.c); d[1] /= sp.squash; return dot(d, d) < (c.r*.92)**2 })
-  for (let n = branches.length - 1; n >= 0; n--){
-    const b = branches[n]
-    if (!b.kept || b.root || !b.level || b.continues && b.leader) continue
-    if (branches.some(k => k.kept && k.parent === b)) continue
+  const tips = branches.filter(b => b.kept && !b.root && b.level && !(b.continues && b.leader) && !branches.some(k => k.kept && k.parent === b))   // decided once: losing a tip must never make its parent the next to go
+  for (const b of tips){
     let last = Math.min(b.cut ?? b.trail.length - 1, b.trail.length - 1)
     while (last > 1 && !covered(b.trail[last].p)) last--
-    if (last <= 1) b.kept = false; else b.cut = last
+    if (b.fill || b.level >= 3){ if (last <= 1) b.kept = false; else b.cut = last }
+    else if (last > 1) b.cut = Math.max(last, Math.ceil((b.cut ?? b.trail.length - 1)*.6))    // framework limbs keep at least most of their length
   }
 }
 
-// Removing wood can leave what carried it ending at full girth: anything with nothing growing on from its end draws to a point, so no limb looks sawn off.
-function closeEnds(branches, scale){
-  for (const b of branches){
-    if (!b.kept || b.root || (!b.level && !b.stem)) continue
-    const kids = branches.filter(k => k.kept && k.parent === b)
-    if (kids.some(k => k.continues || k.fork)) continue
-    const T = b.trail, last = Math.min(b.cut ?? T.length - 1, T.length - 1), from = Math.max(last - 5, Math.ceil(Math.max(0, ...kids.map(k => k.atSection ?? 0))), 1), tip = Math.max(T[from].rad*.14, .012*scale)
-    for (let i = from; i <= last; i++){ const u = (i - from + 1)/(last - from + 1); T[i].rad = Math.min(T[i].rad, lerp(T[from].rad, tip, u**.8)) }
-  }
-}
 
 // Nothing wood-like goes under the lawn: reseating and separation can both carry a low limb down, so the last word goes to the ground.
 function holdAboveGround(sp, branches, clumps, scale){
@@ -1020,13 +1021,17 @@ export function emitFoliage(sp, r, clumps, root, scale, out, cores){
     // Big, middle, small. Plates are a few large shapes per lobe that state the mass; they are always drawn. Middle dabs and small
     // accents exist everywhere, but the shader only opens them where the light asks for them (foliage-material.js), so shadow
     // stays plates and detail gathers along the lit edge at any time of day. Strays break the silhouette.
-    for (let layer = 0; layer < 4; layer++) for (let i = 0, count = [L*sp.plates*1.1, n*1.1, n*1.5, n*sp.strays][layer]; i < count; i++){
+    // A fifth layer sits between plates and dabs: broad middle marks, so paint steps down in sizes the way a painter's brushes do.
+    const mids = sp.midSize ? sp.coverage*4*Math.PI*rad*rad/(len0*sp.midSize)**2*1.3 : 0, fewer = sp.midSize ? .75 : 1
+    const out0 = norm([c[0] - root[0] + 1e-3, 0, c[2] - root[2]]), pointed = sp.lobePoint ?? 0, tilt = sp.lobeTilt ?? 0, rough = sp.lobeRough ?? 1
+    for (let layer = 0; layer < 5; layer++) for (let i = 0, count = [L*sp.plates*1.1, n*1.1*fewer, n*1.5*fewer, n*sp.strays, mids][layer]; i < count; i++){
       const d = randDir(r)
       let lobe = lobes[0], b = -2
       for (const l of lobes){ const q = dot(d, l.dir); if (q > b){ b = q; lobe = l } }
       if (lobe.gone && layer > (sp.massMarks ? 1 : 0)) continue          // what stays hides the core: facing the viewer a bite is a hole, so on trees it only thins the edge
-      const rise = clamp((b - .45)/.5), bump = .8 + .26*rise*rise + (r() - .5)*.06
-      const k = rad*(layer === 3 ? bump + lerp(.14, .36, r()) : bump + [-.04, 0, .05][layer]), q = [c[0] + d[0]*k, c[1] + d[1]*k*sp.squash, c[2] + d[2]*k]
+      const rise = clamp((b - .45)/.5), bump = .8 + .26*rough*rise*rise + (r() - .5)*.06
+      // each species shapes its clumps: pointed tufts, hanging wedges, sprays that tilt from the trunk
+      const k = rad*(layer === 3 ? bump + lerp(.1, .3, r()) : bump + [-.04, 0, .05, 0, .07][layer]), wide = 1 - pointed*d[1], lean = tilt*(d[0]*out0[0] + d[2]*out0[2]), q = [c[0] + d[0]*k*wide, c[1] + (d[1] + lean)*k*sp.squash, c[2] + d[2]*k*wide]
       if (shelf) q[1] = Math.max(q[1], shelf.bottom + shelf.h*(.07*Math.sin(q[0]*.9 + shelf.phase) + .07*Math.sin(q[2]*1.3 + shelf.phase*2)))   // shelves are flat underneath, but drawn by hand
       const onCrown = norm(q.map((v, a) => (v - crown[a])/half[a]))
       const onShelf = shelf ? norm([(q[0] - shelf.cx)/shelf.rx, (q[1] - shelf.bottom - shelf.h*.15)/shelf.h, (q[2] - shelf.cz)/shelf.rx]) : onCrown
@@ -1036,9 +1041,10 @@ export function emitFoliage(sp, r, clumps, root, scale, out, cores){
       const t = rotateAbout(norm(dot(flow, flow) > .02 ? flow : randDir(r)), d, turn + (r() - .5)*2*jitter)
       const ao = clamp(.26 + .4*(onShelf[1]*.5 + .5) + .2*Math.hypot(onCrown[0], onCrown[2]) + .16*rise, .1, 1)
       // marks at three clear scales: plates sized by the mass, dabs by the brush, so the big shapes aren't just more of the small ones
-      const plate = Math.max(rad*lerp(.58, .95, r()), sp.massMarks && shelf ? Math.min(shelf.rx, rad*2.2)*lerp(.32, .44, r()) : 0)*sp.plateSize, size = [0, sp.massMarks ? lerp(.72, 1.15, r()) : lerp(.8, 1.3, r()), lerp(.38, .66, r()), lerp(.3, .5, r())][layer]
-      addStroke(out, r, { q, n: nS, t, len: layer ? len0*size : plate, wid: layer ? wid0*size : plate*.85, tile: randTile(r, layer > 1), pivot, ao,
-        tone: clamp(lobe.tone + (r() - .5)*.2), wind, dab: [0, 1, 2, 2][layer], clump })
+      const plate = Math.max(rad*lerp(.58, .95, r()), sp.massMarks && shelf ? Math.min(shelf.rx, rad*2.2)*lerp(.32, .44, r()) : 0)*sp.plateSize, size = [0, sp.massMarks ? lerp(.72, 1.15, r()) : lerp(.8, 1.3, r()), lerp(.38, .66, r()), layer === 4 ? 0 : lerp(.3, .5, r())][layer]
+      const sized = layer === 4 ? sp.midSize*lerp(.75, 1.3, r()) : size
+      addStroke(out, r, { q, n: nS, t, len: layer ? len0*sized : plate, wid: layer ? wid0*sized : plate*.85, tile: randTile(r, layer === 2 || layer === 3), pivot, ao,
+        tone: clamp(lobe.tone + (r() - .5)*.2), wind, dab: [0, 1, 2, .7, .6][layer], clump })
     }
   }
   // Neighbouring clumps of one mass are one body of leaves, so the space between them is painted too, in the colour of the clump it joins.
@@ -1124,14 +1130,17 @@ export function generatePlant(species, seed, root, scale, wood, foliage, cores =
   flowGirth(sp, branches, scale)
   separateWood(sp, branches, clumps, true)
   fitCrown(sp, r, branches, clumps, root, scale)
-  closeEnds(branches, scale)
+  flowGirth(sp, branches, scale)                                       // the wood has changed: girth is worked out again on what's left
+  separateWood(sp, branches, clumps, true)
   holdAboveGround(sp, branches, clumps, scale)
   carryAlongLimbs(sp, clumps, scale)
   clotheWood(sp, r, branches, clumps, root, scale)
   if (sp.outline){
     for (let i = clumps.length - 1; i >= 0 && clumps.length > 6; i--) if (sp.outline(clumps[i])) clumps.splice(i, 1)
+    if (sp.envHeart) dropIslands(sp, clumps)                            // pines are meant to be separate pads
     tidyWood(sp, branches, clumps)
-    closeEnds(branches, scale)
+    flowGirth(sp, branches, scale)
+    separateWood(sp, branches, clumps, true)
   }
   if (sp.cover) for (let i = clumps.length - 1, floor = root[1] + sp.height*scale*sp.crownLine*.8; i >= 0 && clumps.length > 6; i--) if (clumps[i].c[1] < floor) clumps.splice(i, 1)   // the trunk stays in view: leaves never hang down over it
   // and wood that only reached down there goes with its leaves, from the tips back
@@ -1143,6 +1152,11 @@ export function generatePlant(species, seed, root, scale, wood, foliage, cores =
   }
   splitLobes(sp, r, clumps, scale)
   growRoots(sp, r, root, scale, branches)
+  // the last word: leaves with no wood under them go
+  for (let i = clumps.length - 1; i >= 0 && clumps.length > 6; i--){
+    const c = clumps[i], reach = (c.r*1.15)**2
+    if (!sp.hang && !branches.some(b => b.kept && !b.root && b.trail.some((e, k) => k <= (b.cut ?? 1e9) && dot(sub(e.p, c.c), sub(e.p, c.c)) < reach))) clumps.splice(i, 1)
+  }
   emitWood(sp, r, root, scale, branches, wood, clumps)
   const form = emitFoliage(sp, r, clumps, root, scale, foliage, cores)
   emitEntries(sp, r, root, scale, branches, wood, foliage, clumps, form)

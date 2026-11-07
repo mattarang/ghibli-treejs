@@ -1,6 +1,6 @@
 // A reference beside the render, so a tree is judged against what it should look like. Each species keeps its own picture: one dropped onto the panel is
 // remembered in this browser; otherwise public/refs/<species>.jpg if it's there; otherwise the studio references.
-const STUDIO = ['ref-1', 'ref-5', 'ref-2', 'ref-4', 'ref-6', 'ref-3'].map(n => `/critique/refs/${n}.png`)
+const STUDIO = ['kokurikozaka003', 'kazetachinu028', 'marnie003', 'omoide003', 'totoro001', 'majo002', 'kazetachinu050', 'marnie006'].map(n => `/critique/refs/ghibli/${n}.jpg`)   // official stills, kept local
 const slug = s => s.toLowerCase().replace(/ /g, '-')
 const key = s => 'compare:' + slug(s)
 const recall = s => { try { return localStorage.getItem(key(s)) } catch { return null } }
