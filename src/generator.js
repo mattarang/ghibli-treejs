@@ -216,10 +216,10 @@ function growColonise(sp, r, root, scale){
   const add0 = (p, parent, stage) => { const n = { p, parent, stage, kids: [], pull: [0, 0, 0], pulled: 0, d: parent ? norm(sub(p, parent.p)) : [0, 1, 0] }; nodes.push(n); if (parent) parent.kids.push(n); return n }
   let tip = add0(add(root, [0, -.3*sp.flare*R, 0]), null, -1)
   const lean = norm([(r() - .5)*sp.lean*2, 1, (r() - .5)*sp.lean*2]), rungs = Math.ceil(H*g.bare/step)
-  for (let i = 0; i < rungs; i++) tip = add0(add(tip.p, lean, step), tip, i === rungs - 1 ? 0 : -1)
+  { let d = lean; for (let i = 0; i < rungs; i++){ if (i%c.trunkRun === 0) d = norm(add(add(d, randDir(r), c.trunkKink), lean, .35)); tip = add0(add(tip.p, d, step), tip, i === rungs - 1 ? 0 : -1) } }
   // the central stem grows next, wandering a little: it's the tallest wood on the tree, and nothing rises past it
   for (let d = lean, i = 0; tip.p[1] < root[1] + H*c.leader; i++){ if (i%c.leaderRun === 0) d = norm(add(add(d, randDir(r), c.leaderKink), [0, 1, 0], .3)); tip = add0(add(tip.p, d, step), tip, 0); tip.leader = true }   // straight lengths too, with a small change of line between them
-  const ceiling = tip.p[1] - .25*scale
+  const ceiling = root[1] + H*c.crownTop                                // the stem stops short of the top, so the upper crown has room to rise and spread above it
   // Every branch is one straight shoot, set off at an angle to its parent that stays within fixed limits, so wood can't curl. Open space still decides: of the ways a shoot
   // could go, it takes the one that claims the most unclaimed crown, and it ends at the outline. Each generation is shorter and more numerous than the last.
   const leaderNodes = nodes.filter(n => n.leader), space = [], tau = Math.PI*2
@@ -251,14 +251,18 @@ function growColonise(sp, r, root, scale){
       if (room < step) continue
       const len = Math.min(room, Math.max(step, Math.max(room*c.share*lerp(.8, 1.2, r()), c.tip*scale))), rad = clamp(len*c.claim, c.claimLeast*scale, c.claimMost*scale)
       const mine = girthOf(k), skip = girthOf(Math.max(k - 1, 0))*2 + mine*2 + c.clear*scale
-      { let blocked = false; for (let u = skip; u <= len && !blocked; u += step) blocked = hits(add(from.p, d, u), mine, from.p, skip); if (blocked) continue }
+      // the shoot's own kinks are planned before it grows, side to side about its line, so the clearance check runs along the wood as it will really stand
+      const parts = clamp(Math.round(len/(c.crookLen*scale)), 1, 5), side0 = rotateAbout(perpTo(d), d, r()*tau), path = []
+      for (let i = 0, was = 0; i < parts; i++){ const lean = i%2 ? -1 : 1, off = lean*c.crook*lerp(.5, 1.5, r()), turnTo = parts > 1 ? off - was*.6 : 0; was = off
+        path.push({ v: norm(add(add(d, side0, turnTo), randDir(r), c.crook*.4)), n: Math.max(Math.round(len/parts/step), 1) }) }
+      { let blocked = false, q = from.p, u = 0; for (const seg of path) for (let i = 0; i < seg.n && !blocked; i++){ q = add(q, seg.v, step); u += step; if (u >= skip) blocked = hits(q, mine, from.p, skip) } if (blocked) continue }
       let score = 0; for (const q of space) if (near(q, from.p, d, len, rad)) score++
       score *= (1 + c.up*d[1])/(1 + c.sun*shadeOn(from.p, d, len))/len       // space claimed per metre: a long flat run earns nothing for its length
-      if (score > top){ top = score; best = { d, len, rad } }
+      if (score > top){ top = score; best = { d, len, rad, path } }
     }
     if (!best) return null
     let n = from
-    for (let i = 1, steps = Math.max(Math.round(best.len/step), 1); i <= steps; i++){ n = add0(add(n.p, best.d, step), n, k + 1); noteWood(n.p, girthOf(k)) }
+    for (const seg of best.path) for (let i = 0; i < seg.n; i++){ n = add0(add(n.p, seg.v, step), n, k + 1); noteWood(n.p, girthOf(k)) }
     for (let i = space.length - 1; i >= 0; i--) if (near(space[i], from.p, best.d, best.len, best.rad)){ space[i] = space[space.length - 1]; space.pop() }
     for (let i = 1, parts = Math.ceil(best.len/c.sunCell); i <= parts; i++){ const q = cellOf(add(from.p, best.d, best.len*i/parts)); shade.set(q, (shade.get(q) ?? 0) + Math.min(best.rad, 1)) }
     return { tip: n, d: best.d }
@@ -301,7 +305,7 @@ function growColonise(sp, r, root, scale){
     // the wood is exactly where it grew: straight shoots, joined at their corners, and each corner rounded by a hand's width and no more
     const pts = run.map(n => n.p.slice())
     if (o.parent) pts[0] = o.parent.trail[o.atSection].p.slice()
-    { const old = pts.map(q => q.slice()); for (let i = 1; i < pts.length - 1; i++){ const a = sub(old[i], old[i - 1]), e = sub(old[i + 1], old[i]); if (dot(norm(a), norm(e)) < .999) for (let k = 0; k < 3; k++) pts[i][k] = .25*old[i - 1][k] + .5*old[i][k] + .25*old[i + 1][k] } }
+    for (let pass = 0, passes = o.level ? 1 : 8; pass < passes; pass++){ const old = pts.map(q => q.slice()); for (let i = 1; i < pts.length - 1; i++){ const a = sub(old[i], old[i - 1]), e = sub(old[i + 1], old[i]); if (!o.level || dot(norm(a), norm(e)) < .999) for (let k = 0; k < 3; k++) pts[i][k] = .25*old[i - 1][k] + .5*old[i][k] + .25*old[i + 1][k] } }
     const rads = run.map(radiusOf)
     for (let pass = 0; pass < 2; pass++){ const old = rads.slice(); for (let i = 1; i < rads.length - 1; i++) rads[i] = (old[i - 1] + 2*old[i] + old[i + 1])/4 }   // thins smoothly past a joint
     for (let i = Math.max(rads.length - 5, 1); i < rads.length; i++) rads[i] *= lerp(1, .25, (i - rads.length + 5)/4)      // a twig ends in a point, not a sawn stump
