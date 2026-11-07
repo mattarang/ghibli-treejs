@@ -30,12 +30,12 @@ const vertexShader = /* glsl */`
     vec3 n = normalize(normal), V = normalize(cameraPosition - wPos.xyz);
     float rimV = smoothstep(.5, .82, 1. - abs(dot(n, V)));
     bool small = aDab > 1.5, core = aDab < -.5, massed = uMass > .5 && aPatch.z >= 0., closed;
-    float F, score = 0.;
+    float F, score = 0., hueOf = 0.;
     if (massed){
       // Light belongs to the mass. main.js gives every clump its place against its mass's terminator; a stroke adds only the turn of its own
       // form, so whole clumps fall on one side together, and the border between light and shadow is a chain of clump-sized shapes.
       int id = int(aPatch.z);
-      score = texelFetch(tSun, ivec2(id%256, id/256), 0).r*4. - 2. + dot(n, uSunDir)*.6 + aPatch.x*uLightShape*.9;
+      vec2 place = texelFetch(tSun, ivec2(id%256, id/256), 0).rg; hueOf = place.g - .5; score = place.r*4. - 2. + dot(n, uSunDir)*.6 + aPatch.x*uLightShape*.9;
       float along = score + (aLeaf.z - .5)*.16;                                 // across the terminator, dabs decide one by one
       F = mix(.05, .46 + .42*smoothstep(0., .85, score) + aPatch.y*.05, smoothstep(-.015, .015, along));   // the more it faces the sun, the brighter
       closed = (aDab > .5 && !small && score < -.16 && aLeaf.z > .4) || (small && abs(score) > .13 && rimV < .4);   // detail lives on the terminator and the rim
@@ -66,8 +66,8 @@ const vertexShader = /* glsl */`
     vec3 glow = (back*uSssColor*(.35 + base) + uRimColor*rimF*(.4 + base))*uSunTint*uDay*calm;
     vec3 lv = uLanternPos - wPos.xyz; float d2 = dot(lv, lv);
     glow += uLanternColor*(.3 + .7*clamp(dot(n, normalize(lv)), 0., 1.))*uLanternI/(1. + d2*.18)*(.4 + base);
-    // hue is a second axis of paint that light doesn't touch: whole clumps lean teal or olive, and strokes only a little
-    float turn = (massed ? (fract(aPatch.z*.618) - .5)*.3 + (aLeaf.z - .5)*.1 : (aLeaf.z - .5)*.42 + (aLeaf.y - .5)*(1. - calm)*.45)*uHueVar;
+    // hue is a second axis of paint that light doesn't touch: whole lobes lean teal or olive, and strokes only a little
+    float turn = (massed ? hueOf*.3 + (fract(aPatch.z*.618) - .5)*.1 + (aLeaf.z - .5)*.1 : (aLeaf.z - .5)*.42 + (aLeaf.y - .5)*(1. - calm)*.45)*uHueVar;
     // air: distance lifts shadow toward the sky long before it touches the lights
     float air = (1. - exp(-max(length(mvPosition.xyz) - 45., 0.)*.0045))*(1. - .55*calm)*uAir;
     vColA = mix(turnHue(max(palRamp(x - spread)*scale, uPal0*.9), turn)*wash, fogColor, air) + glow;

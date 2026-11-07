@@ -9,6 +9,7 @@ import { U, patch, newPalette, setPalette, paletteUniforms } from './ghibli-patc
 import { makeSky } from './sky.js'
 import { makeFoliageMaterial } from './foliage-material.js'
 import { makeClouds } from './clouds.js'
+import { makeCompare } from './compare.js'
 import { applyLighting } from './lighting.js'
 
 const qs = new URLSearchParams(location.search)
@@ -42,7 +43,7 @@ scene.add(sky, clouds)
 const L = { sun, hemi, sky, clouds, scene, reach: 80 }
 
 // ---- parameters ----
-const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('species') : 'Great camphor'
+const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('species') : 'Camphor tree'
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
   showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 34000,
@@ -84,12 +85,25 @@ const GROUND_PIGMENT = '(fld(vWPos.xz*vec2(.2, .62)) - .5)*.9'
 // Light is given out per mass, the way a painter blocks it in: the mass the sun favours most gets most of its area lit, the one it favours least
 // a sliver, and each mass gets one terminator, placed to give it that share. Rebaked only when the sun or the plants change, into a small table
 // the foliage reads once per vertex: each clump's place relative to its terminator.
-const sunTable = new THREE.DataTexture(new Uint8Array(256*64), 256, 64, THREE.RedFormat)
+const sunTable = new THREE.DataTexture(new Uint8Array(256*64*2), 256, 64, THREE.RGFormat)     // R: place against the light. G: the lobe's hue
 sunTable.magFilter = sunTable.minFilter = THREE.NearestFilter
-const HERO_SHARE = .62, LAST_SHARE = .15, LINE_LOW = -.1, LINE_HIGH = .15, OWN_TURN = .6
+const SAME_SHADE = .25, HERO_SHARE = .62, LAST_SHARE = .15, LINE_LOW = -.1, LINE_HIGH = .15, OWN_TURN = .6
 let heldClumps = []
+// only clumps close enough to matter need testing, whatever the sun does: worked out once per rebuild, so dragging the sun stays smooth
+const shaders = new Map()
+function shadersOf(i, all){
+  let list = shaders.get(i)
+  if (!list){
+    const a = heldClumps[i]; list = []
+    for (const j of all){ if (j === i) continue
+      const e = heldClumps[j], d = Math.hypot(e.c[0] - a.c[0], e.c[1] - a.c[1], e.c[2] - a.c[2])
+      if (e.mass !== a.mass ? d < (a.r + e.r)*5 : d < (a.r + e.r)*2.2) list.push(j) }
+    shaders.set(i, list)
+  }
+  return list
+}
 function bakeSun(){
-  const s = U.uSunDir.value, data = sunTable.image.data, n = Math.min(heldClumps.length, data.length), plants = new Map()
+  const s = U.uSunDir.value, data = sunTable.image.data, n = Math.min(heldClumps.length, data.length/2), plants = new Map()
   for (let i = 0; i < n; i++){
     const c = heldClumps[i]; let masses = plants.get(c.plant)
     if (!masses) plants.set(c.plant, masses = new Map())
@@ -103,14 +117,14 @@ function bakeSun(){
     for (const i of all){
       const a = heldClumps[i], k = a.squash
       let vis = 1
-      for (const j of all){
+      for (const j of shadersOf(i, all)){
         const e = heldClumps[j]
-        if (e.mass === a.mass) continue
+        const same = e.mass === a.mass                                  // within a mass the shade is gentle: enough to model its lobes, not enough to split it
         const x = e.c[0] - a.c[0], y = e.c[1] - a.c[1], z = e.c[2] - a.c[2], t = x*s.x + y*s.y + z*s.z
         if (t < a.r*.25) continue
         const yy = y/k, sy = s.y/k, tt = (x*s.x + yy*sy + z*s.z)/(s.x*s.x + sy*sy + s.z*s.z), px = x - tt*s.x, py = yy - tt*sy, pz = z - tt*s.z
         const q = Math.min(Math.max((.95 - Math.sqrt(px*px + py*py + pz*pz)/e.r)/.5, 0), 1)     // the shade of what really stands in the way: anything the sun can see past stays lit
-        vis *= 1 - .55*q*q*(3 - 2*q)
+        vis *= 1 - (same ? SAME_SHADE : .55)*q*q*(3 - 2*q)
       }
       face[i] = a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z - (1 - vis)*1.1*U.uSelfShade.value
     }
@@ -125,7 +139,7 @@ function bakeSun(){
       // The share only arranges the light where the sun leaves it open. Foliage that faces the sun with nothing in the way is always lit, and foliage
       // turned away from it never is, whatever its mass's rank.
       if (up > 0) line = Math.min(Math.max(line, LINE_LOW), LINE_HIGH)
-      for (const i of g){ const a = heldClumps[i]; data[i] = Math.min(Math.max((face[i] - line - OWN_TURN*(a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z) + 2)/4, 0), 1)*255 }
+      for (const i of g){ const a = heldClumps[i]; data[i*2 + 1] = a.hue*255; data[i*2] = Math.min(Math.max((face[i] - line - OWN_TURN*(a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z) + 2)/4, 0), 1)*255 }
     })
   }
   sunTable.needsUpdate = true
@@ -249,7 +263,7 @@ function setStats(ms, clumps){
 
 const trees = []
 function rebuild(){
-  U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius : 0
+  U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius*1.5 : 0
   const t0 = performance.now(), woodB = newBuffer(), leafB = newBuffer(), coreB = newBuffer(), ivyB = newBuffer()
   const { plants, bushes } = layoutScene(p)
   trees.length = 0
@@ -263,7 +277,7 @@ function rebuild(){
   ivy.geometry.dispose(); ivy.geometry = ivyB.pos.length ? toGeometry(ivyB) : new THREE.BufferGeometry()
   core.geometry.dispose(); core.geometry = coreB.pos.length ? toGeometry(coreB) : new THREE.BufferGeometry()
   foliage.geometry.dispose(); foliage.geometry = toGeometry(leafB)
-  heldClumps = leafB.held || []
+  heldClumps = leafB.held || []; shaders.clear()
   caster.geometry.dispose(); caster.geometry = toGeometry(platesOf(leafB))
   renderer.shadowMap.needsUpdate = true
   wood.geometry.dispose(); wood.geometry = toGeometry(woodB)
@@ -291,22 +305,28 @@ function applyLook(){
   sssColor.value.set(p.sss); rimColor.value.set(p.rim); U.uFleck.value = p.fleck; U.uMoss.value = p.moss
 }
 function frame(){
-  const h = p.height, d = p.grove > 1 ? h*3.2 + p.groveRadius : Math.max(h*3.1, h*(p.crownWidth || .5)*4.6)
+  const h = p.height, d = (p.grove > 1 ? h*3.2 + p.groveRadius : Math.max(h*3.1, h*(p.crownWidth || .5)*4.6))*Math.min(Math.max(1, .9/camera.aspect), 1.5)   // a narrow view stands further back
   camera.position.set(d*.72, h*.2, d*.72); controls.target.set(0, h*.5, 0); controls.update()
 }
 
 // ---- panel ----
 const gui = new GUI({ title: 'Foliage' })
+const compare = makeCompare(() => layout())
+compare.species(p.species)
+const compareF = gui.addFolder('Compare').close()
+compareF.add({ on: false }, 'on').name('Show reference').onChange(v => { compare.set(v); frame() })
+compareF.add({ next(){ compare.next() } }, 'next').name('Next reference')
 const treeF = gui.addFolder('Plant')
 // wood alone, for reviewing structure: leaves, ivy and their shadows go, and buried wood comes back to its true depth
 function applyFoliage(){
   foliage.visible = core.visible = caster.visible = ivy.visible = p.showFoliage
-  sink.value = p.showFoliage ? p.clumpRadius : 0; crownDark.value = p.showFoliage ? 1 : 0
+  sink.value = p.showFoliage ? p.clumpRadius*1.5 : 0; crownDark.value = p.showFoliage ? 1 : 0
   renderer.shadowMap.needsUpdate = true
 }
 applyFoliage()
 treeF.add(p, 'showFoliage').name('Show foliage').onChange(applyFoliage)
-treeF.add(p, 'species', Object.keys(SPECIES)).name('Species').onChange(name => {
+treeF.add(p, 'species', Object.keys(SPECIES).sort()).name('Species').onChange(name => {
+  compare.species(name)
   Object.assign(p, structuredClone(SPECIES[name])); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); rebuild(); rebuildGrass(); frame() })
 treeF.add(p, 'seed', 1, 9999, 1).name('Seed').onChange(later).listen()
 treeF.add({ dice(){ p.seed = 1 + Math.floor(Math.random()*9998); rebuild(); rebuildGrass() } }, 'dice').name('New seed')
@@ -344,6 +364,11 @@ branchF.add(p, 'lean', 0, .4, .01).name('Lean').onChange(later)
 branchF.add(p, 'flare', 0, 2, .01).name('Root flare').onChange(later)
 const leafF = gui.addFolder('Canopy')
 leafF.add(p, 'shelves', 0, 10, 1).name('Crown shelves').onChange(later)
+leafF.add(p, 'cover', 0, 1.5, .01).name('Clothe limbs').onChange(later)
+leafF.add(p, 'lobes', 0, 20, 1).name('Lobes').onChange(later)
+leafF.add(p, 'tighten', 0, .5, .01).name('Lobe separation').onChange(later)
+leafF.add(p, 'shell', 0, 1, .01).name('Foliage shell').onChange(later)
+leafF.add(p, 'crownLine', 0, .8, .01).name('Crown line').onChange(later)
 leafF.add(p, 'clumpRadius', .3, 3.5, .01).name('Clump size').onChange(later)
 leafF.add(p, 'clumpVar', 0, .8, .01).name('Size variation').onChange(later)
 leafF.add(p, 'clumpsPerTip', .3, 3, .05).name('Clumps per tip').onChange(later)
@@ -445,7 +470,8 @@ addEventListener('pointermove', e => { if (!dragging) return
   p.time = Math.min(18.9, Math.max(5.1, p.time - (e.clientY - dragging.y)*.015))
   dragging = { x: e.clientX, y: e.clientY }; relight() })
 addEventListener('pointerup', () => { dragging = null; controls.enabled = true })
-addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) })
+function layout(){ const w = innerWidth - compare.width - (compare.width ? gui.domElement.offsetWidth : 0); camera.aspect = w/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(w, innerHeight); renderer.domElement.style.marginLeft = compare.width + 'px' }
+addEventListener('resize', layout)
 
 // ---- go ----
 applyLook(); clouds.build(p.clouds, p.cloudSeed); rebuild(); rebuildGrass(); lamp(); frame()
