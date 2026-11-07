@@ -85,7 +85,7 @@ const GROUND_PIGMENT = '(fld(vWPos.xz*vec2(.2, .62)) - .5)*.9'
 // Light is given out per mass, the way a painter blocks it in: the mass the sun favours most gets most of its area lit, the one it favours least
 // a sliver, and each mass gets one terminator, placed to give it that share. Rebaked only when the sun or the plants change, into a small table
 // the foliage reads once per vertex: each clump's place relative to its terminator.
-const sunTable = new THREE.DataTexture(new Uint8Array(256*64*2), 256, 64, THREE.RGFormat)     // R: place against the light. G: the lobe's hue
+const sunTable = new THREE.DataTexture(new Uint8Array(256*64*4), 256, 64, THREE.RGBAFormat)     // R: place against the light. G: the lobe's hue. B: the tree's colour form
 sunTable.magFilter = sunTable.minFilter = THREE.NearestFilter
 const SAME_SHADE = .42, HERO_SHARE = .62, LAST_SHARE = .15, LINE_LOW = -.1, LINE_HIGH = .15, OWN_TURN = .6
 let heldClumps = []
@@ -103,7 +103,7 @@ function shadersOf(i, all){
   return list
 }
 function bakeSun(){
-  const s = U.uSunDir.value, data = sunTable.image.data, n = Math.min(heldClumps.length, data.length/2), plants = new Map()
+  const s = U.uSunDir.value, data = sunTable.image.data, n = Math.min(heldClumps.length, data.length/4), plants = new Map()
   for (let i = 0; i < n; i++){
     const c = heldClumps[i]; let masses = plants.get(c.plant)
     if (!masses) plants.set(c.plant, masses = new Map())
@@ -119,6 +119,7 @@ function bakeSun(){
       let vis = 1
       for (const j of shadersOf(i, all)){
         const e = heldClumps[j]
+        if (e.deep) continue                                            // the heart shades nothing: only the shell makes a crown's light
         const same = e.mass === a.mass                                  // within a mass the shade is gentle: enough to model its lobes, not enough to split it
         const x = e.c[0] - a.c[0], y = e.c[1] - a.c[1], z = e.c[2] - a.c[2], t = x*s.x + y*s.y + z*s.z
         if (t < a.r*.25) continue
@@ -126,12 +127,13 @@ function bakeSun(){
         const q = Math.min(Math.max((.95 - Math.sqrt(px*px + py*py + pz*pz)/e.r)/.5, 0), 1)     // the shade of what really stands in the way: anything the sun can see past stays lit
         vis *= 1 - (same ? SAME_SHADE : .55)*q*q*(3 - 2*q)
       }
-      face[i] = a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z - (1 - vis)*1.1*U.uSelfShade.value
+      face[i] = a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z - (1 - vis)*1.1*U.uSelfShade.value - (a.deep ? 3*Math.min(Math.max((.92 - vis)/.3, 0), 1) : 0)   // the heart of a crown is dark where leaves cover it, and lit like any other where the sun reaches it
     }
-    const mean = groups.map(g => g.reduce((t, i) => t + face[i], 0)/g.length), lo = Math.min(...mean), hi = Math.max(...mean)
+    const shell = groups.map(g => { const o = g.filter(i => !heldClumps[i].deep); return o.length ? o : g })   // the light is shared out over what can be seen
+    const mean = shell.map(g => g.reduce((t, i) => t + face[i], 0)/g.length), lo = Math.min(...mean), hi = Math.max(...mean)
     groups.forEach((g, k) => {
       const share = groups.length > 1 ? LAST_SHARE + (HERO_SHARE - LAST_SHARE)*((mean[k] - lo)/Math.max(hi - lo, 1e-3))**.8 : (HERO_SHARE + LAST_SHARE)/2
-      const order = [...g].sort((p, q) => face[q] - face[p]), area = g.reduce((t, i) => t + heldClumps[i].r**2, 0)
+      const order = [...shell[k]].sort((p, q) => face[q] - face[p]), area = shell[k].reduce((t, i) => t + heldClumps[i].r**2, 0)
       let seen = 0, line = face[order[order.length - 1]] - .5                 // walk down from the sunniest clump until the share is spent
       if (up === 0) line = 9
       else for (const i of order){ seen += heldClumps[i].r**2; if (seen >= share*up*area){ line = face[i] - 1e-3; break } }
@@ -139,7 +141,7 @@ function bakeSun(){
       // The share only arranges the light where the sun leaves it open. Foliage that faces the sun with nothing in the way is always lit, and foliage
       // turned away from it never is, whatever its mass's rank.
       if (up > 0) line = Math.min(Math.max(line, LINE_LOW), LINE_HIGH)
-      for (const i of g){ const a = heldClumps[i]; data[i*2 + 1] = a.hue*255; data[i*2] = Math.min(Math.max((face[i] - line - OWN_TURN*(a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z) + 2)/4, 0), 1)*255 }
+      for (const i of g){ const a = heldClumps[i]; data[i*4 + 1] = a.hue*255; data[i*4 + 2] = a.form; data[i*4] = Math.min(Math.max((face[i] - line - OWN_TURN*(a.n[0]*s.x + a.n[1]*s.y + a.n[2]*s.z) + 2)/4, 0), 1)*255 }
     })
   }
   sunTable.needsUpdate = true
@@ -303,6 +305,7 @@ function rebuildGrass(){
 let queued = 0
 const later = () => { clearTimeout(queued); queued = setTimeout(() => { rebuild(); rebuildGrass() }, 60) }
 function applyLook(){
+  ;(p.colors ?? []).forEach((f, k) => f.palette.forEach((hex, n) => foliageMat.uniforms.uPalV.value[k*4 + n].set(hex)))
   setPalette(pals.foliage, p.palette); setPalette(pals.bark, p.bark); setPalette(pals.ground, p.ground)
   woodMat.color.set(p.bark[2]); groundMat.color.set(p.ground[2]); grassMat.color.set(p.ground[2])
   sssColor.value.set(p.sss); rimColor.value.set(p.rim); U.uFleck.value = p.fleck; U.uMoss.value = p.moss
@@ -373,6 +376,7 @@ branchF.add(p, 'droop', 0, .3, .005).name('Droop').onChange(later)
 branchF.add(p, 'lean', 0, .4, .01).name('Lean').onChange(later)
 branchF.add(p, 'flare', 0, 2, .01).name('Root flare').onChange(later)
 const leafF = gui.addFolder('Canopy')
+leafF.add(p, 'colorPick', 0, 4, 1).name('Colour form (0 = by seed)').onChange(later)
 leafF.add(p, 'shelves', 0, 10, 1).name('Crown shelves').onChange(later)
 leafF.add(p, 'cover', 0, 1.5, .01).name('Clothe limbs').onChange(later)
 leafF.add(p, 'lobes', 0, 20, 1).name('Lobes').onChange(later)

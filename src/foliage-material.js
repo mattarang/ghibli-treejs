@@ -7,6 +7,7 @@ const vertexShader = /* glsl */`
   attribute vec2 aCorner; attribute vec3 aPatch, aStroke, aLeaf, clusterCenter; attribute vec4 aWind; attribute float aDab;
   uniform sampler2D tSun; uniform float uSelfShade, uHueVar, uAir, uMass; uniform vec3 fogColor;
   uniform float uTime, uWind, uSway, uFlutter, uLightShape, uBands, uSoft, uToonMix, uPigment, uSss, uRim, uFleck, uShadowFillK, uDay, uLanternI;
+  uniform vec3 uPalV[12]; vec3 P0, P1, P2, P3;
   uniform vec3 uSunDir, uPal0, uPal1, uPal2, uPal3, uSssColor, uRimColor, uShadowFill, uAmbTint, uSunTint, uLanternPos, uLanternColor;
   varying vec2 vUv; varying vec3 vColA, vColB; varying float vCalm;
   #include <fog_pars_vertex>
@@ -18,12 +19,12 @@ const vertexShader = /* glsl */`
     return (o + vec3(.5, .8, .5)*fl*a.w*uFlutter*(.4 + .6*gust))*uWind; }
   float toonRamp(float x){ float n = max(uBands, 1.), s = pow(x, .85)*n, f = floor(s), t = smoothstep(.5 - uSoft, .5 + uSoft, fract(s));
     return mix(x, clamp((f + t)/n, 0., 1.), uToonMix); }
-  vec3 palRamp(float x){ x = clamp(x, 0., 1.)*3.; return x < 1. ? mix(uPal0, uPal1, x) : x < 2. ? mix(uPal1, uPal2, x - 1.) : mix(uPal2, uPal3, x - 2.); }
+  vec3 palRamp(float x){ x = clamp(x, 0., 1.)*3.; return x < 1. ? mix(P0, P1, x) : x < 2. ? mix(P1, P2, x - 1.) : mix(P2, P3, x - 2.); }
   // turns a colour around its own grey, keeping its value
   vec3 turnHue(vec3 c, float a){ float y = dot(c, vec3(.299, .587, .114)), i = dot(c, vec3(.596, -.274, -.322)), q = dot(c, vec3(.211, -.523, .312)), s = sin(a), k = cos(a), u = i*k - q*s, v = i*s + q*k;
     return vec3(y + .956*u + .621*v, y - .272*u - .647*v, y - 1.106*u + 1.703*v); }
   void main(){
-    vUv = uv;
+    vUv = uv; P0 = uPal0; P1 = uPal1; P2 = uPal2; P3 = uPal3;
     vec4 wPos = modelMatrix*vec4(position, 1.);
     wPos.xyz += windOffset(wPos.xyz, clusterCenter, aWind);
     vec4 mvPosition = viewMatrix*wPos;
@@ -35,7 +36,9 @@ const vertexShader = /* glsl */`
       // Light belongs to the mass. main.js gives every clump its place against its mass's terminator; a stroke adds only the turn of its own
       // form, so whole clumps fall on one side together, and the border between light and shadow is a chain of clump-sized shapes.
       int id = int(aPatch.z);
-      vec2 place = texelFetch(tSun, ivec2(id%256, id/256), 0).rg; hueOf = place.g - .5; score = place.r*4. - 2. + dot(n, uSunDir)*.6 + aPatch.x*uLightShape*.9;
+      vec3 place = texelFetch(tSun, ivec2(id%256, id/256), 0).rgb; hueOf = place.g - .5;
+      int form = int(place.b*255. + .5); if (form > 0){ int o = (form - 1)*4; P0 = uPalV[o]; P1 = uPalV[o + 1]; P2 = uPalV[o + 2]; P3 = uPalV[o + 3]; }   // each tree's own colour form
+      score = place.r*4. - 2. + dot(n, uSunDir)*.6 + aPatch.x*uLightShape*.9;
       float along = score + (aLeaf.z - .5)*.16;                                 // across the terminator, dabs decide one by one
       F = mix(.05, .46 + .42*smoothstep(0., .85, score) + aPatch.y*.05, smoothstep(-.015, .015, along));   // the more it faces the sun, the brighter
       closed = (aDab > .5 && !small && score < -.16 && aLeaf.z > .4) || (small && abs(score) > .13 && rimV < .4);   // detail lives on the terminator and the rim
@@ -70,8 +73,8 @@ const vertexShader = /* glsl */`
     float turn = (massed ? hueOf*.3 + (fract(aPatch.z*.618) - .5)*.1 + (aLeaf.z - .5)*.1 : (aLeaf.z - .5)*.42 + (aLeaf.y - .5)*(1. - calm)*.45)*uHueVar;
     // air: distance lifts shadow toward the sky long before it touches the lights
     float air = (1. - exp(-max(length(mvPosition.xyz) - 220., 0.)*.0045))*(1. - .55*calm)*uAir;
-    vColA = mix(turnHue(max(palRamp(x - spread)*scale, uPal0*.9), turn)*wash, fogColor, air) + glow;
-    vColB = mix(turnHue(max(palRamp(x + spread)*scale, uPal0*.9), turn)*wash, fogColor, air) + glow;
+    vColA = mix(turnHue(max(palRamp(x - spread)*scale, P0*.9), turn)*wash, fogColor, air) + glow;
+    vColB = mix(turnHue(max(palRamp(x + spread)*scale, P0*.9), turn)*wash, fogColor, air) + glow;
     vCalm = calm;
   }`
 
@@ -92,6 +95,6 @@ const fragmentShader = /* glsl */`
 export function makeFoliageMaterial(brush, sun, palette, sss, rim){
   return new THREE.ShaderMaterial({
     vertexShader, fragmentShader, side: THREE.DoubleSide, alphaToCoverage: true, fog: true,
-    uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), ...U, tBrush: { value: brush }, tSun: { value: sun }, uPal0: palette[0], uPal1: palette[1], uPal2: palette[2], uPal3: palette[3], uSssColor: sss, uRimColor: rim },
+    uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), ...U, tBrush: { value: brush }, tSun: { value: sun }, uPalV: { value: Array.from({ length: 12 }, () => new THREE.Color()) }, uPal0: palette[0], uPal1: palette[1], uPal2: palette[2], uPal3: palette[3], uSssColor: sss, uRimColor: rim },
   })
 }

@@ -2,7 +2,7 @@
 const MEADOW = ['#1f6a4a', '#2f8f4e', '#66b54a', '#b0d868']
 const BARK = ['#1e1e10', '#38391f', '#7a7044', '#b4b078']
 
-const DEFAULTS = { envW: 0, envPeak: .4, envFill: 46, realMarks: true, size: 1, keepWood: 0, clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, sleeve: 3.5, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
+const DEFAULTS = { form: 0, colorPick: 0, colors: null, envTop: 2, envHeart: 0, envCone: 0, envW: 0, envPeak: .4, envFill: 46, realMarks: true, size: 1, keepWood: 0, clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, sleeve: 3.5, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
 
 export const SPECIES = {
   'Camphor tree': {
@@ -224,8 +224,22 @@ Object.assign(SPECIES, {
 // Sets how big each shape really stands, calibrated so the finished tree measures its open-grown mature height in metres.
 const MATURE = { 'Camphor tree': 21.5, 'English oak': 22, 'Lombardy poplar': 27, 'Yoshino cherry': 14, 'Japanese maple': 8.5, 'Stone pine': 19, 'Japanese cedar': 30, 'Weeping willow': 16, 'Hinoki cypress': 27, 'Japanese black pine': 25, 'Japanese red pine': 25, 'Ginkgo': 26, 'Japanese zelkova': 24 }
 // Crown envelopes, read off the reference photos: spread over height, and how far up the crown it is widest.
-const ENVELOPE = { 'English oak': [1.15, .38], 'Camphor tree': [1.35, .36], 'Japanese zelkova': [1.2, .55], 'Ginkgo': [.62, .32], 'Yoshino cherry': [1.35, .45], 'Japanese maple': [.82, .42], 'Garden tree': [.95, .45] }
-for (const k in ENVELOPE){ SPECIES[k].envW = ENVELOPE[k][0]; SPECIES[k].envPeak = ENVELOPE[k][1] }
+const ENVELOPE = { 'English oak': [1.05, .34, 0, 1.7], 'Camphor tree': [1.2, .34, 0, 1.9], 'Japanese zelkova': [1, .46, 0, 1.6], 'Ginkgo': [.56, .24, 0, 1.15], 'Yoshino cherry': [1.2, .42, 0, 1.9], 'Japanese maple': [.74, .32, 0, 1.25], 'Garden tree': [.85, .4, 0, 1.5], 'Japanese cedar': [.42, .12, .9], 'Hinoki cypress': [.52, .14, .85], 'Lombardy poplar': [.26, .28, .7], 'Stone pine': [.72, .42, 0, 2.6], 'Japanese black pine': [1.05, .42, 0, 2], 'Japanese red pine': [1, .45, 0, 1.7] }
+for (const k in ENVELOPE){ SPECIES[k].envW = ENVELOPE[k][0]; SPECIES[k].envPeak = ENVELOPE[k][1]; SPECIES[k].envCone = ENVELOPE[k][2] ?? 0; SPECIES[k].envTop = ENVELOPE[k][3] ?? 2; SPECIES[k].envHeart = .7 }
+SPECIES['Japanese black pine'].envHeart = SPECIES['Japanese red pine'].envHeart = 0     // open-layered: pines keep their gaps
+Object.assign(SPECIES['Stone pine'], { crownLine: .6 }); Object.assign(SPECIES['Japanese red pine'], { crownLine: .45 }); Object.assign(SPECIES['Japanese black pine'], { crownLine: .3 })
+// Colour forms: share of seeds, and palette from deepest shadow to brightest light. Everything else takes the species' usual colour.
+const COLORS = {
+  'Yoshino cherry': [{ name: 'white', share: .45, palette: ['#b08ca2', '#e2c8d2', '#f8eeee', '#fffdf6'] }, { name: 'deep pink', share: .2, palette: ['#9c4a78', '#d4749e', '#f2a2bc', '#ffd0dc'] }],
+  'Japanese maple': [{ name: 'wine', share: .34, palette: ['#34122a', '#641c36', '#963044', '#c8625a'] }, { name: 'scarlet', share: .26, palette: ['#681a24', '#ac2a2a', '#e04c2e', '#ff9656'] }, { name: 'summer green', share: .14, palette: ['#1e4a2e', '#3a7a3c', '#74ae48', '#b4d868'] }],
+  'Ginkgo': [{ name: 'summer green', share: .25, palette: ['#1f5034', '#3a8044', '#74b050', '#b8d870'] }],
+  'Japanese zelkova': [{ name: 'autumn rust', share: .28, palette: ['#642f20', '#a45426', '#d48436', '#eeb85e'] }],
+  'Camphor tree': [{ name: 'spring flush', share: .25, palette: ['#1c4a30', '#3a7c3c', '#80b048', '#c4dc70'] }],
+  'English oak': [{ name: 'autumn russet', share: .2, palette: ['#46381c', '#7a6028', '#b08e3a', '#d8bc64'] }],
+  'Weeping willow': [{ name: 'autumn gold', share: .2, palette: ['#3e5a24', '#6e8c34', '#a8b848', '#dcd870'] }],
+  'Garden tree': [{ name: 'plum', share: .25, palette: ['#2c1c30', '#54283e', '#84404e', '#b8786a'] }],
+}
+for (const k in SPECIES) SPECIES[k].colors = COLORS[k] ?? null
 for (const k in MATURE) SPECIES[k].size = MATURE[k]/SPECIES[k].height
 for (const k in SPECIES) SPECIES[k] = { ...DEFAULTS, ...SPECIES[k] }
 
