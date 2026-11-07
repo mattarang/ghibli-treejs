@@ -30,7 +30,7 @@ const scene = new THREE.Scene()
 scene.fog = new THREE.Fog(0xcdeaf6, 50, 400)
 const camera = new THREE.PerspectiveCamera(36, innerWidth/innerHeight, .1, 1500)
 const controls = new OrbitControls(camera, renderer.domElement)
-controls.enableDamping = true; controls.maxPolarAngle = Math.PI*.495; controls.minDistance = 2; controls.maxDistance = 140
+controls.enableDamping = true; controls.maxPolarAngle = Math.PI*.495; controls.minDistance = 2; controls.maxDistance = 320
 
 const sun = new THREE.DirectionalLight(0xffffff, 3)
 sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -.0006; sun.shadow.normalBias = .05
@@ -87,7 +87,7 @@ const GROUND_PIGMENT = '(fld(vWPos.xz*vec2(.2, .62)) - .5)*.9'
 // the foliage reads once per vertex: each clump's place relative to its terminator.
 const sunTable = new THREE.DataTexture(new Uint8Array(256*64*2), 256, 64, THREE.RGFormat)     // R: place against the light. G: the lobe's hue
 sunTable.magFilter = sunTable.minFilter = THREE.NearestFilter
-const SAME_SHADE = .25, HERO_SHARE = .62, LAST_SHARE = .15, LINE_LOW = -.1, LINE_HIGH = .15, OWN_TURN = .6
+const SAME_SHADE = .42, HERO_SHARE = .62, LAST_SHARE = .15, LINE_LOW = -.1, LINE_HIGH = .15, OWN_TURN = .6
 let heldClumps = []
 // only clumps close enough to matter need testing, whatever the sun does: worked out once per rebuild, so dragging the sun stays smooth
 const shaders = new Map()
@@ -160,7 +160,7 @@ const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughne
   // foliage and goes in, and never shows as a loose piece floating in front of a clump's body. Its shadow doesn't move.
   afterClip: 'if (aLeaf.x < -.5 && uCrownDark < .5) gl_Position = vec4(2., 2., 2., 1.); else if (vLeafA.y > 0.){ vec4 sunk = projectionMatrix*vec4(mvPosition.xy, mvPosition.z - uSink*vLeafA.y, 1.); gl_Position.z = sunk.z/sunk.w*gl_Position.w; }',
   vertexPars: 'uniform float uSink, uCrownDark; attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
-  vertexBegin: 'vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); vB = vec3(cos(uv.x*6.28318)*abs(aLeaf.z), sin(uv.x*6.28318)*abs(aLeaf.z), uv.y); vWN = normal; vH = position.y - clusterCenter.y;',
+  vertexBegin: 'vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); { float round = abs(aLeaf.z)*clusterCenter.x/.5; vB = vec3(cos(uv.x*6.28318)*round, sin(uv.x*6.28318)*round, uv.y); }   /* the way round the wood, in real distance: clusterCenter.x carries the girth */ vWN = normal; vH = position.y - clusterCenter.y;',
   fragmentPars: `varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow, uCrownDark;
     float gRidge = 0., gMoss = 0., gLichen = 0., gCrack = 0., gHue = 0.;`,
   color: `{ vec2 ring = vB.xy; float thick = vLeafA.x;
@@ -256,18 +256,19 @@ const lantern = new THREE.Mesh(new THREE.SphereGeometry(.14, 16, 12), new THREE.
 scene.add(lantern)
 
 const statsEl = document.getElementById('stats')
+let size = '', placePerson = null
 function setStats(ms, clumps){
   const strokes = (foliage.geometry.index?.count || 0)/6, tris = [foliage, wood, grass, core, ivy].reduce((n, m) => n + (m.geometry.index?.count || 0)/3, 0)
-  statsEl.textContent = `${clumps} clumps · ${strokes.toLocaleString()} strokes · ${(tris/1000).toFixed(0)}k tris · generated in ${ms.toFixed(0)} ms`
+  statsEl.textContent = `${size} · ${clumps} clumps · ${strokes.toLocaleString()} strokes · ${(tris/1000).toFixed(0)}k tris · generated in ${ms.toFixed(0)} ms`
 }
 
 const trees = []
 function rebuild(){
-  U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius*1.5 : 0
+  U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5 : 0
   const t0 = performance.now(), woodB = newBuffer(), leafB = newBuffer(), coreB = newBuffer(), ivyB = newBuffer()
-  const { plants, bushes } = layoutScene(p)
+  const { plants, bushes } = layoutScene({ ...p, height: p.height*p.size, groveRadius: p.groveRadius*Math.max(1, p.size) })
   trees.length = 0
-  for (const q of plants) trees.push({ x: q.x, z: q.z, r: p.trunkRadius*q.scale*(1 + p.flare*.5)*1.7 })
+  for (const q of plants) trees.push({ x: q.x, z: q.z, r: p.trunkRadius*p.size*q.scale*(1 + p.flare*.5)*1.7 })
   for (const q of bushes) trees.push({ x: q.x, z: q.z, r: .5*q.scale })
   U.uTrees.value.forEach((v, i) => { const t = trees[i]; if (t) v.set(t.x, t.z, t.r); else v.set(1e5, 1e5, 1) })
   let clumps = 0
@@ -285,11 +286,13 @@ function rebuild(){
     const old = atlas.tex; atlas.tex = makeBrushAtlas(p.leaf, p.edge); atlas.key = brushKey()
     foliageMat.uniforms.tBrush.value = foliageDepth.alphaMap = atlas.tex; old.dispose()
   }
-  const reach = p.grove > 1 ? p.groveRadius + p.height + 8 : Math.max(26, p.height*2.6)
+  const reach = p.grove > 1 ? p.groveRadius*Math.max(1, p.size) + p.height*p.size + 8 : Math.max(26, p.height*p.size*2.6)
   const sc = sun.shadow.camera
-  sc.left = sc.bottom = -reach; sc.right = sc.top = reach; sc.near = 1; sc.far = 220; sc.updateProjectionMatrix()
+  sc.left = sc.bottom = -reach; sc.right = sc.top = reach; sc.near = 1; sc.far = 420; sc.updateProjectionMatrix()
   L.reach = 100
   applyLighting(p, L); bakeSun()
+  const first = heldClumps.filter(c => c.plant === 0), top = Math.max(0, ...first.map(c => c.c[1] + c.r*c.squash)), far = Math.max(0, ...first.map(c => Math.hypot(c.c[0], c.c[2]) + c.r))
+  size = `${top.toFixed(1)} m tall · ${(far*2).toFixed(1)} m across`; placePerson?.()
   setStats(performance.now() - t0, clumps)
 }
 function rebuildGrass(){
@@ -305,7 +308,7 @@ function applyLook(){
   sssColor.value.set(p.sss); rimColor.value.set(p.rim); U.uFleck.value = p.fleck; U.uMoss.value = p.moss
 }
 function frame(){
-  const h = p.height, d = (p.grove > 1 ? h*3.2 + p.groveRadius : Math.max(h*3.1, h*(p.crownWidth || .5)*4.6))*Math.min(Math.max(1, .9/camera.aspect), 1.5)   // a narrow view stands further back
+  const h = p.height*p.size, d = (p.grove > 1 ? h*3.2 + p.groveRadius*Math.max(1, p.size) : Math.max(h*3.1, h*(p.crownWidth || .5)*4.6))*Math.min(Math.max(1, .9/camera.aspect), 1.5)   // a narrow view stands further back
   camera.position.set(d*.72, h*.2, d*.72); controls.target.set(0, h*.5, 0); controls.update()
 }
 
@@ -313,14 +316,20 @@ function frame(){
 const gui = new GUI({ title: 'Foliage' })
 const compare = makeCompare(() => layout())
 compare.species(p.species)
+// a person for scale: 1.7 m tall, standing a little way out from the trunk
+const person = new THREE.Group(), personMat = new THREE.MeshBasicMaterial({ color: '#c8402a' })
+const body = new THREE.Mesh(new THREE.CapsuleGeometry(.2, .95, 4, 12), personMat), head = new THREE.Mesh(new THREE.SphereGeometry(.13, 12, 10), personMat)
+body.position.y = .7; head.position.y = 1.57; person.add(body, head); person.visible = false; scene.add(person)
+placePerson = () => { const out = p.trunkRadius*p.size*3 + 1.2; person.position.set(out, groundHeight(out, 1.2), 1.2) }
 const compareF = gui.addFolder('Compare').close()
+compareF.add({ person: false }, 'person').name('Person for scale (1.7 m)').onChange(v => { person.visible = v; placePerson() })
 compareF.add({ on: false }, 'on').name('Show reference').onChange(v => { compare.set(v); frame() })
 compareF.add({ next(){ compare.next() } }, 'next').name('Next reference')
 const treeF = gui.addFolder('Plant')
 // wood alone, for reviewing structure: leaves, ivy and their shadows go, and buried wood comes back to its true depth
 function applyFoliage(){
   foliage.visible = core.visible = caster.visible = ivy.visible = p.showFoliage
-  sink.value = p.showFoliage ? p.clumpRadius*1.5 : 0; crownDark.value = p.showFoliage ? 1 : 0
+  sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5 : 0; crownDark.value = p.showFoliage ? 1 : 0
   renderer.shadowMap.needsUpdate = true
 }
 applyFoliage()
@@ -331,6 +340,7 @@ treeF.add(p, 'species', Object.keys(SPECIES).sort()).name('Species').onChange(na
 treeF.add(p, 'seed', 1, 9999, 1).name('Seed').onChange(later).listen()
 treeF.add({ dice(){ p.seed = 1 + Math.floor(Math.random()*9998); rebuild(); rebuildGrass() } }, 'dice').name('New seed')
 treeF.add(p, 'height', 1.5, 26, .1).name('Height').onChange(later)
+treeF.add(p, 'size', .3, 4, .01).name('Mature size').onChange(() => { later(); frame() })
 treeF.add(p, 'trunkRadius', .06, 1.4, .01).name('Trunk radius').onChange(later)
 treeF.add(p, 'trunkFrac', .15, .85, .01).name('Bare trunk').onChange(later)
 treeF.add(p, 'stems', 1, 3, .1).name('Sub-trunks (average)').onChange(later)
@@ -378,6 +388,7 @@ leafF.add(p, 'squash', .3, 2, .01).name('Height of clumps').onChange(later)
 leafF.add(p, 'massBlend', 0, .9, .01).name('Merge into masses').onChange(later)
 leafF.add(p, 'crownBlend', 0, 1, .01).name('Light as one crown').onChange(later)
 leafF.add(p, 'cardSize', .3, 3.5, .01).name('Dab size').onChange(later)
+leafF.add(p, 'realMarks').name('Real-size brush marks').onChange(later)
 leafF.add(p, 'plateSize', .3, 1.8, .01).name('Plate size').onChange(later)
 leafF.add(p, 'plates', 0, 8, .1).name('Plates per lobe').onChange(later)
 leafF.add(p, 'brushWidth', .12, 1, .01).name('Brush width').onChange(later)
@@ -470,7 +481,7 @@ addEventListener('pointermove', e => { if (!dragging) return
   p.time = Math.min(18.9, Math.max(5.1, p.time - (e.clientY - dragging.y)*.015))
   dragging = { x: e.clientX, y: e.clientY }; relight() })
 addEventListener('pointerup', () => { dragging = null; controls.enabled = true })
-function layout(){ const w = innerWidth - compare.width - (compare.width ? gui.domElement.offsetWidth : 0); camera.aspect = w/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(w, innerHeight); renderer.domElement.style.marginLeft = compare.width + 'px' }
+function layout(){ const w = innerWidth - compare.width - (compare.width && !gui._closed ? gui.domElement.offsetWidth : 0); camera.aspect = w/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(w, innerHeight); renderer.domElement.style.marginLeft = compare.width + 'px' }
 addEventListener('resize', layout)
 
 // ---- go ----

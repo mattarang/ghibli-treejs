@@ -2,41 +2,43 @@
 const MEADOW = ['#1f6a4a', '#2f8f4e', '#66b54a', '#b0d868']
 const BARK = ['#1e1e10', '#38391f', '#7a7044', '#b4b078']
 
-const DEFAULTS = { clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, sleeve: 3.5, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
+const DEFAULTS = { envW: 0, envPeak: .4, envFill: 46, realMarks: true, size: 1, keepWood: 0, clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, sleeve: 3.5, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
 
 export const SPECIES = {
   'Camphor tree': {
-    crownBlend: .15, ownBough: 1, clotheRad: .14, shell: .55, lobes: 10, tighten: .1,
+    keepWood: 3,
+    crownBlend: .15, ownBough: 1, clotheRad: .14, shell: .55, lobes: 12, tighten: .1,
     cover: 1, crownLine: 0.24,
-    forkAngle: 34, sideShoots: 3, variety: 1.15,
+    forkAngle: 34, sideShoots: 4, variety: 1.15,
     forkTop: 1,
-    leader: .8, stemSpread: 30, limbRatio: .6, limbRise: 20,
-    stemVar: 1.8,
-    stems: 1.9, forkHeight: .16,
+    leader: .8, stemSpread: 30, limbRatio: .6, limbRise: 34,
+    stemVar: .8,
+    stems: 1.2, forkHeight: .16,
     boughGap: 0.45,
     shelves: 5,
     sinuous: .35, ivy: .4,
     moss: 0.45,
-    gesture: 'dome', crownWidth: .95, asym: .2, notches: 1, massVar: 0.45,
-    height: 12.5, trunkRadius: .62, trunkFrac: .3, lean: .06, flare: 0.7, levels: 3, children: 4, childAngle: 52, lengthRatio: 1,
+    gesture: 'dome', crownWidth: .78, asym: .2, notches: 1, massVar: 0.45,
+    height: 12.5, trunkRadius: .72, trunkFrac: .26, lean: .06, flare: 0.7, levels: 4, children: 7, childAngle: 40, lengthRatio: 1,
     childStart: .6, gnarl: .1, upward: 0, crown: 'dome',
-    clumpRadius: 1.4, clumpVar: .45, clumpsPerTip: 1.1, clumpSpacing: .72, squash: .78, massBlend: .72, lift: 1.8, cardSize: 0.96, coverage: 1.5, core: true,
+    clumpRadius: 1.25, clumpVar: .45, clumpsPerTip: 1.1, clumpSpacing: .72, squash: .78, massBlend: .72, lift: 1.8, cardSize: 0.96, coverage: 1.5, core: true,
     leaf: 'round', edge: 'pointed', palette: ['#143f3a', '#2a7040', '#5a9e4a', '#8cc468'], bark: BARK, ground: MEADOW, sss: '#b0d470', rim: '#84c473', fleck: .45,
   },
   'English oak': {
+    maxLimb: .5, keepWood: 3,
     crownBlend: .15, ownBough: 1, clotheRad: .16, shell: .5, lobes: 9, tighten: .2,
     cover: 1, crownLine: .22,
-    forkAngle: 36, sideShoots: 4, variety: 1.15,
+    forkAngle: 30, sideShoots: 4, variety: 1.15,
     forkTop: 1,
-    leader: .8, limbRatio: .6, limbRise: 20,
-    stemVar: 1.6,
-    forkHeight: .2, stemSpread: 32,
+    leader: .8, limbRatio: .6, limbRise: 38,
+    stemVar: .8,
+    forkHeight: .17, stemSpread: 32,
     shelves: 5,
-    stems: 2, sinuous: .35, ivy: .3,
+    stems: 1, sinuous: .25, ivy: .3,
     moss: 0.8,
-    gesture: 'windswept', crownWidth: .74, asym: .22, windLean: .15, notches: 0, massVar: .5,
-    height: 9.5, trunkRadius: .58, trunkFrac: .33, lean: .12, flare: 0.7, levels: 3, children: 5, childAngle: 58, lengthRatio: .9,
-    childStart: .55, gnarl: .17, upward: 0, crown: 'umbrella',
+    gesture: 'dome', crownWidth: .66, asym: .22, windLean: 0, notches: 0, massVar: .5,
+    height: 10, trunkRadius: .62, trunkFrac: .28, lean: .06, flare: 0.7, levels: 4, children: 8, childAngle: 38, lengthRatio: .95,
+    childStart: .55, gnarl: .14, upward: .04, crown: 'dome',
     clumpRadius: 1.35, clumpVar: .55, clumpsPerTip: 1.1, clumpSpacing: .72, squash: .68, massBlend: .72, lift: 1.5, cardSize: 0.90, coverage: 1.5, core: true,
     leaf: 'round', edge: 'pointed', palette: ['#1c4226', '#33703a', '#649c44', '#94c462'], bark: BARK, ground: MEADOW, sss: '#bcd478', rim: '#9ac878', fleck: .55,
   },
@@ -62,6 +64,7 @@ export const SPECIES = {
     leaf: 'round', edge: 'pointed', palette: ['#123d3e', '#287040', '#529a50', '#86c06a'], bark: BARK, ground: MEADOW, sss: '#a8d07a', rim: '#84c473', fleck: .4,
   },
   'Yoshino cherry': {
+    keepWood: 2,
     crownBlend: .2, ownBough: 1, clotheRad: .1, shell: .45, lobes: 8, tighten: .15,
     cover: .8, crownLine: 0.28,
     forkAngle: 40, sideShoots: 3, variety: 1.15,
@@ -72,16 +75,17 @@ export const SPECIES = {
     shelves: 4, boughGap: .6, hueVar: .3,
     stems: 2, forkHeight: .16, stemSpread: 30, sinuous: .35,
     moss: 0.25,
-    gesture: 'umbrella', crownWidth: .76, asym: .24, notches: 1, massVar: 0.45,
+    gesture: 'umbrella', crownWidth: .62, asym: .24, notches: 1, massVar: 0.45,
     height: 8.5, trunkRadius: 0.5, trunkFrac: .34, lean: .14, flare: .7, levels: 3, children: 4, childAngle: 60, lengthRatio: .74,
     childStart: .6, gnarl: .12, upward: 0, crown: 'umbrella',
     clumpRadius: 1, clumpVar: .5, clumpsPerTip: 1.3, clumpSpacing: .75, squash: .6, massBlend: .75, lift: 1.8, cardSize: 0.72, coverage: 1, core: true,
     leaf: 'round', edge: 'pointed', palette: ['#b4688e', '#e08eaa', '#f6b8ca', '#ffdedd'], bark: ['#2c2220', '#4a3428', '#7e5a42', '#caa282'], ground: MEADOW, sss: '#ffc4c8', rim: '#ffd9e0', fleck: 0,
   },
   'Japanese maple': {
+    keepWood: 2,
     crownBlend: .15, ownBough: 1, clotheRad: .08, shell: .5, lobes: 12, tighten: .2,
     cover: .7, crownLine: 0.24,
-    forms: ['umbrella', 'dome', 'cloud'],
+    forms: null,
     boughGap: .75,
     forkAngle: 38, sideShoots: 4, variety: 1.25,
     forkTop: 1, opposite: 1,
@@ -95,14 +99,14 @@ export const SPECIES = {
     stems: 1.9,
     sinuous: .55,
     moss: 0.35,
-    gesture: 'umbrella', crownWidth: .66, asym: .3, notches: 1, massVar: .4,
+    gesture: 'dome', crownWidth: .5, asym: .3, notches: 1, massVar: .4,
     height: 9, trunkRadius: .38, trunkFrac: .34, lean: .06, flare: .7, levels: 3, children: 6, childAngle: 50, lengthRatio: .66,
     childStart: .4, gnarl: .1, upward: 0, crown: 'oval',
     clumpRadius: .75, clumpVar: .45, clumpsPerTip: 1.1, clumpSpacing: .6, squash: .42, massBlend: .65, lift: 1.3, cardSize: 0.81, coverage: 1.5, core: true,
     strays: .2, leaf: 'pointed', edge: 'spray', palette: ['#7c3c3e', '#b84f34', '#ea8a40', '#ffdc76'], bark: ['#2a3034', '#4a5052', '#7c807a', '#bcbcae'], ground: ['#6a6240', '#8e8244', '#bc9e4e', '#e8cf84'], sss: '#ffc25a', rim: '#ffcf80', fleck: .35,
   },
   'Stone pine': {
-    crownBlend: .3, lobes: 6, tighten: .1,
+    crownBlend: .3, lobes: 7, tighten: .1,
     sleeve: 0,
     lift: 1.4,
     forkAngle: 34, variety: 1.1,
@@ -110,13 +114,13 @@ export const SPECIES = {
     forkTop: 1,
     stemSpread: 26, leader: .7, limbRise: 20,
     limbRatio: .68,
-    stemVar: 1.6,
-    stems: 2, forkHeight: .46,
+    stemVar: 1.2,
+    stems: 1.3, forkHeight: .58,
     shelves: 2,
     sinuous: 0.1,
     moss: 0.12,
-    gesture: 'umbrella', crownWidth: .6, asym: .2, notches: 0, massVar: .4,
-    height: 13, trunkRadius: .46, trunkFrac: .68, lean: 0.14, flare: .4, levels: 3, children: 6, childAngle: 42, lengthRatio: .75,
+    gesture: 'umbrella', crownWidth: .42, asym: .2, notches: 0, massVar: .4,
+    height: 13, trunkRadius: .46, trunkFrac: .72, lean: 0.14, flare: .4, levels: 3, children: 6, childAngle: 42, lengthRatio: .75,
     childStart: .2, gnarl: .1, upward: 0, crown: 'umbrella',
     clumpRadius: 1.2, clumpVar: .35, clumpsPerTip: .9, clumpSpacing: .8, squash: 0.3, massBlend: 0.5, cardSize: 0.81, coverage: 1.6, core: true,
     strokeAngle: 80, brushWidth: .5, strokeJitter: 24, leaf: 'round', edge: 'round', palette: ['#123838', '#245e42', '#4a8a50', '#88ba66'], bark: ['#2c2420', '#553c2a', '#8a6038', '#d0a870'], ground: MEADOW, sss: '#a8d07a', rim: '#84c473', fleck: .3,
@@ -161,16 +165,17 @@ export const SPECIES = {
     strokeAngle: 70, strokeJitter: 30, leaf: 'pointed', edge: 'pointed', palette: ['#10343a', '#1d5440', '#387a50', '#7ab068'], bark: ['#262220', '#443428', '#785a40', '#bc9a72'], ground: MEADOW, sss: '#a8d07a', rim: '#84c473', fleck: .2,
   },
   'Weeping willow': {
+    keepWood: 2,
     forkAngle: 34, variety: 1.1,
     forkTop: 1, arch: .08,
     limbRise: 42, leader: .55,
     limbRatio: .5,
     stemVar: 1.8,
     forkHeight: .17, stemSpread: 26,
-    gesture: 'dome', crownWidth: .6,
+    gesture: 'dome', crownWidth: .48,
     stems: 1.9, sinuous: .4, ivy: .2,
     moss: 0.65,
-    height: 11.5, trunkRadius: 0.42, trunkFrac: .36, lean: .1, flare: 0.6, levels: 3, children: 7, childAngle: 46, lengthRatio: .85,
+    height: 11.5, trunkRadius: .62, trunkFrac: .36, lean: .1, flare: 0.6, levels: 3, children: 7, childAngle: 46, lengthRatio: .85,
     childStart: .6, gnarl: .13, upward: .03, droop: .03, crown: 'dome',
     clumpRadius: 1.15, clumpVar: .35, clumpsPerTip: .45, clumpSpacing: 1.0, squash: .62, massBlend: .55, cardSize: 0.95, coverage: 0.7, core: false,
     hang: 2.6, strandLength: .6, lift: 2.4, brushWidth: 0.3, strokeJitter: 16,
@@ -203,19 +208,25 @@ Object.assign(SPECIES, {
   'Hinoki cypress': { ...SPECIES['Japanese cedar'], height: 14, trunkRadius: .38, crownWidth: .22, whorls: 0, cover: 1, children: 40, sideShoots: 3, childAngle: 68, droop: .1, arch: .06, lobes: 9, gesture: 'ovate', crown: 'oval', clumpRadius: .85, squash: .7,
     edge: 'spray', palette: ['#0e3034', '#17503c', '#2f7a4e', '#68a862'], bark: ['#2a1c18', '#553226', '#8e5a40', '#c89a78'] },
   // Irregular and heavy: a curved, often divided trunk, a dense dome or flat crown, long sinuous limbs and dark fissured bark
-  'Japanese black pine': { ...SPECIES['Stone pine'], height: 11, trunkRadius: .46, stems: 1.7, stemVar: 1.4, forkHeight: .3, trunkFrac: .5, sinuous: .9, lean: .24, windLean: .15, gnarl: .18, gesture: 'cloud', crown: 'dome', crownWidth: .55, asym: .36, shelves: 5, lobes: 8, squash: .38, clumpRadius: 1.15, lift: 1.2,
+  'Japanese black pine': { ...SPECIES['Stone pine'], keepWood: 2, clumpsPerTip: 1.3, height: 11, trunkRadius: .54, stems: 1.7, stemVar: 1.4, forkHeight: .3, trunkFrac: .5, sinuous: .9, lean: .24, windLean: .15, gnarl: .18, gesture: 'cloud', crown: 'dome', crownWidth: .5, asym: .36, shelves: 5, lobes: 9, squash: .38, clumpRadius: 1.15, lift: 1.2,
     palette: ['#0c2e30', '#184c3c', '#2e7048', '#5e9c58'], bark: ['#1e2022', '#3a3c3e', '#66665e', '#9c9a8c'] },
   // Taller and more open, straight to contorted, with an umbrella of lighter leaf and plated red-brown bark
   'Japanese red pine': { ...SPECIES['Stone pine'], height: 13, trunkRadius: .36, stems: 1.5, stemVar: 1.2, forkHeight: .42, trunkFrac: .62, sinuous: .6, lean: .2, gnarl: .13, crownWidth: .5, asym: .3, shelves: 4, lobes: 6,
     palette: ['#143a38', '#285e44', '#4e9050', '#90c068'], bark: ['#3a1e16', '#7c3c24', '#b86a3c', '#e4a874'] },
   // One leader with long, angular, rather erratic limbs: slender and sparse when young, broader with age. Painted in its autumn gold, the way Japan knows it
-  'Ginkgo': { ...SPECIES['English oak'], height: 13, trunkRadius: .44, stems: 1, stemVar: 0, forkTop: 0, leader: .9, forkHeight: .1, trunkFrac: .32, sinuous: .12, gnarl: .1, windLean: 0, lean: .05, children: 9, sideShoots: 4, childAngle: 42, lengthRatio: .72, childStart: .4, limbRise: 38, maxLimb: .24, crownWidth: .46, clumpsPerTip: 1.3, gesture: 'ovate', crown: 'oval', clumpRadius: 1.15, lobes: 7, moss: .2, ivy: 0,
+  'Ginkgo': { ...SPECIES['English oak'], keepWood: 2, cover: .7, height: 13, trunkRadius: .44, stems: 1, stemVar: 0, forkTop: 0, leader: 1.1, forkHeight: .1, trunkFrac: .22, sinuous: .12, gnarl: .1, windLean: 0, lean: .05, children: 9, sideShoots: 4, childAngle: 46, lengthRatio: .72, childStart: .3, limbRise: 32, maxLimb: .24, crownWidth: .3, clumpsPerTip: 1.1, gesture: 'ovate', crown: 'oval', clumpRadius: 1.15, lobes: 9, moss: .2, ivy: 0,
     palette: ['#9a6a1e', '#d09a2a', '#f0c63e', '#ffe680'], bark: GREY_BARK, hueVar: .3, sss: '#ffe07a', rim: '#ffe89a' },
   // A short trunk dividing low into many ascending limbs: a vase that broadens into a wide round head of fine leaf
-  'Japanese zelkova': { ...SPECIES['English oak'], height: 11, trunkRadius: .5, stems: 2.6, stemVar: 1, forkHeight: .14, trunkFrac: .3, forkAngle: 24, stemSpread: 22, sinuous: .2, gnarl: .1, windLean: 0, lean: .05, children: 7, sideShoots: 4, childAngle: 34, lengthRatio: .85, childStart: .35, limbRise: 46, upward: .03, crownWidth: .68, gesture: 'dome', crown: 'vase', clumpRadius: 1.1, cardSize: .72, coverage: 1.6, lobes: 10, ivy: .1, moss: .3,
+  'Japanese zelkova': { ...SPECIES['English oak'], keepWood: 2, cover: .6, height: 11, trunkRadius: .5, stems: 2.2, stemVar: 1, forkHeight: .14, trunkFrac: .3, forkAngle: 24, stemSpread: 22, sinuous: .2, gnarl: .1, windLean: 0, lean: .05, children: 6, sideShoots: 3, childAngle: 34, lengthRatio: .85, childStart: .35, limbRise: 46, upward: .03, crownWidth: .55, gesture: 'dome', crown: 'vase', clumpRadius: 1.2, cardSize: .8, coverage: 1.2, lobes: 10, ivy: .1, moss: .3,
     palette: ['#174236', '#2a7044', '#5ca04c', '#98cc68'], bark: GREY_BARK },
 })
 
+// Sets how big each shape really stands, calibrated so the finished tree measures its open-grown mature height in metres.
+const MATURE = { 'Camphor tree': 21.5, 'English oak': 22, 'Lombardy poplar': 27, 'Yoshino cherry': 14, 'Japanese maple': 8.5, 'Stone pine': 19, 'Japanese cedar': 30, 'Weeping willow': 16, 'Hinoki cypress': 27, 'Japanese black pine': 25, 'Japanese red pine': 25, 'Ginkgo': 26, 'Japanese zelkova': 24 }
+// Crown envelopes, read off the reference photos: spread over height, and how far up the crown it is widest.
+const ENVELOPE = { 'English oak': [1.15, .38], 'Camphor tree': [1.35, .36], 'Japanese zelkova': [1.2, .55], 'Ginkgo': [.62, .32], 'Yoshino cherry': [1.35, .45], 'Japanese maple': [.82, .42], 'Garden tree': [.95, .45] }
+for (const k in ENVELOPE){ SPECIES[k].envW = ENVELOPE[k][0]; SPECIES[k].envPeak = ENVELOPE[k][1] }
+for (const k in MATURE) SPECIES[k].size = MATURE[k]/SPECIES[k].height
 for (const k in SPECIES) SPECIES[k] = { ...DEFAULTS, ...SPECIES[k] }
 
 export const CROWNS = ['dome', 'oval', 'column', 'cone', 'umbrella', 'vase']

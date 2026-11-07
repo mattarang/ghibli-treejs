@@ -69,7 +69,7 @@ const vertexShader = /* glsl */`
     // hue is a second axis of paint that light doesn't touch: whole lobes lean teal or olive, and strokes only a little
     float turn = (massed ? hueOf*.3 + (fract(aPatch.z*.618) - .5)*.1 + (aLeaf.z - .5)*.1 : (aLeaf.z - .5)*.42 + (aLeaf.y - .5)*(1. - calm)*.45)*uHueVar;
     // air: distance lifts shadow toward the sky long before it touches the lights
-    float air = (1. - exp(-max(length(mvPosition.xyz) - 45., 0.)*.0045))*(1. - .55*calm)*uAir;
+    float air = (1. - exp(-max(length(mvPosition.xyz) - 220., 0.)*.0045))*(1. - .55*calm)*uAir;
     vColA = mix(turnHue(max(palRamp(x - spread)*scale, uPal0*.9), turn)*wash, fogColor, air) + glow;
     vColB = mix(turnHue(max(palRamp(x + spread)*scale, uPal0*.9), turn)*wash, fogColor, air) + glow;
     vCalm = calm;

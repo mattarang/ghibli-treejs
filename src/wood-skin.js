@@ -125,7 +125,7 @@ export function skinWood(axes, wood, sway, root, finest){
       const move = Math.max(Math.min((sum - 1)/root1, h), -h)            // Newton: a step along the slope to where the field reads 1
       q[0] += nx*move; q[1] += ny*move; q[2] += nz*move
     }
-    let w = 0, rx = 0, ry = 0, grain = 0, thick = 0, buried = 0
+    let w = 0, rx = 0, ry = 0, grain = 0, thick = 0, buried = 0, girth = 0
     for (let g = 0; g < groups; g++){
       const f = best[g]
       if (f <= 0) continue
@@ -133,13 +133,13 @@ export function skinWood(axes, wood, sway, root, finest){
       w += f; const u = m.t                       // the frame turns smoothly from ring to ring, or the bark steps at each one
       rx += f*(cx*(A.n[0] + (B.n[0] - A.n[0])*u) + cy*(A.n[1] + (B.n[1] - A.n[1])*u) + cz*(A.n[2] + (B.n[2] - A.n[2])*u))
       ry += f*(cx*(A.b[0] + (B.b[0] - A.b[0])*u) + cy*(A.b[1] + (B.b[1] - A.b[1])*u) + cz*(A.b[2] + (B.b[2] - A.b[2])*u))
-      grain += f*(A.v + (B.v - A.v)*m.t); thick += f*(A.thick + (B.thick - A.thick)*m.t); buried += f*(A.buried + (B.buried - A.buried)*m.t)
+      grain += f*(A.v + (B.v - A.v)*m.t); thick += f*(A.thick + (B.thick - A.thick)*m.t); girth += f*(A.r + (B.r - A.r)*m.t); buried += f*(A.buried + (B.buried - A.buried)*m.t)
     }
     if (w < 1e-6) w = 1
     const round = Math.hypot(rx, ry)/w                                  // kept as a length, not a direction: where branches share a point it fades, so the bark's coordinates pass through a fork instead of jumping across it
     pos[v*3] = q[0]; pos[v*3 + 1] = q[1]; pos[v*3 + 2] = q[2]; nor[v*3] = nx; nor[v*3 + 1] = ny; nor[v*3 + 2] = nz; crease[v] = 1 - Math.min(Math.max((round - .3)/.45, 0), 1)
     wood.uv.push(Math.atan2(ry, rx)/(Math.PI*2), grain/w)
-    wood.wind.push(root[0], root[2], sway(q), 0); wood.center.push(root[0], root[1], root[2]); wood.leaf.push(thick/w, buried/w, round)
+    wood.wind.push(root[0], root[2], sway(q), 0); wood.center.push(girth/w, root[1], root[2]); wood.leaf.push(thick/w, buried/w, round)
   }
   // Two axes meet in a crease, where the true surface has a sharp valley the mesh can't follow. It's relaxed there, then any triangle left facing inward
   // is turned round, so the skin never shows a pinhole.

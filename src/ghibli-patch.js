@@ -11,7 +11,7 @@
 import * as THREE from 'three'
 
 export const U = {
-  uTime: { value: 0 }, uWind: { value: 1 }, uSunLum: { value: 1 }, uSunUp: { value: 1 }, uDay: { value: 1 },
+  uTime: { value: 0 }, uWind: { value: 0 }, uSunLum: { value: 1 }, uSunUp: { value: 1 }, uDay: { value: 1 },
   uPuff: { value: .72 }, uBands: { value: 4 }, uSoft: { value: .1 }, uToonMix: { value: .85 }, uPaletteMix: { value: 1 }, 
   uSss: { value: .55 }, uRim: { value: .3 }, uFleck: { value: .45 }, uFleckScale: { value: 3.2 },
   uSway: { value: 1 }, uFlutter: { value: .035 },
