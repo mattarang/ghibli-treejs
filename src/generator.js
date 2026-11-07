@@ -252,7 +252,8 @@ function growColonise(sp, r, root, scale){
       // a shoot takes a share of the room left to the outline, so lengths shrink geometrically on the way out and the wood ends in many short twigs at the edge
       let room = 0; while (room < H && inside(add(from.p, d, room + step))) room += step
       if (room < step) continue
-      const len = to ? Math.min(room, to) : Math.min(room, Math.max(step, Math.max(room*c.share*lerp(.8, 1.2, r()), c.tip*scale))), rad = clamp(len*c.claim, c.claimLeast*scale, c.claimMost*scale)
+      const len = Math.min(to ? Math.min(room, to) : Math.min(room, Math.max(step, Math.max(room*c.share*lerp(.8, 1.2, r()), c.tip*scale))), (c.longest ?? 1e3)*scale*(c.shrink ?? 1)**k*lerp(.8, 1.1, r())),   // no generation runs further than this, however much room lies ahead: it has to divide
+        rad = clamp(len*c.claim, c.claimLeast*scale, c.claimMost*scale)
       const mine = girthOf(k), skip = (aim ? R*.8 : girthOf(Math.max(k - 1, 0))*2) + mine*2 + c.clear*scale
       // the shoot's own kinks are planned before it grows, side to side about its line, so the clearance check runs along the wood as it will really stand
       const crook = c.crook*Math.min(1, .3 + k*.25), parts = clamp(Math.round(len/(c.crookLen*scale)), 1, 5), side0 = rotateAbout(perpTo(d), d, r()*tau), path = []
