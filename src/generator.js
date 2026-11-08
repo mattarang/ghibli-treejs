@@ -1822,12 +1822,12 @@ const grassFlow = (x, z) => 1.1 + Math.sin(x*.03 + z*.02)*.7 + Math.sin(z*.07 - 
 const grassLong = (x, z) => clamp((noise3(x*.18, 3.1, z*.18)*.6 + noise3(x*.5 + 7, 1.7, z*.5)*.4 - .32)*2.2)
 
 // one tuft at (x, z): a length hierarchy (short turf, a few tall tufts, the odd wisp, and other plants), a loose direction, and a mirror
-function grassTuft(o, r, x, z){
+function grassTuft(o, r, x, z, near = false){
   const g = grassLong(x, z)
-  if (r() > .45 + .55*g) return                                       // clumped, but lit grass reads continuous: no bare patches
-  const plant = r() < .18, free = r() < .35, a = free ? r()*Math.PI*2 : grassFlow(x, z) + (r() - .5)*1.8
+  if (r() > (near ? .75 : .45) + (near ? .25 : .55)*g) return                                       // clumped, but lit grass reads continuous: no bare patches
+  const plant = r() < .05, free = r() < .08, a = free ? r()*Math.PI*2 : grassFlow(x, z) + (r() - .5)*.7   // combed: nearly all sweep with the field's flow
   const wisp = !plant && r() < .07, tall = r() < .08, y = groundHeight(x, z)
-  const lean = plant ? lerp(.05, .3, r()) : lerp(.1, .75, r()**1.3), turf = lerp(.1, .35, r()**1.4)*(tall ? lerp(1.4, 1.8, r()) : 1)*(plant ? lerp(1.3, 1.6, r()) : 1)   // against a 1.7 m person: turf knee-low
+  const lean = plant ? lerp(.05, .3, r()) : lerp(.3, 1.1, r()**1.1), turf = lerp(.28, .62, r()**1.2)*(tall ? lerp(1.3, 1.6, r()) : 1)*(plant ? lerp(1.3, 1.6, r()) : 1)   // against a 1.7 m person: turf knee-low
   const len = (wisp ? lerp(.45, .8, r()) : turf)*lerp(.85, 1.15, g), wid = wisp ? len*.28 : len*lerp(1, 1.4, r())   // short turf is a wide, low tuft
   const t = norm([Math.cos(a)*lean, 1, Math.sin(a)*lean])
   addStroke(o, r, { q: [x, y - .06, z], n: groundNormal(x, z), t, len, wid: wid*(plant ? 1.15 : 1)*(r() < .5 ? -1 : 1), tile: [Math.floor(r()*4), plant ? 3 : Math.floor(r()*3)], pivot: [x, y, z], ao: wisp ? 2 : 1, tone: clamp(g + (r() - .5)*.5), wind: [x, z, 0, 0] })
@@ -1854,7 +1854,7 @@ export function rocksOfCell(i, j, size, perHa, seed, trees = []){
 // The grass of one square of land, size x size metres from (i*size, j*size). The same square always grows the same tufts, so squares can be
 // grown and dropped as the camera moves without anything popping. A thinner square (density lower) grows the first of the same tufts.
 // Grass keeps off the rocks of this square and its neighbours, and rings the foot of this square's own rocks.
-export function generateGrassCell(i, j, size, density, seed, trees = [], rocksPerHa = 0){
+export function generateGrassCell(i, j, size, density, seed, trees = [], rocksPerHa = 0, sward = false){
   const r = cellRandom(i, j, seed, 77), o = newBuffer(), x0 = i*size, z0 = j*size
   const stones = []
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const q of rocksOfCell(i + a, j + b, size, rocksPerHa, seed, trees)) stones.push({ ...q, own: !a && !b })
@@ -1863,7 +1863,17 @@ export function generateGrassCell(i, j, size, density, seed, trees = [], rocksPe
   for (let k = 0, n = Math.round(density*size*size); k < n; k++){
     const x = x0 + r()*size, z = z0 + r()*size
     if (clear.some(q => Math.hypot(q.x - x, q.z - z) < q.r)) { r(); continue }     // nothing grows through a rock
-    grassTuft(o, r, x, z)
+    grassTuft(o, r, x, z, sward)
+  }
+  // near the walker, a sward under the tufts: low, wide, overlapping cards in the root colour, so the gaps between tufts fill with grass and
+  // the field reads as one thick mat instead of separate clumps
+  if (sward) for (let k = 0, n = Math.round(14*size*size); k < n; k++){
+    const x = x0 + r()*size, z = z0 + r()*size
+    if (clear.some(q => Math.hypot(q.x - x, q.z - z) < q.r)) continue
+    // laid over toward the flow, so seen from above as well as from the side they cover the soil: the strokes face the camera, and a blade
+    // standing straight up shrinks to nothing when you look down at it
+    const y = groundHeight(x, z), len = lerp(.3, .5, r()), a = grassFlow(x, z) + (r() - .5)*1.2, lean = lerp(1.8, 3.2, r()), t = norm([Math.cos(a)*lean, 1, Math.sin(a)*lean])
+    addStroke(o, r, { q: [x, y - .03, z], n: groundNormal(x, z), t, len, wid: lerp(.35, .55, r())*(r() < .5 ? -1 : 1), tile: [Math.floor(r()*4), Math.floor(r()*3)], pivot: [x, y, z], ao: 1, tone: clamp(grassLong(x, z)*.8 + r()*.2), wind: [x, z, 0, 0] })
   }
   if (density > 4) for (const q of stones.filter(q => q.own)) for (let k = 0, n = Math.round(10 + q.s*14); k < n; k++){
     const a = r()*7, d = q.s*lerp(1.05, 1.35, r()), x = q.x + Math.cos(a)*d, z = q.z + Math.sin(a)*d, y = groundHeight(x, z), len = lerp(.12, .25, r()), t = norm([(r() - .5)*.5, 1, (r() - .5)*.5])

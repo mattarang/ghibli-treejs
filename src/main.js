@@ -53,7 +53,7 @@ loadSavedRecipes(SPECIES)                                                // spec
 const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('species') : 'Camphor tree'
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
-  showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 21, flowers: 50, rocks: 12,
+  showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 21, flowers: 16, rocks: 12,
   mountains: true, mountainHeight: 1,
   time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 18, cloudSeed: 4, haze: .1, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
@@ -376,10 +376,10 @@ const grassMat = patch(new THREE.MeshStandardMaterial({ color: p.ground[2], roug
   vertexPars: STROKE_PARS + ' attribute vec3 aLeaf; varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; uniform vec3 uGrassFar;', vertexBegin: 'vLeafA = aLeaf; vGN = normal; vRootXZ = aWind.xy;', fragmentPars: GROUND_FRAG + ' varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; float gPaint = .5, gTemp = .5;',
   // every blade its own colour: warm yellow-green, neutral or cool teal by the brush, cooler and greyer in shade, none of it at the root
   palLine: GROUND_PAL.replace('gFoot*.4', 'gFoot*.4*(1. - smoothstep(0., .7, vU))') + `{ float sunB = gLitV, hl = smoothstep(.9, .97, gTemp), t = mix(.72, min(gTemp/.85, 1.), sunB), up = smoothstep(.15, .8, vU)*uDay*.8;
-    vec3 tint = t < .5 ? mix(vec3(1.2, 1.07, .58), vec3(1.), t*2.) : mix(vec3(1.), vec3(.78, .97, 1.12), t*2. - 1.);
+    vec3 tint = t < .5 ? mix(vec3(1.06, 1.06, .74), vec3(1.), t*2.) : mix(vec3(1.), vec3(.78, .97, 1.12), t*2. - 1.);   // warm blades lean yellow-green, never straw (Spirited Away's grass stays h95-100)
     pal *= mix(vec3(1.), tint, up); pal = mix(pal, vec3(dot(pal, vec3(.3, .59, .11))), smoothstep(.6, 1., t)*.3*up);
-    pal = mix(pal, uPal3*vec3(1.04, 1.02, .78), smoothstep(.45, 0., gTemp)*sunB*up*.3);
-    pal = mix(pal, uPal3*vec3(1.12, 1.08, .8) + .03, hl*sunB*up*.9);
+    pal = mix(pal, uPal3*vec3(.96, 1.02, .82), smoothstep(.45, 0., gTemp)*sunB*up*.25);
+    pal = mix(pal, uPal3*vec3(1.02, 1.08, .86) + .02, hl*sunB*up*.75);
     pal = mix(pal, mix(pal, vec3(.9, .97, .78), .5), gWave(gXZ)*smoothstep(.45, 1., vU)*smoothstep(.8, .95, sunB)*smoothstep(22., 45., distance(gXZ, cameraPosition.xz))); }`,   // a bending tuft turns its tips to the light   // the sharp lit stroke, only in sun   // the warmest blades in sun go to the palette's yellow-green, the lit stroke a painter picks out   // bare earth at the root exactly as on the ground, gone by the tip
   color: '{ vec4 b = texture2D(alphaMap, vAlphaMapUv); gPaint = b.r; gTemp = b.b; gGroundN = normalize(vGN); gXZ = vRootXZ; }',   // r: the blade's value, b: its temperature
   normal: 'normal = normalize((viewMatrix*vec4(normalize(vGN), 0.)).xyz);',   // the tuft is lit as the ground at its root: a slope turned from the sun shades its grass too
@@ -606,7 +606,7 @@ const field = (() => {
         const c = old || { level, flowers: null, rocks: null }
         if (old?.grass){ group.remove(old.grass); old.grass.geometry.dispose() }
         c.level = level
-        c.grass = p.grass > 0 ? mesh(toGeometry(generateGrassCell(i, j, GRASS_CELL, p.grass*(level === 2 ? 3 : level ? .15 : 1), p.seed, around, p.rocks)), grassMat, false) : null
+        c.grass = p.grass > 0 ? mesh(toGeometry(generateGrassCell(i, j, GRASS_CELL, p.grass*(level === 2 ? 3 : level ? .15 : 1), p.seed, around, p.rocks, level === 2)), grassMat, false) : null
         if (!old){
           if (p.flowers > 0){ const b = generateFlowerCell(i, j, GRASS_CELL, p.flowers, p.seed, around); if (b.pos.length) c.flowers = mesh(toGeometry(b), flowerMat, false) }
           const stones = p.rocks > 0 ? rocksOfCell(i, j, GRASS_CELL, p.rocks, p.seed, around) : []

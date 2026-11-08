@@ -214,13 +214,15 @@ export function makeGrassAtlas(seed = 9){
     const x0 = tx*T, y0 = ty*T, rootY = y0 + T*.5, bx = x0 + T*.02
     g.save(); g.beginPath(); g.rect(x0 + 3, y0 + 3, T - 6, T - 6); g.clip()
     if (ty < 3 || tx === 3){
-      // a tuft: thin blades back to front, darker behind, lighter in front, mostly short with a few long; the last tile of row 3 arches wide
-      const spray = ty === 3, n = spray ? 16 : 14 + Math.floor(r()*9)
+      // a sheet of combed grass, as Ghibli paints a meadow: many long, slender blades rising from roots spread along the ground, all swept the
+      // same way with only a little scatter, tips drawn to a point; darker behind, lighter in front. The last tile of row 3 arches wide.
+      const spray = ty === 3, n = spray ? 16 : 30 + Math.floor(r()*12), sweep = (r() < .5 ? -1 : 1)*T*(.16 + r()*.1)
       for (let i = 0; i < n; i++){
-        const depth = i/(n - 1), s = r()*2 - 1, len = T*(spray ? .55 + r()*.4 : (.2 + .8*r()**1.5)*(1 - .25*s*s))
-        const bend = spray ? s*T*.42 : (r() - .5)*T*.5 + s*T*.22, ey = rootY + s*T*.1 + bend, ex = bx + len*(1 - Math.abs(bend)/T*(spray ? .6 : .35))
-        const w = T*(.016 + r()*.02), mx = bx + len*(spray ? .42 : .5), my = rootY + s*T*.04 + bend*(spray ? .15 : .3), v = .06 + depth*.22 + r()*.06
-        blade(bx, rootY, ex, ey, mx, my, w, v, tempOf(.55 - depth*.5 + (r() - .5)*.8), .72, depth > .55 && r() < .28)
+        const depth = i/(n - 1), s = r()*2 - 1, root = spray ? rootY : rootY + s*T*.26
+        const len = T*(spray ? .55 + r()*.4 : (.45 + .55*r()**1.2))
+        const bend = spray ? s*T*.42 : sweep*(.6 + r()*.7) + (r() - .5)*T*.08, ey = root + bend, ex = bx + len*(1 - Math.abs(bend)/T*(spray ? .6 : .3))
+        const w = T*(spray ? .016 + r()*.02 : .009 + r()*.011), mx = bx + len*(spray ? .42 : .55), my = root + bend*(spray ? .15 : .25), v = .06 + depth*.22 + r()*.06
+        blade(bx, root, ex, ey, mx, my, w, v, tempOf(.55 - depth*.5 + (r() - .5)*.8), .72, depth > .55 && r() < .22)
       }
     } else if (tx < 2){
       // strap leaves: a few broad blades with a lit half (a thin midrib line magnifies into a stepped stripe close up), standing among the grass
