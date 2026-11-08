@@ -34,12 +34,13 @@
     <button data-tool="cut" title="Closed shape filled white - cuts holes">Cut</button>
     <button data-tool="line" title="Open line, stroked black">Line</button>
     <button data-tool="free" title="Drag to draw freehand; becomes a simplified shape">Freehand</button>
+    <button data-tool="move" title="Drag a shape to move it; Shift-drag to rotate it about its centre (M)">Move / rotate</button>
   </div>
   <div class="group"><span class="dim">Line width</span><input id="width" type="range" min="1" max="60" value="6"><span id="widthV">6</span></div>
   <div class="group"><span class="dim">Photo</span><input id="opacity" type="range" min="0" max="100" value="60"></div>
-  <div class="group"><button id="preview" title="Show the black and white result (B)">B/W preview</button></div>
+  <div class="group"><button id="preview" title="Show the black and white result (B)">B/W preview</button><button id="spun" title="What the tree generator fits: width at each height, mirrored about the trunk and spun round it (S)">Spun preview</button></div>
   <div class="group"><button id="undo">Undo</button><button id="clear">Clear</button></div>
-  <div class="group"><button id="save" class="go">Save black &amp; white PNG</button><button id="copy">Copy</button></div>
+  <div class="group"><button id="save" class="go">Save black &amp; white PNG</button><button id="copy">Copy</button><button id="copyOutline" title="The width-at-each-height numbers the tree generator uses (a recipe's outline)">Copy outline</button></div>
 </header>
 <main>
   <canvas id="c"></canvas>
@@ -47,11 +48,11 @@
 </main>
 <footer>
   Click to place points · click the first point or <kbd>Enter</kbd> to close · <kbd>Backspace</kbd> drops the last point · <kbd>Esc</kbd> cancels ·
-  drag points to move them, right-click a point to delete it · scroll to zoom, <kbd>Space</kbd>-drag or middle-drag to pan · <kbd>B</kbd> preview · <kbd>⌘Z</kbd> undo
+  drag points to move them, right-click a point to delete it · <kbd>M</kbd> move tool: drag a shape to move it, <kbd>Shift</kbd>-drag to rotate · scroll to zoom, <kbd>Space</kbd>-drag or middle-drag to pan · <kbd>B</kbd> preview · <kbd>S</kbd> spun preview · <kbd>⌘Z</kbd> undo
 </footer>
 <script>
 const cv = document.getElementById('c'), ctx = cv.getContext('2d'), $ = id => document.getElementById(id)
-let img = null, name = 'trace', shapes = [], draft = null, tool = 'fill', preview = false
+let img = null, name = 'trace', shapes = [], draft = null, tool = 'fill', preview = false, spun = false, prof = null
 let view = { x: 0, y: 0, s: 1 }, history = [], drag = null, space = false, mouse = null, freeStroke = null
 const width = () => +$('width').value
 
@@ -97,11 +98,12 @@ function draw(){
     ctx.globalAlpha = .45; ctx.drawImage(off, 0, 0, W, H); ctx.globalAlpha = 1
   }
   ctx.restore()
-  if (preview) return
+  if (preview){ if (spun) drawSpun(W, H); return }
   // outlines and points
   for (const sh of shapes) outline(sh, sh.kind === 'cut' ? '#4aa3ff' : '#e8a33d', false)
   if (draft) outline(draft, '#ff5a5a', true)
   if (freeStroke) outline({ kind: 'line', pts: freeStroke }, '#ff5a5a', true)
+  if (spun) drawSpun(W, H)                                              // on top, so the lines being traced don't cross it
 }
 function outline(sh, col, live){
   const pts = sh.pts.map(toScreen)
@@ -132,6 +134,15 @@ function simplify(pts, tol){
   if (far <= tol) return [pts[0], pts[pts.length - 1]]
   return [...simplify(pts.slice(0, at + 1), tol).slice(0, -1), ...simplify(pts.slice(at), tol)]
 }
+// the topmost shape under a point: inside a filled shape, or near a line
+function hitShape(p){
+  for (let i = shapes.length - 1; i >= 0; i--){ const sh = shapes[i], pts = sh.pts
+    if (sh.kind === 'line'){ for (let j = 1; j < pts.length; j++){ const a = pts[j - 1], b = pts[j], dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((p[0] - a[0])*dx + (p[1] - a[1])*dy)/(dx*dx + dy*dy || 1))); if (Math.hypot(p[0] - a[0] - t*dx, p[1] - a[1] - t*dy)*view.s < Math.max(8, sh.w*view.s/2)) return i } continue }
+    let inside = false; for (let j = 0, k = pts.length - 1; j < pts.length; k = j++){ const a = pts[j], b = pts[k]; if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0])*(p[1] - a[1])/(b[1] - a[1]) + a[0]) inside = !inside }
+    if (inside) return i }
+  return -1
+}
+const centre = pts => [pts.reduce((t, q) => t + q[0], 0)/pts.length, pts.reduce((t, q) => t + q[1], 0)/pts.length]
 function hitPoint(p){
   for (let i = shapes.length - 1; i >= 0; i--) for (let j = 0; j < shapes[i].pts.length; j++) if (near(shapes[i].pts[j], p)) return [i, j]
   return null
@@ -154,6 +165,7 @@ cv.addEventListener('pointerdown', e => {
   }
   const h = hitPoint(p)
   if (h){ snapshot(); drag = { point: h }; return }
+  if (tool === 'move'){ const i = hitShape(p); if (i >= 0){ snapshot(); const pts = shapes[i].pts.map(q => [...q]), c = centre(pts); drag = { shape: i, from: p, pts, c, rotate: e.shiftKey, a0: Math.atan2(p[1] - c[1], p[0] - c[0]) } } return }
   if (tool === 'free'){ freeStroke = [p]; return }
   draft = { kind: tool, w: width(), pts: [p] }; draw()
 })
@@ -162,8 +174,11 @@ cv.addEventListener('pointermove', e => {
   mouse = toImg(e)
   if (drag?.pan){ view.x = drag.vx + e.clientX - drag.sx; view.y = drag.vy + e.clientY - drag.sy }
   else if (drag?.point){ shapes[drag.point[0]].pts[drag.point[1]] = mouse }
+  else if (drag?.shape !== undefined){ const { c, pts } = drag
+    if (drag.rotate){ const a = Math.atan2(mouse[1] - c[1], mouse[0] - c[0]) - drag.a0, cs = Math.cos(a), sn = Math.sin(a); shapes[drag.shape].pts = pts.map(q => [c[0] + (q[0] - c[0])*cs - (q[1] - c[1])*sn, c[1] + (q[0] - c[0])*sn + (q[1] - c[1])*cs]) }
+    else { const dx = mouse[0] - drag.from[0], dy = mouse[1] - drag.from[1]; shapes[drag.shape].pts = pts.map(q => [q[0] + dx, q[1] + dy]) } }
   else if (freeStroke){ if (!near(mouse, freeStroke[freeStroke.length - 1], 2)) freeStroke.push(mouse) }
-  cv.style.cursor = space || drag?.pan ? 'grab' : (!draft && hitPoint(mouse)) ? 'move' : 'crosshair'
+  cv.style.cursor = space || drag?.pan ? 'grab' : (!draft && hitPoint(mouse)) ? 'move' : tool === 'move' ? (drag?.rotate || (e.shiftKey && hitShape(mouse) >= 0) ? 'alias' : hitShape(mouse) >= 0 ? 'move' : 'default') : 'crosshair'
   draw()
 })
 cv.addEventListener('pointerup', () => {
@@ -191,6 +206,8 @@ addEventListener('keydown', e => {
   else if (e.key === 'Backspace' && draft){ draft.pts.pop(); if (!draft.pts.length) draft = null; draw(); e.preventDefault() }
   else if ((e.metaKey || e.ctrlKey) && e.key === 'z'){ undo(); e.preventDefault() }
   else if (e.key === 'b' || e.key === 'B'){ togglePreview() }
+  else if (e.key === 's' || e.key === 'S'){ toggleSpun() }
+  else if (e.key === 'm' || e.key === 'M'){ document.querySelector('[data-tool=move]').click() }
 })
 addEventListener('keyup', e => { if (e.code === 'Space') space = false })
 
@@ -198,6 +215,43 @@ function undo(){
   if (draft){ draft.pts.pop(); if (!draft.pts.length) draft = null }
   else if (history.length) shapes = JSON.parse(history.pop())
   draw()
+}
+// The crown as the generator sees it: the traced shape's half-width at 33 heights from its lowest point to its highest (as a share of that height),
+// lightly smoothed, then mirrored about a centre line and spun round it. Lopsidedness and lean are lost; only width at each height counts
+function profile(){
+  if (!shapes.length) return null
+  const out = render(), W = out.width, H = out.height, px = out.getContext('2d').getImageData(0, 0, W, H).data, dark = (x, y) => px[(y*W + x)*4] < 128
+  let top = -1, bot = -1
+  for (let y = 0; y < H && top < 0; y++) for (let x = 0; x < W; x++) if (dark(x, y)){ top = y; break }
+  for (let y = H - 1; y >= 0 && bot < 0; y--) for (let x = 0; x < W; x++) if (dark(x, y)){ bot = y; break }
+  if (top < 0 || bot <= top) return null
+  const h = bot - top, raw = []
+  for (let i = 0; i <= 32; i++){ const y = Math.round(bot - i/32*h); let l = -1, r = -1
+    for (let x = 0; x < W; x++) if (dark(x, y)){ if (l < 0) l = x; r = x }
+    raw.push(l < 0 ? 0 : (r - l)/2/h) }
+  const sm = raw.map((v, i) => i < 2 || i > 30 ? v : (raw[i - 1] + 2*v + raw[i + 1])/4); sm[32] = 0
+  return sm.map(v => Math.round(v*1000)/1000)
+}
+function drawSpun(W, H){
+  const key = JSON.stringify(shapes); if (key !== drawSpun.key){ drawSpun.key = key; prof = profile() }   // only when the shapes change
+  const bw = Math.min(340, W*.4), bh = bw*.85, x0 = W - bw - 12, y0 = 12
+  ctx.fillStyle = 'rgba(255,255,255,.96)'; ctx.fillRect(x0, y0, bw, bh); ctx.strokeStyle = '#3a3f44'; ctx.strokeRect(x0, y0, bw, bh)
+  ctx.fillStyle = '#555'; ctx.font = '11px system-ui'; ctx.fillText('Spun crown (side view) - what the tree fits', x0 + 8, y0 + 15)
+  if (!prof){ ctx.fillText('Trace a shape first', x0 + 8, y0 + 32); return }
+  const wMax = Math.max(...prof, .05), trunk = bh*.12, s = Math.min((bh - 34 - trunk)/1, (bw - 20)/(2*wMax)), cx = x0 + bw/2, base = y0 + bh - 10 - trunk
+  ctx.beginPath()
+  prof.forEach((v, i) => { const y = base - i/32*s, x = cx + v*s; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y) })
+  for (let i = 32; i >= 0; i--){ const y = base - i/32*s, x = cx - prof[i]*s; ctx.lineTo(x, y) }
+  ctx.closePath(); ctx.fillStyle = '#111'; ctx.fill()
+  ctx.fillStyle = '#7a5038'; ctx.fillRect(cx - 4, base, 8, trunk)
+  ctx.fillStyle = '#555'; ctx.fillText('width / height ' + (2*wMax).toFixed(2), x0 + 8, y0 + bh - 6)
+}
+function toggleSpun(){ spun = !spun; $('spun').classList.toggle('on', spun); draw() }
+$('spun').onclick = toggleSpun
+$('copyOutline').onclick = async () => {
+  const o = profile(); if (!o) return alert('Trace something first.')
+  const text = '[' + o.join(',') + ']'
+  try { await navigator.clipboard.writeText(text); $('copyOutline').textContent = 'Copied'; setTimeout(() => $('copyOutline').textContent = 'Copy outline', 1200) } catch { prompt('Outline:', text) }
 }
 function togglePreview(){ preview = !preview; $('preview').classList.toggle('on', preview); draw() }
 $('undo').onclick = undo

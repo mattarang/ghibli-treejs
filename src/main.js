@@ -11,6 +11,7 @@ import { makeFoliageMaterial } from './foliage-material.js'
 import { makeClouds } from './clouds.js'
 import { makeCompare } from './compare.js'
 import { applyLighting } from './lighting.js'
+import { addRecipeGui, loadSavedRecipes } from './recipe-gui.js'
 
 const qs = new URLSearchParams(location.search)
 // An opaque context of our own: three turns alpha back on for any context it creates, and alpha-to-coverage would then leave partial alpha in the
@@ -43,6 +44,7 @@ scene.add(sky, clouds)
 const L = { sun, hemi, sky, clouds, scene, reach: 80 }
 
 // ---- parameters ----
+loadSavedRecipes(SPECIES)                                                // species saved from the Recipe folder join the built-in ones
 const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('species') : 'Camphor tree'
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
@@ -155,14 +157,16 @@ const foliageDepth = patch(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGB
 //  moss:    greens that climb from the roots and sit on top of limbs, in painted shapes with firm edges
 // Sun lands in broken plates on big wood; wood buried in the crown goes to the crown's shadow; the foot of the trunk takes the ground's colour.
 const barkLook = { uBarkScale: { value: 1 }, uBarkStretch: { value: 1 }, uBarkPlates: { value: 0 }, uBarkBands: { value: 0 } }
-const sink = { value: 1 }, crownDark = { value: 1 }    // both only mean anything with foliage there to hide the wood
+const sink = { value: 1 }, crownDark = { value: 1 }, pxAngle = { value: .001 }    // both only mean anything with foliage there to hide the wood
 const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughness: .9 }), {
   toon: true, wind: true, flatShadow: true, softRamp: true, pigment: 'gRidge*.3',
   // Wood inside a clump sinks behind the leaves in depth alone, the amount it is buried: it stays where it is on screen, so a limb runs up to the
   // foliage and goes in, and never shows as a loose piece floating in front of a clump's body. Its shadow doesn't move.
   afterClip: 'if (vLeafA.y > 0.){ vec4 sunk = projectionMatrix*vec4(mvPosition.xy, mvPosition.z - uSink*vLeafA.y, 1.); gl_Position.z = sunk.z/sunk.w*gl_Position.w; }',
-  vertexPars: 'varying float vCrack; uniform float uSink, uCrownDark; attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
-  vertexBegin: 'vCrack = smoothstep(.45, .85, abs(aLeaf.z)); vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); { float round = abs(aLeaf.z)*clusterCenter.x/.5; vB = vec3(cos(uv.x*6.28318)*round, sin(uv.x*6.28318)*round, uv.y); }   /* the way round the wood, in real distance: clusterCenter.x carries the girth */ vWN = normal; vH = position.y - clusterCenter.y;',
+  vertexPars: 'varying float vCrack; uniform float uSink, uCrownDark, uPxAngle; attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
+  vertexBegin: 'vCrack = smoothstep(.45, .85, abs(aLeaf.z)); vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); { float round = abs(aLeaf.z)*clusterCenter.x/.5; vB = vec3(cos(uv.x*6.28318)*round, sin(uv.x*6.28318)*round, uv.y); }   /* the way round the wood, in real distance: clusterCenter.x carries the girth */ vWN = normal; vH = position.y - clusterCenter.y;' +
+    // wood is never drawn thinner than about a pixel and a half: far twigs stay visible lines instead of fading out and leaving the crown's leaves floating
+    ' { vec3 wq = (modelMatrix*vec4(transformed, 1.)).xyz; float need = .8*uPxAngle*distance(wq, cameraPosition); if (clusterCenter.x > 0. && clusterCenter.x < need) transformed += normal*(need - clusterCenter.x); }',
   fragmentPars: `varying float vCrack; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow, uCrownDark;
     uniform float uBarkScale, uBarkStretch, uBarkPlates, uBarkBands; vec3 gB = vec3(0.); float gRidge = 0., gMoss = 0., gLichen = 0., gCrack = 0., gHue = 0.;`,
   color: `{ gB = vec3(vB.xy*uBarkScale, vB.z*uBarkScale/uBarkStretch); vec2 ring = gB.xy; float thick = vLeafA.x;
@@ -198,7 +202,7 @@ const woodMat = patch(new THREE.MeshStandardMaterial({ color: p.bark[2], roughne
     pal *= 1. - .4*gCrack;
     pal = mix(pal, uFootColor, smoothstep(.6, -.1, vH)*.6);
     pal = mix(pal, mix(uPal0, uInk, .2), vLeafA.y*uCrownDark);`,  // wood deep in the crown goes to its own darkest bark, barely touched by the crown's colour: never painted as foliage
-  uniforms: { ...paletteUniforms(pals.bark), uInk: pals.foliage[0], uFootColor: pals.ground[0], uSink: sink, uCrownDark: crownDark, ...barkLook } })
+  uniforms: { ...paletteUniforms(pals.bark), uInk: pals.foliage[0], uFootColor: pals.ground[0], uSink: sink, uCrownDark: crownDark, uPxAngle: pxAngle, ...barkLook } })
 // ivy: its own leafy brushes and dark greens, standing a step off the bark
 const ivyPal = newPalette(['#15352a', '#27583c', '#4f8848', '#94bc68'])
 const ivyMat = patch(new THREE.MeshStandardMaterial({ color: '#27604e', roughness: .9, alphaMap: makeBrushAtlas('clover', 'spray', 5), alphaTest: .36, alphaToCoverage: true, side: THREE.DoubleSide }), {
@@ -262,7 +266,7 @@ const lantern = new THREE.Mesh(new THREE.SphereGeometry(.14, 16, 12), new THREE.
 scene.add(lantern)
 
 const statsEl = document.getElementById('stats')
-let size = '', placePerson = null
+let size = '', placePerson = null, drawEnvelope = null
 function setStats(ms, clumps){
   const strokes = (foliage.geometry.index?.count || 0)/6, tris = [foliage, wood, grass, ivy].reduce((n, m) => n + (m.geometry.index?.count || 0)/3, 0)
   statsEl.textContent = `${size} · ${clumps} clumps · ${strokes.toLocaleString()} strokes · ${(tris/1000).toFixed(0)}k tris · generated in ${ms.toFixed(0)} ms`
@@ -300,6 +304,7 @@ function rebuild(){
   U.uTreeN.value = Math.min(trees.length, 24)
   U.uTrees.value.forEach((v, i) => { const t = trees[i]; if (t) v.set(t.x, t.z, t.r); else v.set(1e5, 1e5, 1) })
   let clumps = 0
+  generatePlant.envelopes = []
   for (const q of plants) clumps += generatePlant(p, q.seed, [q.x, groundHeight(q.x, q.z) - .08, q.z], q.scale, woodB, leafB, ivyB)
   const bush = { ...SPECIES['Round bush'] }
   for (const q of bushes) clumps += placeBush(bush, q, woodB, leafB)
@@ -319,7 +324,7 @@ function rebuild(){
   L.reach = 100
   applyLighting(p, L); bakeSun()
   const first = heldClumps.filter(c => c.plant === 0), top = Math.max(0, ...first.map(c => c.c[1] + c.r*c.squash)), far = Math.max(0, ...first.map(c => Math.hypot(c.c[0], c.c[2]) + c.r))
-  size = `${top.toFixed(1)} m tall · ${(far*2).toFixed(1)} m across`; placePerson?.()
+  size = `${top.toFixed(1)} m tall · ${(far*2).toFixed(1)} m across`; placePerson?.(); drawEnvelope?.()
   setStats(performance.now() - t0, clumps)
 }
 function rebuildGrass(){
@@ -350,7 +355,23 @@ const person = new THREE.Group(), personMat = new THREE.MeshBasicMaterial({ colo
 const body = new THREE.Mesh(new THREE.CapsuleGeometry(.2, .95, 4, 12), personMat), head = new THREE.Mesh(new THREE.SphereGeometry(.13, 12, 10), personMat)
 body.position.y = .7; head.position.y = 1.57; person.add(body, head); person.visible = false; scene.add(person)
 placePerson = () => { const out = p.trunkRadius*p.size*3 + 1.2; person.position.set(out, groundHeight(out, 1.2), 1.2) }
+// the fitted outline: the volume the main tree's growth was asked to fill, spun round its axis (blue), and for self-organising trees the hollow
+// kept clear in the lower crown (orange). Drawn through everything, so wood can be read against it
+const envelopeView = new THREE.Group(); envelopeView.visible = false; envelopeView.renderOrder = 10; scene.add(envelopeView)
+const envMat = new THREE.LineBasicMaterial({ color: '#1f6fe0', transparent: true, opacity: .85, depthTest: false }), hollowMat = new THREE.LineBasicMaterial({ color: '#ff7a00', transparent: true, opacity: .95, depthTest: false })
+drawEnvelope = () => {
+  for (const c of [...envelopeView.children]){ c.geometry.dispose(); envelopeView.remove(c) }
+  const env = generatePlant.envelopes?.[0]; if (!env) return
+  const lines = (rings, mat, every) => { const v = []
+    for (const ring of rings) for (let j = 1; j < ring.length; j++) v.push(...ring[j - 1], ...ring[j])
+    for (let j = 0; j < (rings[0]?.length ?? 0) - 1; j += every) for (let k = 1; k < rings.length; k++) v.push(...rings[k - 1][j], ...rings[k][j])
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); const l = new THREE.LineSegments(g, mat); l.renderOrder = 10; envelopeView.add(l) }
+  if (env.rings.length) lines(env.rings, envMat, 6)
+  if (env.hollow.length) lines(env.hollow, hollowMat, 8)
+}
 const compareF = gui.addFolder('Compare').close()
+const outlineCtl = compareF.add({ outline: false }, 'outline').name('Show fitted outline').onChange(v => { envelopeView.visible = v; drawEnvelope() })
+compareF.add({ walk(){ walk.toggle() } }, 'walk').name('Walk around at eye height (G)')
 compareF.add({ person: false }, 'person').name('Person for scale (1.7 m)').onChange(v => { person.visible = v; placePerson() })
 compareF.add({ on: false }, 'on').name('Show reference').onChange(v => { compare.set(v); frame() })
 compareF.add({ next(){ compare.next() } }, 'next').name('Next reference')
@@ -364,19 +385,23 @@ function applyFoliage(){
 }
 applyFoliage()
 treeF.add(p, 'showFoliage').name('Show foliage').onChange(applyFoliage)
-treeF.add(p, 'species', Object.keys(SPECIES).sort()).name('Species').onChange(name => {
+let recipeUi = null
+// a species is all of its own settings and nothing else: a setting the last species had and this one doesn't is dropped, or one tree's look would leak into the next
+const setSpecies = (name, settings = SPECIES[name]) => { for (const k of new Set(Object.values(SPECIES).flatMap(Object.keys))) if (!(k in settings)) delete p[k]; Object.assign(p, structuredClone(settings)); p.species = name }
+const speciesCtl = treeF.add(p, 'species', Object.keys(SPECIES).sort()).name('Species').onChange(name => {
   compare.species(name)
-  Object.assign(p, structuredClone(SPECIES[name])); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); rebuild(); rebuildGrass(); frame() })
+  setSpecies(name); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); recipeUi?.refresh(); rebuild(); rebuildGrass(); frame() })
 treeF.add(p, 'seed', 1, 9999, 1).name('Seed').onChange(later).listen()
 treeF.add({ dice(){ p.seed = 1 + Math.floor(Math.random()*9998); rebuild(); rebuildGrass() } }, 'dice').name('New seed')
 treeF.add(p, 'height', 1.5, 26, .1).name('Height').onChange(later)
 treeF.add(p, 'size', .3, 4, .01).name('Mature size').onChange(() => { later(); frame() })
 treeF.add(p, 'trunkRadius', .06, 1.4, .01).name('Trunk radius').onChange(later)
-treeF.add(p, 'trunkFrac', .15, .85, .01).name('Bare trunk').onChange(later)
+treeF.add(p, 'trunkFrac', .02, .85, .01).name('Bare trunk').onChange(later)
 treeF.add(p, 'stems', 1, 5, .1).name('Stems (average)').onChange(later)
 treeF.add(p, 'stemVar', 0, 3, .1).name('Stem count variation').onChange(later)
 treeF.add(p, 'stemSpread', 0, 50, 1).name('Stem spread').onChange(later)
 treeF.add(p, 'trunkBow', 0, .6, .01).name('Trunk curve').onChange(later)
+treeF.add(p, 'split', 0, 1, .01).name('Split low (self-organising)').onChange(later)
 treeF.add(p, 'variety', 0, 1.5, .01).name('Seed variety').onChange(later)
 treeF.add(p, 'sinuous', 0, 1.5, .01).name('Trunk bends').onChange(later)
 treeF.add(p, 'crownWidth', .08, 1.1, .01).name('Crown width').onChange(later)
@@ -392,6 +417,10 @@ branchF.add(p, 'upward', -.2, .2, .005).name('Tropism').onChange(later)
 branchF.add(p, 'droop', 0, .3, .005).name('Droop').onChange(later)
 branchF.add(p, 'lean', 0, .4, .01).name('Lean').onChange(later)
 branchF.add(p, 'flare', 0, 2, .01).name('Root flare').onChange(later)
+// tuning a species without code: its outline, its growth habit, and the whole recipe as a file
+recipeUi = addRecipeGui({ gui, p, SPECIES, speciesCtl, later, setSpecies, rebuild: () => { rebuild(); rebuildGrass() },
+  refreshAll: () => { compare.species(p.species); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); recipeUi?.refresh(); rebuild(); rebuildGrass(); frame() },
+  showOutline: () => { outlineCtl.setValue(true) }, applyLook })
 const leafF = gui.addFolder('Canopy')
 leafF.add(p, 'colorPick', 0, 4, 1).name('Colour form (0 = by seed)').onChange(later)
 leafF.add(p, 'shelves', 0, 10, 1).name('Crown shelves').onChange(later)
@@ -416,6 +445,7 @@ leafF.add(p, 'lobeTilt', -.6, .6, .01).name('Lobe tilt').onChange(later)
 leafF.add(p, 'lobeWide', .6, 2, .01).name('Lobe width').onChange(later)
 leafF.add(p, 'lobeDrape', 0, 1, .01).name('Lobe drape').onChange(later)
 leafF.add(p, 'lobeFollow', 0, 1, .01).name('Lobes follow the crown').onChange(later)
+leafF.add(p, 'lobeAlong', 1, 3, .01).name('Sprays along twigs').onChange(later)
 leafF.add(p, 'realMarks').name('Real-size brush marks').onChange(later)
 leafF.add(p, 'plateSize', .3, 1.8, .01).name('Plate size').onChange(later)
 leafF.add(p, 'plates', 0, 8, .1).name('Plates per lobe').onChange(later)
@@ -499,21 +529,57 @@ outF.add({ png(){ renderer.render(scene, camera); renderer.domElement.toBlob(b =
   const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `${p.species.replace(/ /g, '-').toLowerCase()}-${p.seed}.png`; a.click(); URL.revokeObjectURL(a.href) }) } }, 'png').name('Save image')
 outF.add({ copy(){ navigator.clipboard?.writeText(JSON.stringify(p, null, 1)) } }, 'copy').name('Copy settings')
 
+// ---- walking: first person at a person's eye height (1.6 m), to stand under the trees and look up ----
+// click to look with the mouse (Esc frees it), WASD or arrows to walk, Shift to run, G or the button to go back to orbiting
+const walk = { on: false, yaw: 0, pitch: 0, keys: new Set(), fov: camera.fov, eye: 1.6,
+  hint: Object.assign(document.createElement('div'), { textContent: 'Walking - click to look around · WASD / arrows to move · Shift to run · Esc frees the mouse · G to stop walking' }),
+  toggle(){ this.on ? this.stop() : this.start() },
+  start(){ this.on = true; controls.enabled = false; this.keys.clear()
+    // start a few paces outside the crown, facing the trunk
+    const reach = Math.max(4, (p.height*p.size)*(p.crownWidth || .5)*2.2), a = Math.atan2(camera.position.x, camera.position.z)
+    camera.position.set(Math.sin(a)*reach, 0, Math.cos(a)*reach); camera.position.y = groundHeight(camera.position.x, camera.position.z) + this.eye
+    this.yaw = Math.atan2(camera.position.x, camera.position.z); this.pitch = .12
+    camera.fov = 62; camera.updateProjectionMatrix(); this.hint.style.display = 'block' },
+  stop(){ this.on = false; document.pointerLockElement && document.exitPointerLock(); camera.fov = this.fov; camera.updateProjectionMatrix()
+    const ahead = new THREE.Vector3(0, 0, -6).applyEuler(camera.rotation); controls.target.copy(camera.position).add(ahead); controls.enabled = true; controls.update(); this.hint.style.display = 'none' },
+  step(dt){ const k = this.keys, f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0), r = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0)
+    const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? 4.5 : 1.5)*dt, len = Math.hypot(f, r) || 1, sy = Math.sin(this.yaw), cy = Math.cos(this.yaw)
+    camera.position.x += (-sy*f + cy*r)/len*speed; camera.position.z += (-cy*f - sy*r)/len*speed
+    camera.position.y = groundHeight(camera.position.x, camera.position.z) + this.eye
+    camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ') } }
+walk.hint.style.cssText = 'position:fixed;left:50%;top:70px;transform:translateX(-50%);z-index:20;display:none;padding:6px 12px;border-radius:6px;background:rgba(0,0,0,.55);color:#fff;font:12px system-ui;pointer-events:none'
+document.body.append(walk.hint)
+const typing = e => e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable
+addEventListener('keydown', e => { if (typing(e)) return
+  if (e.code === 'KeyG'){ walk.toggle(); return }
+  if (walk.on){ walk.keys.add(e.code); if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault() } })
+addEventListener('keyup', e => walk.keys.delete(e.code))
+addEventListener('blur', () => walk.keys.clear())
+renderer.domElement.addEventListener('click', () => { if (walk.on && !document.pointerLockElement) renderer.domElement.requestPointerLock?.()?.catch?.(() => {}) })
+// look: with the mouse captured, or by dragging if the browser won't capture it
+let lookDrag = null
+renderer.domElement.addEventListener('pointerdown', e => { if (walk.on && !document.pointerLockElement) lookDrag = { x: e.clientX, y: e.clientY } })
+addEventListener('pointermove', e => { if (!walk.on) return
+  let dx = 0, dy = 0
+  if (document.pointerLockElement === renderer.domElement){ dx = e.movementX; dy = e.movementY } else if (lookDrag){ dx = e.clientX - lookDrag.x; dy = e.clientY - lookDrag.y; lookDrag = { x: e.clientX, y: e.clientY } }
+  walk.yaw -= dx*.0025; walk.pitch = Math.max(-1.45, Math.min(1.45, walk.pitch - dy*.0025)) })
+addEventListener('pointerup', () => { lookDrag = null })
+
 // ---- input ----
 let dragging = null
-renderer.domElement.addEventListener('pointerdown', e => { if (e.shiftKey){ dragging = { x: e.clientX, y: e.clientY }; controls.enabled = false } })
+renderer.domElement.addEventListener('pointerdown', e => { if (e.shiftKey && !walk.on){ dragging = { x: e.clientX, y: e.clientY }; controls.enabled = false } })
 addEventListener('pointermove', e => { if (!dragging) return
   p.sunAzimuth = ((p.sunAzimuth + (e.clientX - dragging.x)*.4 + 540)%360) - 180
   p.time = Math.min(18.9, Math.max(5.1, p.time - (e.clientY - dragging.y)*.015))
   dragging = { x: e.clientX, y: e.clientY }; relight() })
-addEventListener('pointerup', () => { dragging = null; controls.enabled = true })
+addEventListener('pointerup', () => { dragging = null; controls.enabled = !walk.on })
 function layout(){ const w = innerWidth - compare.width - (compare.width && !gui._closed ? gui.domElement.offsetWidth : 0); camera.aspect = w/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(w, innerHeight); renderer.domElement.style.marginLeft = compare.width + 'px' }
 addEventListener('resize', layout)
 
 // ---- go ----
 applyLook(); clouds.build(p.clouds, p.cloudSeed); rebuild(); rebuildGrass(); lamp(); frame()
 if (qs.has('close')) gui.close()
-window.__foliage = { gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
+window.__foliage = { walk, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
 // profiling: frame rate and frame time, then draw calls and triangles per frame (these include the shadow pass)
 const statsBar = document.createElement('div')
 statsBar.style.cssText = 'position:fixed;left:8px;top:8px;display:flex;gap:4px;z-index:20;pointer-events:none'
@@ -540,7 +606,9 @@ renderer.setAnimationLoop(now => {
   const dt = Math.min((now - last)/1000, .1); last = now
   U.uTime.value += dt; sky.tick(U.uTime.value)
   if (p.autoTime){ p.time = (p.time + dt*.4)%24; relight() }
-  controls.update(); sky.position.copy(camera.position); sky.scale.setScalar(1000); clouds.position.copy(camera.position)
+  if (walk.on) walk.step(dt); else controls.update()
+  pxAngle.value = 2*Math.tan(camera.fov*Math.PI/360)/Math.max(renderer.domElement.clientHeight, 1)   // the angle one pixel spans
+  sky.position.copy(camera.position); sky.scale.setScalar(1000); clouds.position.copy(camera.position)
   if (++frameNo%3 === 0 && U.uWind.value > 0) renderer.shadowMap.needsUpdate = true     // shadows only need redrawing while things move
   holdFrameRate()
   renderer.render(scene, camera)

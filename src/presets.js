@@ -2,7 +2,7 @@
 const MEADOW = ['#1f6a4a', '#2f8f4e', '#66b54a', '#b0d868']
 const BARK = ['#1e1e10', '#38391f', '#7a7044', '#b4b078']
 
-const DEFAULTS = { fused: 0, midSize: 2.4, lobePoint: 0, lobeTilt: 0, lobeWide: 1, lobeDrape: 0, lobeFollow: 0, trunkBow: 0, lobeRough: 1, lobeStretch: null, barkScale: 1, barkStretch: 1, barkPlates: 0, barkBands: 0, barkFurrow: 1, form: 0, colorPick: 0, colors: null, envTop: 2, envHeart: 0, envCone: 0, envW: 0, envPeak: .4, envFill: 46, realMarks: true, size: 1, keepWood: 0, clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
+const DEFAULTS = { fused: 0, midSize: 2.4, lobePoint: 0, lobeTilt: 0, lobeWide: 1, lobeDrape: 0, lobeFollow: 0, lobeAlong: 1, split: 0, trunkBow: 0, lobeRough: 1, lobeStretch: null, barkScale: 1, barkStretch: 1, barkPlates: 0, barkBands: 0, barkFurrow: 1, form: 0, colorPick: 0, colors: null, envTop: 2, envHeart: 0, envCone: 0, envW: 0, envPeak: .4, envFill: 46, realMarks: true, size: 1, keepWood: 0, clotheRad: 0, shell: 0, ownBough: 0, lobes: 0, tighten: 0, cover: 0, crownLine: .25, forms: null, forkTop: 0, forkAngle: 30, sideShoots: 0, whorls: 0, opposite: 0, fastigiate: 0, arch: 0, limbRatio: .5, variety: 1, stemVar: 1.7, limbRise: 28, maxLimb: .3, massMarks: true, leader: 1, topClump: 1, hueVar: 1, boughGap: .66, shelves: 0, stems: 1, forkHeight: .1, stemSpread: 20, sinuous: .3, ivy: 0, roots: 1, moss: .5, gesture: 'free', crownWidth: .5, asym: .22, windLean: 0, notches: 1, massVar: .5, plateSize: 1, plates: 3.5, crownBlend: .55, strays: 0, edge: 'round', hang: 0, lift: 1, droop: 0, strandLength: .9, brushWidth: .85, strokeAngle: 0, strokeJitter: 70 }
 
 export const SPECIES = {
   'Camphor tree': {
@@ -220,9 +220,9 @@ Object.assign(SPECIES, {
 })
 
 // Sets how big each shape really stands, calibrated so the finished tree measures its open-grown mature height in metres.
-const MATURE = { 'Camphor tree': 21.5, 'English oak': 22, 'Lombardy poplar': 27, 'Yoshino cherry': 14, 'Japanese maple': 6.5, 'Stone pine': 19, 'Japanese cedar': 30, 'Weeping willow': 17, 'Hinoki cypress': 27, 'Japanese black pine': 25, 'Japanese red pine': 25, 'Ginkgo': 26, 'Japanese zelkova': 24 }
+const MATURE = { 'Camphor tree': 21.5, 'English oak': 22, 'Lombardy poplar': 27, 'Yoshino cherry': 10, 'Japanese maple': 6.5, 'Stone pine': 19, 'Japanese cedar': 30, 'Weeping willow': 17, 'Hinoki cypress': 27, 'Japanese black pine': 25, 'Japanese red pine': 25, 'Ginkgo': 26, 'Japanese zelkova': 24 }
 // Crown envelopes, read off the reference photos: spread over height, and how far up the crown it is widest.
-const ENVELOPE = { 'English oak': [1.35, .38, 0, 1.7], 'Camphor tree': [1.4, .34, 0, 1.9], 'Japanese zelkova': [1.4, .46, 0, 1.6], 'Ginkgo': [.74, .3, 0, 1.15], 'Yoshino cherry': [1.4, .42, 0, 1.9], 'Japanese maple': [1, .4, 0, 1.25], 'Garden tree': [.95, .4, 0, 1.5], 'Japanese cedar': [.42, .12, .9], 'Hinoki cypress': [.52, .14, .7], 'Lombardy poplar': [.26, .28, .7], 'Stone pine': [.72, .42, 0, 2.6], 'Japanese black pine': [1.05, .42, 0, 2], 'Japanese red pine': [1, .45, 0, 1.7] }
+const ENVELOPE = { 'English oak': [1.35, .38, 0, 1.7], 'Camphor tree': [1.4, .34, 0, 1.9], 'Japanese zelkova': [1.2, .7, 0, 1.2], 'Ginkgo': [.74, .3, 0, 1.15], 'Yoshino cherry': [1.4, .42, 0, 1.9], 'Japanese maple': [1, .4, 0, 1.25], 'Garden tree': [.95, .4, 0, 1.5], 'Japanese cedar': [.42, .12, .9], 'Hinoki cypress': [.52, .14, .7], 'Lombardy poplar': [.26, .28, .7], 'Stone pine': [.72, .42, 0, 2.6], 'Japanese black pine': [1.05, .42, 0, 2], 'Japanese red pine': [1, .45, 0, 1.7] }
 for (const k in ENVELOPE){ SPECIES[k].envW = ENVELOPE[k][0]; SPECIES[k].envPeak = ENVELOPE[k][1]; SPECIES[k].envCone = ENVELOPE[k][2] ?? 0; SPECIES[k].envTop = ENVELOPE[k][3] ?? 2; SPECIES[k].envHeart = .7 }
 SPECIES['Japanese black pine'].envHeart = SPECIES['Japanese red pine'].envHeart = 0     // open-layered: pines keep their gaps
 Object.assign(SPECIES['Stone pine'], { crownLine: .6 }); Object.assign(SPECIES['Japanese red pine'], { crownLine: .45 }); Object.assign(SPECIES['Japanese black pine'], { crownLine: .3 })
@@ -308,7 +308,16 @@ SPECIES['Lombardy poplar'].rings = { ...SPECIES['English oak'].rings, outline: [
 
 // (its unit is the scale its growth was tuned at, held fixed: the tree's size already scales it, so a change of size keeps every proportion)
 // traced from a Japanese maple: a low wide dome, leaves almost to the ground, on a trunk that splits into stems at a fifth of its height
-SPECIES['Japanese maple'].rings = { ...SPECIES['English oak'].rings, outline: [0,0,0.3,0.485,0.529,0.53,0.532,0.521,0.495,0.454,0.445,0.499,0.543,0.549,0.564,0.59,0.592,0.571,0.534,0.492,0.474,0.496,0.54,0.557,0.541,0.516,0.477,0.42,0.366,0.327,0.254,0.093,0], unit: .386, varK: .5, girth: 1, slender: .65, finest: .35, bare: .19, leafFloor: .05, tiers: { count: 5, gap: .4, wobble: .2, flat: .5, clear: true }, as: { leaf: 'pointed', edge: 'maple', trunkBow: .12, alpha: 2.3, clumpRadius: .7, cover: .65, crownLine: .25, stems: 2.4, stemVar: 1, stemSpread: 32, shelves: 0, squash: .45, lobeStretch: [1.4, .5], lobeWide: 1.4, lobeDrape: .45, lobeTilt: -.4, cardSize: .45, plateSize: .6, midSize: 2, lobeFollow: .6 }, colonise: { ...SPECIES['English oak'].rings.colonise, inset: .88, bottom: .06, leader: .6, crownTop: .99, middle: .4, trunkKink: .3, leaderKink: .55, leaderRun: 6, limbLow: 85, limbHigh: 45, droop: -.35, droopTip: -.45, droopSide: -.8, sag: .9, wideBelow: .6, highRise: -.05, up: -.1, sun: .5, crook: .07, level: .8, splits: [{ at: .4, n: [2, 3], spread: 26 }], limbs: 12, crownLimbs: 3, order: .8, longest: 7, shrink: .75, pockets: 40, fillMost: 50, thorn: 5, limbFrom: .25, runMost: 6, spread: [0, 0, .3, .6, 1, 1.4, 1.6, 1.6] } }
+SPECIES['Japanese maple'].rings = { ...SPECIES['English oak'].rings, outline: [0,0,0.3,0.485,0.529,0.53,0.532,0.521,0.495,0.454,0.445,0.499,0.543,0.549,0.564,0.59,0.592,0.571,0.534,0.492,0.474,0.496,0.54,0.557,0.541,0.516,0.477,0.42,0.366,0.327,0.254,0.093,0], unit: .386, varK: .5, girth: 1, slender: .65, finest: .35, bare: .19, leafFloor: .05, tiers: { count: 5, gap: .4, wobble: .2, flat: .5, clear: true }, as: { leaf: 'pointed', edge: 'maple', split: .6, trunkBow: .12, alpha: 2.3, clumpRadius: .7, cover: .65, crownLine: .25, stems: 2.4, stemVar: 1, stemSpread: 32, shelves: 0, squash: .45, lobeStretch: [1.4, .5], lobeWide: 1.4, lobeDrape: .45, lobeTilt: -.4, cardSize: .45, plateSize: .6, midSize: 2, lobeFollow: .6 }, colonise: { ...SPECIES['English oak'].rings.colonise, inset: .88, bottom: .06, leader: .6, crownTop: .99, middle: .4, trunkKink: .3, leaderKink: .55, leaderRun: 6, limbLow: 85, limbHigh: 45, droop: -.35, droopTip: -.45, droopSide: -.8, sag: .9, wideBelow: .6, highRise: -.05, up: -.1, sun: .5, crook: .07, level: .8, splits: [{ at: .4, n: [2, 3], spread: 26 }], centralStem: true, limbs: 12, crownLimbs: 3, order: .8, longest: 7, shrink: .75, pockets: 40, fillMost: 50, thorn: 5, limbFrom: .25, runMost: 6, spread: [0, 0, .3, .6, 1, 1.4, 1.6, 1.6] } }
+// traced from a Yoshino cherry: a broad flat-topped canopy half again as wide as tall, its skirt low on one side, on a trunk that divides almost at the ground into
+// three or four stems leaning out wide, which divide again a little higher. (Its unit is held fixed, as the maple's is, so a change of size keeps every proportion.)
+SPECIES['Yoshino cherry'].rings = { ...SPECIES['English oak'].rings, outline: [0.004,0.1,0.394,0.721,0.862,0.864,0.864,0.868,0.876,0.882,0.885,0.886,0.887,0.889,0.89,0.892,0.894,0.888,0.864,0.822,0.765,0.697,0.643,0.618,0.606,0.591,0.571,0.547,0.517,0.481,0.44,0.389,0], unit: .4, varK: .5, girth: 1, slender: .75, finest: .4, bare: .07, leafFloor: .05, crownOnly: true,
+  as: { trunkFrac: .12, split: .7, clotheFrom: 0, clotheCarriers: true, clotheRoom: 30, ride: .9, squash: .42, clotheGap: 1.6, keepGaps: true, bareLimbs: .15, whip: 2, longRun: 2.5, stems: 3.2, stemVar: 1, stemSpread: 26, trunkBow: .1, alpha: 2.3, crownLine: .18, lobeAlong: 2.6, clumpRadius: .55, clumpsPerTip: 1.2, lobePoint: .45, strays: .45, cover: .6 },
+  colonise: { ...SPECIES['English oak'].rings.colonise, inset: .9, bottom: .06, leader: .55, crownTop: .99, middle: .4, trunkKink: .3, leaderKink: .45, leaderRun: 6,
+    splits: [{ at: .26, n: [2, 3], spread: 18 }], centralStem: true, limbs: 14, crownLimbs: 3, limbFrom: .18, limbLow: 82, limbHigh: 45, order: .6, longest: 8, shrink: .78, runMost: 8, thorn: 4,
+    sag: .7, wideBelow: .5, droop: -.25, droopTip: -.6, droopSide: -.7, sun: 1, pockets: 0, fillMost: 0, runMost: 7, runIn: 14, runFork: 6, thorn: 0,
+    // self-organising growth (Pałubicki et al. 2009): buds compete for the crown's space, resource split by apical control; stems, limbs and spacing emerge
+    selfOrg: { internode: .04, occupy: 2, perceive: 5, angle: 90, branch: 45, lambda: .52, vigor: 2, maxShoot: 4, env: .3, tropism: .1, years: 30, noReturn: .2 } } }
 // Every tree grows into an outline. Species with no traced outline yet take one from their crown numbers, and the oak's growth at their own scale.
 for (const [name, sp] of Object.entries(SPECIES)){
   if (sp.rings?.colonise || name === 'Round bush') continue
@@ -319,6 +328,62 @@ for (const [name, sp] of Object.entries(SPECIES)){
   const o = SPECIES['English oak'].rings, tall = cone > 0
   sp.rings = { ...o, outline, unit: Math.min(Math.max(sp.height*sp.size/22, .3), 1), bare: low*.8, girth: 1, colonise: { ...o.colonise, bottom: low, leader: tall ? .95 : Math.max(.6, low + .25), crownTop: .98, crownLimbs: tall ? 0 : 4, limbs: tall ? 34 : 25, limbLow: tall ? 75 : 58, limbHigh: tall ? 35 : 20 } }
 }
+// Self-organising growth for every outline-grown tree (the cherry's model): buds compete for the crown's space (Pałubicki et al. 2009), the outline is the crown alone,
+// sitting on a bare trunk that runs up to where it begins, and the same clean-ups keep the wood honest. Only what makes a species itself is set per tree below
+export const SELF_ORG = { internode: .04, occupy: 2, perceive: 5, angle: 90, branch: 45, lambda: .52, vigor: 2, maxShoot: 4, env: .3, tropism: .1, years: 30, noReturn: .2, outward: 50 }
+const OWN_GROWTH = {
+  // conifers and columns: a strong leader keeps its lead (apical control), shoots turn up
+  // sugi: short limbs held out level from a dead-straight leader; hinoki the same, but its sprays droop at the tips
+  'Japanese cedar': { lambda: .66, branch: [60, 72, 55], level: [0, .6, .4], tropism: [.4, -.04, .04] }, 'Hinoki cypress': { lambda: .64, branch: [60, 75, 60], level: [0, .5, .45], tropism: [.35, -.15, -.12] },
+  'Lombardy poplar': { lambda: .6, tropism: .6, branch: 25 }, // ginkgo: long, few limbs held out at odd angles, so the crown is lopsided and open
+  'Ginkgo': { lambda: .58, branch: [40, 55, 50], level: [0, .25, .2], tropism: [.2, .05, .05], wiggle: [.02, .08, .1] },
+  // Japanese maple: the trunk ends at once in a crown of stems that lean out into a vase; their outer shoots spread level, so the leaves lie in layers
+  'Japanese maple': { multiStem: true, level: [0, 0, .25, .35] },
+  // zelkova: the trunk divides low into many steep stems that fan into a vase
+  'Japanese zelkova': { lambda: .48, branch: [25, 28, 40], tropism: [.3, .25, .1], multiStem: true },
+  // willow: limbs climb and arch over, and every shoot beyond them hangs - the weeping is in the wood
+  'Weeping willow': { lambda: .5, branch: [40, 38, 45], tropism: [.2, .02, -.5, -.9] },
+  // oak: a short trunk under a few massive limbs that spread wide and low, crooked at every step
+  'English oak': { lambda: .46, branch: [55, 52, 45], level: [0, .45, .2], tropism: [.1, -.04, .05], wiggle: [.05, .25, .2] },
+  // camphor: a short trunk splitting into broad spreading limbs under a wide dome
+  'Camphor tree': { lambda: .48, branch: [40, 45, 45], level: [0, .3, .15], tropism: [.1, .05, .05], wiggle: [.03, .1, .1] },
+  // pines: a strong leader that puts out a ring of limbs at the end of each year's growth; the limbs run out level, crooked on the black pine, and their own shoots spread flat into pads
+  'Japanese black pine': { outward: [0, 50, 75], lambda: .62, whorl: { count: 4, upTo: 1 }, branch: [45, 80, 55], level: [0, .75, .65, .55], tropism: [.15, 0, 0], wiggle: [.03, .15, .2] },
+  'Japanese red pine': { outward: [0, 50, 75], lambda: .62, whorl: { count: 4, upTo: 1 }, branch: [45, 75, 55], level: [0, .7, .6, .5], tropism: [.2, .02, 0], wiggle: [.01, .04, .06], env: .18 },
+  // the stone pine loses its leader: a few stout limbs climb steeply out of the trunk's top and keep forking, so the crown opens into an umbrella
+  'Stone pine': { lambda: .45, branch: [30, 38, 50], tropism: [.2, .12, 0], level: [0, .15, .5] } }
+// how a species carries its leaves, where it differs from the shared clean-up (pines: pads at the ends of flat shoots, not one cloud)
+const OWN_LOOK = { 'Japanese black pine': { shelves: 0, clumpRadius: .6, clumpsPerTip: 1.1, squash: .4, trunkBow: .3 }, 'Japanese red pine': { shelves: 0, clumpRadius: .8, clumpsPerTip: 1.8, squash: .4, trunkBow: .2 },
+  'Japanese zelkova': { split: .85, stems: 4.5, stemSpread: 22, keepGaps: true, lobeAlong: 1.6, notches: 2, asym: .3 }, 'Garden tree': { keepGaps: true, lobeAlong: 1.4, notches: 2, asym: .3 },
+  'Ginkgo': { shelves: 0, clumpRadius: .75, clumpsPerTip: .9, squash: .6, keepGaps: true, clotheGap: 1.8, notches: 3, asym: .4, lobeAlong: 2 }, 'Japanese maple': { split: .7, stems: 3.4, stemSpread: 30 }, 'Camphor tree': { split: .5, massVar: .8, notches: 2, asym: .35, keepGaps: true, lobeAlong: 1.5 }, 'English oak': { split: .3, massVar: .8, notches: 3, asym: .4, keepGaps: true } }
+for (const [name, sp] of Object.entries(SPECIES)){
+  const g = sp.rings, c = g?.colonise
+  if (!c || c.selfOrg || g.heart) continue
+  // the outline from where the crown begins (its old bottom) to the top, re-spread over the whole list: the crown alone, at the same width
+  // (and never below the outline's first width: rows of nothing would leave the leader no room to climb)
+  const O = g.outline, n = O.length - 1, low = Math.min(Math.max(c.bottom, (Math.max(O.findIndex(v => v > .02), 1) - 1)/n), .8), at = t => { const u = t*n, i = Math.min(Math.floor(u), n - 1); return O[i] + (O[i + 1] - O[i])*(u - i) }
+  const outline = Array.from({ length: 33 }, (_, i) => i === 32 ? 0 : +(at(low + i/32*(1 - low))/(1 - low)).toFixed(3))
+  const H = sp.height*(sp.size ?? 1)
+  sp.rings = { ...g, outline, crownOnly: true, leafFloor: Math.min(.05, low),
+    as: { ...g.as, ...OWN_LOOK[name], trunkFrac: low, clotheFrom: 0, clotheCarriers: true, clotheRoom: 30, bareLimbs: .15, whip: +(H*.2).toFixed(1), longRun: +(H*.25).toFixed(1) },
+    colonise: { ...c, pockets: 0, fillMost: 0, runMost: 7, runIn: 14, runFork: 6, thorn: 0, selfOrg: { ...SELF_ORG, ...OWN_GROWTH[name] } } }
+}
+// Mature proportions, from field guides for open-grown trees: crown spread in metres, and the clear trunk below the crown as a share of height.
+// The outline keeps its shape and is scaled to the spread; the crown sits on that much bare trunk
+const SPREAD = { 'English oak': 28, 'Camphor tree': 28, 'Japanese zelkova': 24, 'Ginkgo': 15, 'Stone pine': 20, 'Hinoki cypress': 11 }
+const CLEAR = { 'Camphor tree': .15, 'Japanese zelkova': .14, 'Weeping willow': .15 }
+// the zelkova's crown is a fan: from a point on the trunk its stems spread in a straight-sided V and round over at the top
+const FAN = Array.from({ length: 33 }, (_, i) => { const u = i/32; return i === 32 ? 0 : +(u < .7 ? .06 + .94*u/.7 : Math.sqrt(Math.max(1 - ((u - .7)/.3)**2, 0))).toFixed(3) })
+for (const [name, sp] of Object.entries(SPECIES)){ const g = sp.rings; if (!g?.crownOnly) continue
+  let outline = name === 'Japanese zelkova' ? FAN : g.outline
+  const low = CLEAR[name] ?? g.as.trunkFrac, H = sp.height*(sp.size ?? 1), CH = H*(1 - low)
+  // (.73: the crown's lobes, lean and leaf clumps carry it about a third past its outline's own width, measured over the species)
+  if (SPREAD[name]) { const k = .73*SPREAD[name]/(2*Math.max(...outline)*CH); outline = outline.map(v => +(v*k).toFixed(3)) }
+  sp.rings = { ...g, outline, as: { ...g.as, trunkFrac: low } } }
+// trunks calibrated to the girth at breast height of a mature tree of each kind (the black pine was near three times too stout); the multiplier scales the whole tree's wood with it
+const GIRTH = { 'Camphor tree': .72, 'English oak': 1.05, 'Lombardy poplar': .72, 'Yoshino cherry': .71, 'Stone pine': .76, 'Garden tree': .7, 'Japanese cedar': .82,
+  'Weeping willow': .65, 'Hinoki cypress': .65, 'Japanese black pine': .39, 'Japanese red pine': .56, 'Ginkgo': .68, 'Japanese zelkova': .66 }
+for (const [name, k] of Object.entries(GIRTH)) if (SPECIES[name].rings) SPECIES[name].rings = { ...SPECIES[name].rings, girth: (SPECIES[name].rings.girth ?? 1)*k }
 // what each recipe leaves its species set to, and its own settings as that species' starting point: sliders and seeds are measured against these
 for (const sp of Object.values(SPECIES)) if (sp.rings){
   Object.assign(sp, sp.rings.as); if (sp.rings.varK) sp.variety *= sp.rings.varK

@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Growth Lab</title>
+<style>
+  :root { --bg: #f4f1ea; --ink: #2a2622; --dim: #7a7368; --panel: #ffffff; --line: #ddd6ca; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.4 system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  main { position: relative; flex: 1; overflow: hidden; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #stats { position: absolute; left: 12px; top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-variant-numeric: tabular-nums; line-height: 1.6; min-width: 230px; }
+  #stats b { display: inline-block; min-width: 120px; font-weight: 600; }
+  .bad { color: #b3261e; } .good { color: #1e7a3c; }
+  footer { padding: 5px 12px; color: var(--dim); font-size: 12px; border-top: 1px solid var(--line); background: var(--panel); }
+</style>
+</head>
+<body>
+<main>
+  <canvas id="c"></canvas>
+  <div id="stats"></div>
+</main>
+<footer>2D growth lab: every strategy grows in the same outline under the same hard rules - leaders go up, nothing turns back towards the centre, nothing crosses or touches, everything stops at the outline. The outline is the crown's leaf mass: with 'Crown shell' the aim is to carry wood out to its outer band (strong red = uncovered shell, faint red = uncovered interior).</footer>
+<script type="module">
+import GUI from 'lil-gui'
+import { SPECIES } from '/src/presets.js'
+
+// ---------- small 2D maths ----------
+const rnd = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0)/4294967296 }
+const dirOf = a => [Math.sin(a), Math.cos(a)]                     // angle from vertical, positive leans right
+const add = (p, d, s) => [p[0] + d[0]*s, p[1] + d[1]*s]
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v))
+const lerp = (a, b, t) => a + (b - a)*t
+const norm2 = (x, y) => { const m = Math.hypot(x, y) || 1; return [x/m, y/m] }
+function segDist(a, b, c, d){                                          // shortest distance between segments ab and cd
+  const cross = (o, p, q) => (p[0] - o[0])*(q[1] - o[1]) - (p[1] - o[1])*(q[0] - o[0])
+  const d1 = cross(a, b, c), d2 = cross(a, b, d), d3 = cross(c, d, a), d4 = cross(c, d, b)
+  if (((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0))) return 0
+  const pt = (p, s, e) => { const ex = e[0] - s[0], ey = e[1] - s[1], l = ex*ex + ey*ey || 1e-12, t = clamp(((p[0] - s[0])*ex + (p[1] - s[1])*ey)/l); return Math.hypot(p[0] - s[0] - ex*t, p[1] - s[1] - ey*t) }
+  return Math.min(pt(a, c, d), pt(b, c, d), pt(c, a, b), pt(d, a, b))
+}
+
+// ---------- outlines (height 1, trunk at x = 0) ----------
+const OUTLINES = {}
+for (const [name, sp] of Object.entries(SPECIES)) if (sp.rings?.outline && /maple|cherry|poplar|pine|oak/i.test(name)) OUTLINES[name] = sp.rings.outline
+OUTLINES['Dome (test)'] = Array.from({ length: 33 }, (_, i) => { const t = i/32; return t < .3 ? 0 : +(.6*Math.sqrt(Math.max(0, 1 - ((t - .62)/.38)**2))).toFixed(3) })
+const halfAt = (O, t) => { if (t <= 0 || t >= 1) return 0; const u = t*(O.length - 1), i = Math.min(Math.floor(u), O.length - 2); return lerp(O[i], O[i + 1], u - i) }
+
+// ---------- the lab ----------
+const P = {
+  outline: Object.keys(OUTLINES).find(k => /maple/i.test(k)) ?? Object.keys(OUTLINES)[0], strategy: 'Self-organising', seed: 7,
+  trunk: .2, leaders: 3, leaderSpread: 30, centralLeader: true, firstLen: .22,
+  ratio: .8, angleMin: 20, angleMax: 50, depth: 12, minLen: .012, tries: 12, lean: .5, maxLean: 105,
+  clearance: .006, coverR: .03, scInfluence: .12, scKill: .025, scStep: .015, scPoints: 1500, noTouch: false, leafReach: 0,
+  soInternode: .02, soOccupy: 2, soPerceive: 5, soAngle: 90, soBranch: 45, soLambda: .52, soVigor: 2, soMaxShoot: 4, soEnv: .3, soTropism: .1, soYears: 30, soMarkers: 3000, soRelax: true, soNoInward: false,
+  scEnvelope: 1, scMomentum: 0, scHierarchy: false, scLateralAngle: 35, scGap: .08, scTropism: 0,
+  showGaps: true, showOutline: true, target: 'Crown shell', shell: .25
+}
+const cv = document.getElementById('c'), g = cv.getContext('2d'), statsEl = document.getElementById('stats')
+let result = null
+
+function grow(){
+  const O = OUTLINES[P.outline], r = rnd(P.seed*7919 + 13), inside = (x, y) => Math.abs(x) < halfAt(O, y)
+  const t0 = performance.now(), segs = [], grid = new Map(), CELL = .04
+  const key = (i, j) => i*100003 + j
+  const cellsOf = (a, b, pad) => { const out = []; for (let i = Math.floor((Math.min(a[0], b[0]) - pad)/CELL); i <= Math.floor((Math.max(a[0], b[0]) + pad)/CELL); i++) for (let j = Math.floor((Math.min(a[1], b[1]) - pad)/CELL); j <= Math.floor((Math.max(a[1], b[1]) + pad)/CELL); j++) out.push(key(i, j)); return out }
+  const addSeg = s => { s.kids = []; segs.push(s); if (s.parent) s.parent.kids.push(s); for (const k of cellsOf(s.a, s.b, 0)) (grid.get(k) ?? grid.set(k, []).get(k)).push(s); return s }
+  // does a new segment from a to b come within clearance of any wood other than the segment it grows from (and that one's other children, which share its joint)?
+  const blocked = (a, b, parent) => { for (const k of cellsOf(a, b, P.clearance)) for (const s of grid.get(k) ?? []){
+      if (s === parent || (parent && s.parent === parent) || (s.b[0] === a[0] && s.b[1] === a[1]) || (s.a[0] === a[0] && s.a[1] === a[1])) continue
+      if (segDist(a, b, s.a, s.b) < P.clearance) return true } return false }
+  // how far a shoot can go along a line before it leaves the outline or comes too near other wood
+  const reach = (a, d, len, parent, gen) => { let best = 0
+    for (let k = 1; k <= 24; k++){ const l = len*k/24, b = add(a, d, l); if (gen > 0 && !inside(b[0], b[1])) break; if (P.noTouch && blocked(a, b, parent)) break; best = l }
+    return best }
+  // coverage samples: a grid of points inside the outline
+  // the outline is the crown's leaf mass: its shell is where the leaves are, the band within P.shell of the edge (the outline shrunk about the crown's middle)
+  let yLo = 1, yHi = 0; for (let y = 0; y < 1; y += .005) if (halfAt(O, y) > 0){ yLo = Math.min(yLo, y); yHi = Math.max(yHi, y) }
+  const yc = (yLo + yHi)/2, k0 = 1 - P.shell, inShell = (x, y) => !inside(x/k0, yc + (y - yc)/k0)
+  const samples = []; for (let y = .005; y < 1; y += .012) for (let x = -1; x < 1; x += .012) if (inside(x, y)) samples.push({ x, y, hit: false, shell: inShell(x, y) })
+  const wanted = s => P.target === 'Whole crown' || s.shell
+  const sgrid = new Map(); for (const s of samples){ const k = key(Math.floor(s.x/CELL), Math.floor(s.y/CELL)); (sgrid.get(k) ?? sgrid.set(k, []).get(k)).push(s) }
+  const coverCount = (a, b, mark) => { let n = 0; for (const k of cellsOf(a, b, P.coverR)) for (const s of sgrid.get(k) ?? []){ if (s.hit || (!mark && !wanted(s))) continue
+      const ex = b[0] - a[0], ey = b[1] - a[1], l = ex*ex + ey*ey || 1e-12, t = clamp(((s.x - a[0])*ex + (s.y - a[1])*ey)/l)
+      if (Math.hypot(s.x - a[0] - ex*t, s.y - a[1] - ey*t) < P.coverR){ n++; if (mark) s.hit = true } } return n }
+  const side = s => Math.abs(s.b[0]) < .01 ? 0 : Math.sign(s.b[0])
+
+  // trunk and leaders: the same start for every strategy but the self-organising one, which grows its own from a single bud
+  const SO = P.strategy === 'Self-organising', starts = []
+  const trunk = SO ? null : addSeg({ a: [0, 0], b: [0, P.trunk], gen: 0, leader: true, parent: null })
+  if (trunk) coverCount(trunk.a, trunk.b, true)
+  if (!SO) for (let i = 0; i < P.leaders; i++){
+    const mid = (P.leaders - 1)/2, ang = P.leaders > 1 ? (i - mid)/Math.max(mid, 1)*P.leaderSpread*Math.PI/180 : 0
+    const a2 = P.centralLeader && P.leaders % 2 && i === mid ? 0 : ang + (r() - .5)*.08, d = dirOf(a2), len = reach(trunk.b, d, P.firstLen, trunk, 0)
+    if (len < P.minLen) continue
+    const s = addSeg({ a: trunk.b, b: add(trunk.b, d, len), gen: 1, leader: true, parent: trunk, ang: a2, len: P.firstLen }); coverCount(s.a, s.b, true); starts.push(s)
+  }
+
+  if (P.strategy === 'Fractal fill' || P.strategy === 'Pure fractal'){
+    const fit = P.strategy === 'Fractal fill', queue = [...starts]
+    while (queue.length && segs.length < 20000){
+      const s = queue.shift(); if (s.gen >= P.depth) continue
+      const len = s.len*P.ratio; if (len < P.minLen) continue
+      const sd = side(s), lim = P.maxLean*Math.PI/180
+      // the children of a fork may not head back towards the centre: on the right they lean right or go straight up, and the reverse on the left
+      const ok = a => Math.abs(a) <= lim && (sd > 0 ? a >= 0 : sd < 0 ? a <= 0 : true)
+      let best = null, top = -1
+      for (let t = 0; t < (fit ? P.tries : 1); t++){
+        const spread = (fit ? lerp(P.angleMin, P.angleMax, t ? r() : .5) : (P.angleMin + P.angleMax)/2)*Math.PI/180
+        const tilt = fit && t ? (r() - .5)*spread*P.lean*2 : 0, kids = []
+        for (const a of [s.ang - spread/2 + tilt, s.ang + spread/2 + tilt]){
+          let aa = a; if (!ok(aa)){ if (!fit) continue; aa = sd > 0 ? Math.max(aa, 0) : sd < 0 ? Math.min(aa, 0) : aa; if (!ok(aa)) continue }
+          const d = dirOf(aa), l = reach(s.b, d, len, s, s.gen)
+          if (l >= P.minLen) kids.push({ ang: aa, d, l }) }
+        // the two children must not touch each other either
+        if (kids.length === 2 && segDist(s.b, add(s.b, kids[0].d, kids[0].l), add(s.b, kids[1].d, P.clearance*2), add(s.b, kids[1].d, kids[1].l)) < P.clearance) kids.pop()
+        let score = kids.length*1e-3; if (fit) for (const k of kids) score += coverCount(s.b, add(s.b, k.d, k.l), false)
+        if (score > top){ top = score; best = kids } }
+      for (const k of best ?? []){ const c = addSeg({ a: s.b, b: add(s.b, k.d, k.l), gen: s.gen + 1, parent: s, ang: k.ang, len }); coverCount(c.a, c.b, true); queue.push(c) }
+    }
+  }
+
+  if (P.strategy === 'Space colonisation'){
+    // Runions et al.: attraction points pull the nearest wood; each node grows one step toward the mean pull of its points; points near wood are spent.
+    // Refinements: points only inside an inner envelope (the wood stops short; leaves fill the shell); momentum keeps limbs straight; each axis has one
+    // continuing shoot, and side shoots leave only at a wider angle, after a set length of axis since the last one, alternating sides; continuing shoots feel a mild upward pull
+    const env = P.scEnvelope, inEnv = (x, y) => inside(x/env, yc + (y - yc)/env)
+    const pts = []; for (let i = 0; i < P.scPoints*8 && pts.length < P.scPoints; i++){ const x = (r()*2 - 1)*.9, y = r(); if (inside(x, y) && inEnv(x, y) && y > P.trunk) pts.push([x, y]) }
+    for (const s of starts){ s.axis = { lats: [], lead: true }; s.along = Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]) }
+    let live = pts.slice()
+    const dirOfSeg = s => { const dx = s.b[0] - s.a[0], dy = s.b[1] - s.a[1], m = Math.hypot(dx, dy) || 1; return [dx/m, dy/m] }
+    const turnTo = (h, d, max) => { const a = Math.atan2(h[0], h[1]), b = Math.atan2(d[0], d[1]); let t = b - a; while (t > Math.PI) t -= 2*Math.PI; while (t < -Math.PI) t += 2*Math.PI; return dirOf(a + clamp(t, -max, max)) }
+    for (let it = 0; it < 600 && live.length; it++){
+      const NC = P.scInfluence, ng = new Map(); for (const s of segs) if (s !== trunk){ const k = key(Math.floor(s.b[0]/NC), Math.floor(s.b[1]/NC)); (ng.get(k) ?? ng.set(k, []).get(k)).push(s) }
+      const nearNodes = (p, f) => { const i0 = Math.floor(p[0]/NC), j0 = Math.floor(p[1]/NC); for (let i = i0 - 1; i <= i0 + 1; i++) for (let j = j0 - 1; j <= j0 + 1; j++) for (const s of ng.get(key(i, j)) ?? []) f(s) }
+      const pull = new Map()
+      for (const p of live){ let best = null, bd = P.scInfluence; nearNodes(p, s => { const d = Math.hypot(p[0] - s.b[0], p[1] - s.b[1]); if (d < bd){ bd = d; best = s } })
+        if (best){ const v = pull.get(best) ?? [0, 0, 0]; v[0] += (p[0] - best.b[0])/bd; v[1] += (p[1] - best.b[1])/bd; v[2]++; pull.set(best, v) } }
+      if (!pull.size) break
+      let grew = 0
+      for (const [s, v] of pull){ let d = [v[0]/v[2], v[1]/v[2]], m = Math.hypot(...d); if (m < 1e-6) continue; d = [d[0]/m, d[1]/m]
+        const h = dirOfSeg(s), latMin = P.scLateralAngle*Math.PI/180, off = Math.acos(clamp(d[0]*h[0] + d[1]*h[1], -1, 1))
+        const ax = s.axis, hasNext = s.kids.some(k => k.axis === ax)
+        let lateral = P.scHierarchy && off >= latMin
+        if (lateral){ const sideNow = Math.sign(h[0]*d[1] - h[1]*d[0]) || 1
+          // side buds sit all along an axis: one may break wherever it's far enough from the last ones, on the other side from its nearest neighbour
+          const nearest = ax.lats.reduce((m, l) => Math.abs(l.along - s.along) < Math.abs((m?.along ?? 1e9) - s.along) ? l : m, null)
+          const allowed = ax.lats.every(l => Math.abs(l.along - s.along) >= P.scGap) && !s.kids.some(k => k.axis !== ax) && (!nearest || nearest.side !== sideNow)
+          if (!allowed){ if (hasNext) continue; lateral = false; d = turnTo(h, d, latMin*.5) } }
+        else if (P.scHierarchy && hasNext) continue                          // the axis already carries on from here
+        // momentum: a step keeps much of the heading it had
+        if (!lateral){ d = norm2(lerp(d[0], h[0], P.scMomentum), lerp(d[1], h[1], P.scMomentum)); if (ax?.lead || s.leader) d = norm2(d[0], d[1] + P.scTropism) }
+        const sd = side(s); if ((sd > 0 && d[0] < 0) || (sd < 0 && d[0] > 0)) d = norm2(0, 1)          // never back towards the centre
+        if (s.kids.some(k => Math.abs(Math.atan2(d[0], d[1]) - k.ang) < .2)) continue                                  // one shoot each way, not the same one twice
+        const b = add(s.b, d, P.scStep); if (!inside(b[0], b[1]) || (P.noTouch && blocked(s.b, b, s))) continue
+        const c = addSeg({ a: s.b, b, gen: s.gen + 1, parent: s, ang: Math.atan2(d[0], d[1]), len: P.scStep })
+        if (lateral){ c.axis = { lats: [], lead: false }; c.along = P.scStep; ax.lats.push({ along: s.along, side: Math.sign(h[0]*d[1] - h[1]*d[0]) || 1 }) } else { c.axis = ax ?? { lats: [], lead: true }; c.along = (s.along ?? 0) + P.scStep }
+        coverCount(c.a, c.b, true); grew++ }
+      { const ng2 = new Map(); for (const s of segs){ const k = key(Math.floor(s.b[0]/P.scKill), Math.floor(s.b[1]/P.scKill)); (ng2.get(k) ?? ng2.set(k, []).get(k)).push(s) }
+        live = live.filter(p => { const i0 = Math.floor(p[0]/P.scKill), j0 = Math.floor(p[1]/P.scKill); for (let i = i0 - 1; i <= i0 + 1; i++) for (let j = j0 - 1; j <= j0 + 1; j++) for (const s of ng2.get(key(i, j)) ?? []) if (Math.hypot(p[0] - s.b[0], p[1] - s.b[1]) < P.scKill) return false; return true }) }
+      if (!grew) break
+    }
+  }
+
+  if (SO){
+    // Pałubicki et al. 2009: growth only from buds. Each year buds compete for marker points (each sees only a cone ahead of it), the space they find flows
+    // down to the base, and a resource flows back up, split at every branch point by the apical control lambda. A bud's share sets how many internodes it grows,
+    // and how long; their direction is the bud's own, bent toward the open space it saw and by tropism. Leaders, stems and their spacing all emerge.
+    const L0 = P.soInternode, rho = P.soOccupy*L0, rp = P.soPerceive*L0, cosHalf = Math.cos(P.soAngle/2*Math.PI/180), br = P.soBranch*Math.PI/180, lam = P.soLambda
+    const rot = (d, a) => [d[0]*Math.cos(a) + d[1]*Math.sin(a), -d[0]*Math.sin(a) + d[1]*Math.cos(a)]
+    const marks = []; for (let i = 0; i < P.soMarkers*8 && marks.length < P.soMarkers; i++){ const x = (r()*2 - 1)*.9, y = r(); if (inside(x, y)) marks.push(x, y) }
+    for (let y = .002; y < yLo + rp*.5; y += L0*.4) marks.push((r() - .5)*.006, y)                // the stem, sketched: a thin line of markers up to the crown
+    let live = new Uint8Array(marks.length/2).fill(1)
+    const root = { a: [0, -L0], b: [0, 0], dir: [0, 1], parent: null, main: null, lat: null, latDir: null, side: 1, gen: 0, stub: true }, mets = [root]
+    for (let year = 0; year < P.soYears; year++){
+      const buds = []
+      for (const m of mets){ if (!m.main && !m.tDead) buds.push({ m, t: true, p: m.b, d: m.dir }); if (!m.stub && !m.lat && !m.lDead) buds.push({ m, t: false, p: m.b, d: m.latDir }) }
+      for (const b of buds){ b.Q = 0; b.V = [0, 0] }
+      const bg = new Map(), BC = Math.max(rp, rho); for (const b of buds){ const k = key(Math.floor(b.p[0]/BC), Math.floor(b.p[1]/BC)); (bg.get(k) ?? bg.set(k, []).get(k)).push(b) }
+      for (let i = 0; i < live.length; i++){ if (!live[i]) continue
+        const x = marks[2*i], y = marks[2*i + 1], i0 = Math.floor(x/BC), j0 = Math.floor(y/BC); let best = null, bd = rp, gone = false
+        for (let a = i0 - 1; a <= i0 + 1 && !gone; a++) for (let c = j0 - 1; c <= j0 + 1 && !gone; c++) for (const b of bg.get(key(a, c)) ?? []){
+          const dx = x - b.p[0], dy = y - b.p[1], dd = Math.hypot(dx, dy)
+          if (dd < rho){ gone = true; break }                                                      // a bud's own space: the marker is taken
+          if (dd < bd && (dx*b.d[0] + dy*b.d[1])/(dd || 1) > cosHalf){ bd = dd; best = b } }       // in the bud's cone, and the nearest such bud
+        if (gone){ live[i] = 0; continue }
+        if (best){ const dx = x - best.p[0], dy = y - best.p[1], dd = Math.hypot(dx, dy) || 1; best.V[0] += dx/dd; best.V[1] += dy/dd; best.Q = 1 } }
+      for (const b of buds) if (b.t){ b.m.tQ = b.Q; b.m.tV = b.V } else { b.m.lQ = b.Q; b.m.lV = b.V }
+      // light (here: space found) flows down; resource flows back up, split by lambda between the axis carrying on and the lateral
+      const Qof = m => { m.Qm = m.main ? Qof(m.main) : (m.tDead ? 0 : m.tQ ?? 0); m.Ql = m.lat ? Qof(m.lat) : (m.stub || m.lDead ? 0 : m.lQ ?? 0); return m.Qm + m.Ql }
+      const Qbase = Qof(root); if (!Qbase) break
+      const give = (m, v) => { const den = lam*m.Qm + (1 - lam)*m.Ql, vm = den ? v*lam*m.Qm/den : 0, vl = v - vm
+        if (m.main) give(m.main, vm); else m.tv = vm
+        if (m.lat) give(m.lat, vl); else m.lv = vl }
+      give(root, P.soVigor*Qbase)
+      const grown = mets.length
+      const shoot = (from, d0, V, v, asLateral) => { const n = Math.min(Math.floor(v), P.soMaxShoot); if (n < 1) return
+        const l = Math.min(v/Math.floor(v), 2)*L0, vm = Math.hypot(V[0], V[1]), Vn = vm ? [V[0]/vm, V[1]/vm] : [0, 0]
+        let prev = from, d = d0, side = -(from.side ?? 1)
+        for (let i = 0; i < n; i++){
+          d = norm2(d[0] + P.soEnv*Vn[0], d[1] + P.soEnv*Vn[1] + P.soTropism)
+          // (no inward) once away from the centre line a shoot doesn't steer back towards it
+          const away = Math.abs(prev.b[0]) > L0*1.5 ? Math.sign(prev.b[0]) : 0
+          if (P.soNoInward && away && d[0]*away < 0) d = norm2(0, d[1] > 0 ? 1 : d[1])
+          const b = add(prev.b, d, l); if (b[1] < 0 || (b[1] > yLo && !inside(b[0], b[1]))) break
+          const latDir = rot(d, side*br), sideAt = Math.abs(b[0]) > L0*1.5 ? Math.sign(b[0]) : 0
+          const nm = { a: prev.b, b, dir: d, parent: prev, main: null, lat: null, side, latDir, gen: prev.gen + (i === 0 && asLateral ? 1 : 0),
+            lDead: P.soNoInward && sideAt !== 0 && latDir[0]*sideAt < 0 }                       // a side bud facing back towards the trunk stays dormant
+          side = -side
+          if (i === 0 && asLateral) prev.lat = nm; else prev.main = nm
+          mets.push(nm); prev = nm } }
+      for (let i = 0; i < grown; i++){ const m = mets[i]
+        if (!m.main && !m.tDead && m.tQ && m.tv >= 1) shoot(m, m.dir, m.tV, m.tv, false)
+        if (!m.stub && !m.lat && !m.lDead && m.lQ && m.lv >= 1) shoot(m, m.latDir, m.lV, m.lv, true) }
+      if (mets.length === grown) break
+    }
+    // (2007) each node moved halfway toward its parent: narrower branching angles, smoother limbs
+    if (P.soRelax){ const nb = new Map(); for (const m of mets) if (!m.stub && m.parent && !m.parent.stub) nb.set(m, [(m.b[0] + m.parent.b[0])/2, (m.b[1] + m.parent.b[1])/2])
+      for (const [m, p] of nb){ m.b = p }; for (const m of mets) if (!m.stub) m.a = m.parent.b }
+    const segOf = new Map()
+    for (const m of mets){ if (m.stub) continue
+      const s = addSeg({ a: m.a, b: m.b, gen: m.gen, parent: segOf.get(m.parent) ?? null, leader: m.gen === 0, ang: Math.atan2(m.dir[0], m.dir[1]), len: L0 }); segOf.set(m, s); coverCount(s.a, s.b, true) }
+  }
+
+  // girth: da Vinci from the tips back
+  const tipsUnder = s => s.n ??= s.kids.length ? s.kids.reduce((t, k) => t + tipsUnder(k), 0) : 1
+  for (const s of segs) tipsUnder(s)
+  // checks: crossings between wood that doesn't share a joint, and wood heading back towards the centre
+  let crossings = 0, inward = 0
+  for (const s of segs){ for (const k of cellsOf(s.a, s.b, 0)) for (const o of grid.get(k) ?? []){ if (o === s || o.parent === s || s.parent === o || o.parent === s.parent && s.parent) continue
+      const same = (p, q) => Math.abs(p[0] - q[0]) < 1e-9 && Math.abs(p[1] - q[1]) < 1e-9; if ([o.a, o.b].some(p => same(p, s.a) || same(p, s.b))) continue   // wood meeting at a joint
+      if (segDist(s.a, s.b, o.a, o.b) < 1e-6) crossings++ }
+    const sd = side(s.parent ?? s); if (!s.leader && sd && (s.b[0] - s.a[0])*sd < -1e-4) inward++ }
+  // leaves: foliage reaches P.leafReach past the wood, so the shell counts as covered where it's within that of any wood
+  if (P.leafReach > 0) for (const sg of segs) for (const k of cellsOf(sg.a, sg.b, P.leafReach)) for (const s of sgrid.get(k) ?? []){ if (s.leaf) continue
+    const ex = sg.b[0] - sg.a[0], ey = sg.b[1] - sg.a[1], l = ex*ex + ey*ey || 1e-12, t = clamp(((s.x - sg.a[0])*ex + (s.y - sg.a[1])*ey)/l)
+    if (Math.hypot(s.x - sg.a[0] - ex*t, s.y - sg.a[1] - ey*t) < P.leafReach) s.leaf = true }
+  for (const s of samples) if (P.leafReach > 0 ? s.leaf : s.hit) s.hit = true
+  const covered = samples.filter(s => s.hit).length, shell = samples.filter(s => s.shell)
+  result = { segs, samples, O, crossings: crossings/2, inward, cover: covered/samples.length, shellCover: shell.filter(s => s.hit).length/Math.max(shell.length, 1), ms: performance.now() - t0, tips: segs.filter(s => !s.kids.length).length }
+  draw()
+}
+
+function draw(){
+  const dpr = devicePixelRatio || 1, rect = cv.getBoundingClientRect(); cv.width = rect.width*dpr; cv.height = rect.height*dpr
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, rect.width, rect.height); if (!result) return
+  const free = Math.max(rect.width - 260, 200), S = Math.min(rect.height*.86, free*.45), ox = free/2, oy = rect.height*.94, X = x => ox + x*S, Y = y => oy - y*S
+  const { segs, samples, O } = result
+  if (P.showOutline){ g.beginPath(); for (let i = 0; i <= 200; i++){ const t = i/200; g.lineTo(X(halfAt(O, t)), Y(t)) } for (let i = 200; i >= 0; i--){ const t = i/200; g.lineTo(X(-halfAt(O, t)), Y(t)) }
+    g.closePath(); g.fillStyle = '#e8e2d4'; g.fill(); g.strokeStyle = '#c9bfa9'; g.lineWidth = 1; g.stroke() }
+  g.strokeStyle = '#8a8070'; g.lineWidth = 1; g.beginPath(); g.moveTo(X(-1), Y(0)); g.lineTo(X(1), Y(0)); g.stroke()
+  if (P.showGaps) for (const s of samples) if (!s.hit && (s.shell || P.target === 'Whole crown')){ g.fillStyle = s.shell ? 'rgba(200,40,40,.6)' : 'rgba(200,40,40,.25)'; g.fillRect(X(s.x) - 1, Y(s.y) - 1, 2, 2) }
+  g.lineCap = 'round'; g.strokeStyle = '#2a2622'
+  const root = segs[0]?.n ?? 1
+  for (const s of segs){ g.lineWidth = Math.max(.6, 14*Math.pow(s.n/root, 1/2.3)); g.beginPath(); g.moveTo(X(s.a[0]), Y(s.a[1])); g.lineTo(X(s.b[0]), Y(s.b[1])); g.stroke() }
+  const c = (v, good) => `<span class="${good ? 'good' : 'bad'}">${v}</span>`
+  statsEl.innerHTML = `<b>Strategy</b>${P.strategy}<br><b>Shell covered</b>${(result.shellCover*100).toFixed(1)}%<br><b>Whole crown</b>${(result.cover*100).toFixed(1)}%<br><b>Crossings (2D)</b>${result.crossings}<br>` +
+    `<b>Turning inward</b>${result.inward}<br><b>Segments / tips</b>${segs.length} / ${result.tips}<br><b>Time</b>${result.ms.toFixed(0)} ms`
+}
+
+const gui = new GUI({ title: 'Growth lab' })
+const regrow = () => grow()
+gui.add(P, 'outline', Object.keys(OUTLINES)).name('Outline').onChange(regrow)
+gui.add(P, 'strategy', ['Self-organising', 'Space colonisation', 'Fractal fill', 'Pure fractal']).name('Strategy').onChange(regrow)
+gui.add(P, 'seed', 1, 999, 1).name('Seed').onChange(regrow)
+gui.add(P, 'target', ['Crown shell', 'Whole crown']).name('Fill target').onChange(regrow)
+gui.add(P, 'shell', .05, .6, .01).name('Shell depth').onChange(regrow)
+gui.add({ next(){ P.seed = Math.floor(Math.random()*999) + 1; gui.controllersRecursive().forEach(c => c.updateDisplay()); grow() } }, 'next').name('New seed')
+// a starting point read off the maple trace: five stems from the base in a narrow V, sparse points, straight limbs, a few wide alternating side shoots, wood stopping short of the leaves
+gui.add({ maple(){ Object.assign(P, { outline: Object.keys(OUTLINES).find(k => /maple/i.test(k)), strategy: 'Space colonisation', trunk: .03, leaders: 5, leaderSpread: 22, centralLeader: true, firstLen: .12,
+  scPoints: 300, scInfluence: .35, scKill: .07, scStep: .03, scEnvelope: .72, scMomentum: .75, scHierarchy: true, scLateralAngle: 40, scGap: .05, scTropism: .2, noTouch: false, scPoints: 1000, scInfluence: .15, scKill: .045, scStep: .025, scMomentum: .6, scLateralAngle: 30, leafReach: .1 })
+  gui.controllersRecursive().forEach(c => c.updateDisplay()); grow() } }, 'maple').name('Preset: maple trace')
+const t = gui.addFolder('Trunk and leaders')
+t.add(P, 'trunk', .02, .6, .01).name('Trunk height').onChange(regrow)
+t.add(P, 'leaders', 1, 6, 1).name('Leaders').onChange(regrow)
+t.add(P, 'leaderSpread', 0, 70, 1).name('Leader spread').onChange(regrow)
+t.add(P, 'centralLeader').name('Central leader').onChange(regrow)
+t.add(P, 'firstLen', .05, .6, .01).name('Leader length').onChange(regrow)
+const f = gui.addFolder('Forks')
+f.add(P, 'ratio', .5, .95, .01).name('Length ratio').onChange(regrow)
+f.add(P, 'angleMin', 0, 90, 1).name('Fork angle min').onChange(regrow)
+f.add(P, 'angleMax', 0, 120, 1).name('Fork angle max').onChange(regrow)
+f.add(P, 'lean', 0, 1, .01).name('Fork lean freedom').onChange(regrow)
+f.add(P, 'maxLean', 45, 175, 1).name('Max lean from up').onChange(regrow)
+f.add(P, 'depth', 2, 18, 1).name('Generations').onChange(regrow)
+f.add(P, 'minLen', .002, .05, .001).name('Shortest twig').onChange(regrow)
+f.add(P, 'tries', 1, 40, 1).name('Fork candidates').onChange(regrow)
+const so = gui.addFolder('Self-organising')
+so.add(P, 'soLambda', .3, .8, .005).name('Apical control λ').onChange(regrow)
+so.add(P, 'soBranch', 10, 90, 1).name('Branch angle').onChange(regrow)
+so.add(P, 'soYears', 1, 80, 1).name('Years').onChange(regrow)
+so.add(P, 'soVigor', .5, 6, .1).name('Vigour').onChange(regrow)
+so.add(P, 'soMaxShoot', 1, 10, 1).name('Longest shoot').onChange(regrow)
+so.add(P, 'soInternode', .005, .05, .001).name('Internode').onChange(regrow)
+so.add(P, 'soPerceive', 2, 12, .5).name('Sight (internodes)').onChange(regrow)
+so.add(P, 'soAngle', 30, 180, 1).name('Sight cone').onChange(regrow)
+so.add(P, 'soOccupy', .5, 4, .1).name('Own space (internodes)').onChange(regrow)
+so.add(P, 'soEnv', 0, 2, .01).name('Pull to open space').onChange(regrow)
+so.add(P, 'soTropism', -.5, .5, .01).name('Tropism (up +)').onChange(regrow)
+so.add(P, 'soMarkers', 300, 10000, 100).name('Markers').onChange(regrow)
+so.add(P, 'soRelax').name('Relax nodes (2007)').onChange(regrow)
+so.add(P, 'soNoInward').name('No inward growth').onChange(regrow)
+const sc = gui.addFolder('Space colonisation'); sc.close()
+sc.add(P, 'scPoints', 200, 5000, 50).name('Points').onChange(regrow)
+sc.add(P, 'scInfluence', .03, .4, .005).name('Influence').onChange(regrow)
+sc.add(P, 'scKill', .005, .1, .001).name('Kill distance').onChange(regrow)
+sc.add(P, 'scStep', .005, .06, .001).name('Step').onChange(regrow)
+sc.add(P, 'scEnvelope', .4, 1, .01).name('Wood envelope').onChange(regrow)
+sc.add(P, 'scMomentum', 0, .95, .01).name('Momentum').onChange(regrow)
+sc.add(P, 'scHierarchy').name('Leader + side shoots').onChange(regrow)
+sc.add(P, 'scLateralAngle', 10, 80, 1).name('Side shoot angle').onChange(regrow)
+sc.add(P, 'scGap', 0, .3, .005).name('Gap between sides').onChange(regrow)
+sc.add(P, 'scTropism', 0, 1, .01).name('Upward pull').onChange(regrow)
+const rules = gui.addFolder('Rules and display')
+rules.add(P, 'noTouch').name('Forbid 2D crossings').onChange(regrow)
+rules.add(P, 'clearance', 0, .03, .001).name('Clearance').onChange(regrow)
+rules.add(P, 'coverR', .005, .08, .001).name('Cover radius').onChange(regrow)
+rules.add(P, 'leafReach', 0, .2, .005).name('Leaf reach (readout)').onChange(regrow)
+rules.add(P, 'showGaps').name('Show gaps').onChange(draw)
+rules.add(P, 'showOutline').name('Show outline').onChange(draw)
+addEventListener('resize', draw)
+window.__lab = { P, grow, get result(){ return result } }
+grow()
+</script>
+</body>
+</html>
