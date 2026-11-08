@@ -667,7 +667,17 @@ function rebuildFarRocks(){
     const R = lerpN(30, 560, Math.sqrt(r())), a = r()*Math.PI*2, x = R*Math.cos(a), z = R*Math.sin(a); if (!clearOf(x, z)) continue
     stones.push({ x, z, y: groundHeight(x, z) - .1, s: lerpN(1.2, 2.6, r()), flat: lerpN(.6, .85, r()), turn: r()*7, seed: Math.floor(r()*1e6) })
   }
-  // standing stones were tried (rock geometry still supports q.stand) and removed for now
+  // a smattering of boulders near the tree: a few groups of one big stone with smaller ones about it, 14-40 m out on the sides the framed
+  // view looks toward, half sunk in the grass (standing stones were tried and removed; rock geometry still supports q.stand)
+  for (const [deg, R0] of [[205, 22], [250, 34], [120, 18], [300, 40], [165, 30]]){
+    const a0 = deg*Math.PI/180 + (r() - .5)*.2, R = R0*lerpN(.9, 1.1, r()), x0 = R*Math.cos(a0), z0 = R*Math.sin(a0)
+    for (let m = 0, M = 1 + Math.floor(r()*3); m < M; m++){
+      const b = r()*7, d = m ? lerpN(1.5, 3.5, r()) : 0, x = x0 + Math.cos(b)*d, z = z0 + Math.sin(b)*d
+      if (!clearOf(x, z)) continue
+      stones.push({ x, z, y: groundHeight(x, z) + (m ? .05 : .2), s: m ? lerpN(.6, .9, r()) : lerpN(1.3, 1.8, r()), flat: m ? lerpN(.8, 1, r()) : lerpN(1, 1.3, r()),   // the big one stands 1.1-2 m out of the ground (top = .88*s*flat)
+       turn: r()*7, seed: Math.floor(r()*1e6) })   // well above the knee-high grass
+    }
+  }
   const plain = stones.filter(q => !q.stand), stand = stones.filter(q => q.stand)
   farRocks.geometry = plain.length ? rockGeometry(plain) : new THREE.BufferGeometry()
   standStones.geometry.dispose(); standStones.geometry = stand.length ? rockGeometry(stand) : new THREE.BufferGeometry()
