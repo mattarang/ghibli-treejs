@@ -53,7 +53,7 @@ export const GLSL_ACCENT = /* glsl */`
 // tree washed out pale against a ground that stayed full green.
 export const GLSL_AIR = /* glsl */`
   uniform float uAir;
-  float gAir(float d, float lit){ return (1. - exp(-max(d - 500., 0.)*.0012))*(1. - .55*clamp(lit, 0., 1.))*uAir; }   // Ghibli's clear-day frames keep near-full colour out to the far hills: only the far distance cools
+  float gAir(float d, float lit){ return (1. - exp(-max(d - 1100., 0.)*.0012))*(1. - .55*clamp(lit, 0., 1.))*uAir; }   // Ghibli's clear-day frames keep near-full colour out to the far hills: only the far distance cools
 `
 // cloud shadows, shared by every surface so a passing cloud shades them all: patches of 60-150 m, moving with the wind at ~6 m/s.
 // The edge is a hard toon edge, like a tree's cast shadow. gCloudShade is vertex-safe (a fixed narrow step, for foliage strokes);

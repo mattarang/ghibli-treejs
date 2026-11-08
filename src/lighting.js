@@ -58,9 +58,9 @@ export function applyLighting(p, L){
   U.uAmbTint.value.copy(amb).multiplyScalar(1/Math.max(amb.r, amb.g, amb.b)).lerp(white, .05 + .57*dayness).multiplyScalar(Math.min(1, .16 + .9*ambK))
 
   const state = { top, horizon, sunDir: dir, sunColor: color, cloud: p.clouds, night: 1 - THREE.MathUtils.smoothstep(I, .35, 1.2), ambK }
-  L.sky.update(state); L.clouds.light(state)
+  L.sky.update(state); L.clouds.light(state); L.mountains?.light(state)
   // Distance turns land toward the sky's blue, not toward the pale horizon: far hills stay a step darker than the sky behind them, so they read as
   // blue shapes against it instead of washing out. The fog colour is a third of the way from the horizon to the top of the sky.
   L.scene.fog.color.copy(horizon).lerp(top, .32)
-  L.scene.fog.near = 500; L.scene.fog.far = 700 + 2200*(1 - p.haze)   // a clear day: only the horizon itself softens   // haze belongs to the far landscape: trees at any viewing distance keep their true colour
+  L.scene.fog.near = 1100; L.scene.fog.far = 1300 + 3000*(1 - p.haze)   // a clear day: no haze inside the mountains' ring; the Haze slider still brings it in   // haze belongs to the far landscape: trees at any viewing distance keep their true colour
 }

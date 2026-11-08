@@ -8,6 +8,7 @@ import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometr
 import { makeBrushAtlas, makeFieldTexture, makeGrassAtlas, makeFlowerAtlas } from './atlas.js'
 import { U, patch, newPalette, setPalette, paletteUniforms } from './ghibli-patch.js'
 import { makeSky } from './sky.js'
+import { makeMountains } from './mountains.js'
 import { makeFoliageMaterial, fillLobes } from './foliage-material.js'
 import { makeClouds } from './clouds.js'
 import { bakeContact, GLSL_CONTACT } from './contact-bake.js'
@@ -44,7 +45,8 @@ scene.add(hemi)
 const sky = makeSky()
 const clouds = makeClouds()
 scene.add(sky, clouds)
-const L = { sun, hemi, sky, clouds, scene, reach: 80 }
+const mountains = makeMountains(scene.fog.color); scene.add(mountains)   // painted hills and mountains round the horizon
+const L = { sun, hemi, sky, clouds, mountains, scene, reach: 80 }
 
 // ---- parameters ----
 loadSavedRecipes(SPECIES)                                                // species saved from the Recipe folder join the built-in ones
@@ -52,6 +54,7 @@ const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('s
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
   showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 21, flowers: 50, rocks: 12,
+  mountains: true, mountainHeight: 1,
   time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 9, cloudSeed: 4, haze: .1, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
   windOn: true, wind: 1, autoRotate: false, exposure: 1, forest: +(qs.get('forest') || 0), forestKinds: 4, lodScale: 1,
@@ -160,7 +163,7 @@ const GROUND_SHADE = `{ vec2 fp = gXZ.x > 1e5 ? vWPos.xz : gXZ;               //
   gMod *= 1. + (drift - .5)*.06;
   // distance: on a clear day the far hills only cool a little toward teal and keep their light and shade (no haze flattening them)
   { float far = smoothstep(120., 600., distance(fp, cameraPosition.xz));
-    gTint = mix(gTint, mix(vec3(.85, 1., 1.12), vec3(.95, 1., 1.04), lit), far*.45); kk = mix(kk, .36 + lit*.2, far*.12); gFar = far; }
+    gTint = mix(gTint, mix(vec3(.85, 1., 1.12), vec3(.95, 1., 1.04), lit), far*.2); kk = mix(kk, .36 + lit*.2, far*.04); gFar = far; }
   float near = 1e3, aoT = 0., nT = fld(fp*2.1) - .5;
   for (int i = 0; i < uTreeN; i++){ if (uContactBox.w > .5 && max(abs(uTrees[i].x - uContactBox.x), abs(uTrees[i].y - uContactBox.y)) < uContactBox.z) continue;   /* baked: its own wood gives its contact */ float r = uTrees[i].z, d = length(fp - uTrees[i].xy); near = min(near, d/r); aoT = max(aoT, 1. - smoothstep(r*.9, r*2.6, d + nT*r*.5)); }   // one pass: the bare foot and the contact shade
   near += (fld(fp*1.3) - .5)*.8;
@@ -821,6 +824,8 @@ const reCloud = () => clouds.build(p.clouds, p.cloudSeed)
 lightF.add(p, 'clouds', 0, 14, 1).name('Clouds').onChange(reCloud)
 lightF.add(p, 'cloudSeed', 1, 99, 1).name('Cloud seed').onChange(reCloud)
 lightF.add(p, 'haze', 0, .95, .01).name('Haze').onChange(relight)
+lightF.add(p, 'mountains').name('Distant mountains').onChange(() => mountains.set(p.mountains, p.mountainHeight))
+lightF.add(p, 'mountainHeight', .3, 2, .01).name('Mountain height').onChange(() => mountains.set(p.mountains, p.mountainHeight))
 const lampF = lightF.addFolder('Lantern').close()
 const lamp = () => { U.uLanternI.value = p.lantern*2; U.uLanternColor.value.set(p.lanternColor); U.uLanternPos.value.set(p.lanternX, p.lanternY, p.lanternZ)
   lantern.position.copy(U.uLanternPos.value); lantern.material.color.set(p.lanternColor); lantern.visible = p.lantern > 0 }
@@ -866,7 +871,7 @@ outF.add(view, 'hold60').name('Hold 60 fps')
 outF.add({ show: true }, 'show').name('Profiling stats').onChange(v => { statsBar.style.display = v ? 'flex' : 'none' })
 outF.add(p, 'autoRotate').name('Turntable').onChange(v => { controls.autoRotate = v })
 outF.add({ frame }, 'frame').name('Frame the plant')
-outF.add({ png(){ clouds.bake(renderer); renderer.render(scene, camera); renderer.domElement.toBlob(b => {
+outF.add({ png(){ clouds.bake(renderer); mountains.bake(renderer); renderer.render(scene, camera); renderer.domElement.toBlob(b => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `${p.species.replace(/ /g, '-').toLowerCase()}-${p.seed}.png`; a.click(); URL.revokeObjectURL(a.href) }) } }, 'png').name('Save image')
 outF.add({ copy(){ navigator.clipboard?.writeText(JSON.stringify(p, null, 1)) } }, 'copy').name('Copy settings')
 
@@ -949,7 +954,7 @@ renderer.setAnimationLoop(now => {
   if (p.autoTime){ p.time = (p.time + dt*.4)%24; relight() }
   if (walk.on) walk.step(dt); else controls.update()
   pxAngle.value = 2*Math.tan(camera.fov*Math.PI/360)/Math.max(renderer.domElement.clientHeight, 1)   // the angle one pixel spans
-  sky.position.copy(camera.position); sky.scale.setScalar(1000); clouds.position.copy(camera.position)
+  sky.position.copy(camera.position); sky.scale.setScalar(1000); clouds.position.copy(camera.position); mountains.update(camera)
   { // the sky drifts with the wind: the cloud dome turns so that clouds ahead of the camera slide the way the wind blows across the view
     const f = camera.getWorldDirection(new THREE.Vector3()), side = U.uWindDir.value.x*-f.z + U.uWindDir.value.y*f.x
     clouds.rotation.y += -side*dt*.006*U.uWind.value }
@@ -957,7 +962,7 @@ renderer.setAnimationLoop(now => {
   if (++frameNo%3 === 0 && U.uWind.value > 0) renderer.shadowMap.needsUpdate = true     // shadows only need redrawing while things move
   holdFrameRate()
   if (p.forest > 0){ forest.update(camera, p.lodScale); if (frameNo%15 === 0){ const c = forest.state.counts; statsEl.textContent = `${size} · full ${c[0]} · medium ${c[1]} · low ${c[2]} · impostor ${c[3]} · ${(renderer.info.render.triangles/1e6).toFixed(2)}M tris drawn` } }
-  clouds.bake(renderer)                                                // only redraws when the light has changed
+  clouds.bake(renderer); mountains.bake(renderer)                      // only redraw when the light has changed
   renderer.render(scene, camera)
   fps.st.end(); ms.st.end()
   const info = renderer.info.render, t = info.triangles/1000

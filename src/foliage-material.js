@@ -113,8 +113,8 @@ const vertexShader = /* glsl */`
     float mod0 = mix(1., 1. + (aLeaf.y - .5)*.2, calm), toSun = toonRamp(lit);
     vec3 scale = (1. + uShadowFill*uShadowFillK*(1. - lit)*1.6)*mod0*tint*mix(1., .8, (1. - calm)*uShadeCool),   // a crown's shade is a step darker than the grass shadow under it, as in every Ghibli frame measured
          wash = mix(uAmbTint, mix(vec3(dot(uSunTint, vec3(.333))), uSunTint, .5), toSun);   // leaves take half the sun's warmth: full warmth turns every lit green yellow
-    #ifdef CLOUD
-      // a cloud's shade is the palette's own blue: the ambient tint (lavender, and purple toward evening) only sets how bright it is,
+    #if defined(CLOUD) || defined(AMB_LUM)
+      // a cloud's (or a distant range's) shade is the palette's own colour: the ambient tint (lavender, and purple toward evening) only sets how bright it is,
       // otherwise it pulls the blue shade grey-violet
       wash = mix(vec3(dot(uAmbTint, vec3(.333))), mix(vec3(dot(uSunTint, vec3(.333))), uSunTint, .5), toSun);
     #endif
@@ -144,6 +144,22 @@ const vertexShader = /* glsl */`
       vColA = mix(vColA, hl, rk); vColB = mix(vColB, hl*1.05, rk); }
     // moonlight, as Totoro's tree has it: the same four bands, each the palette colour turned to its moonlit tone (gNightBand), laid as flat
     // contours round each lobe from a blue-black underside to the bright crest that faces the moon
+    #ifdef MOUNTAIN
+    // distant mountains are painted in two flat tones, lit and shaded, decided by the land's own facet. The light is the sun's direction
+    // round the sky held at a low painter's angle, so every ridge shows a lit and a shaded flank even at noon, as Ghibli paints them.
+    // Farther slopes drift a step bluer and paler: the depth between ranges.
+    // A side light, always: the sun's side is judged across the view (left or right along the range), never toward or away from the
+    // viewer, so every ridge splits into a lit and a shaded flank at any hour, as the early-morning light gives it naturally. A sun
+    // straight behind the viewer would light every face we see, and a sun ahead would shade them all.
+    { vec2 az = normalize(uSunDir.xz + vec2(1e-4)), radial = normalize(wPos.xz + vec2(1e-4)), tang = vec2(-radial.y, radial.x);
+      float side = dot(tang, az) >= 0. ? 1. : -1.;
+      float lit = step(.02, dot(n.xz, tang*side) + n.y*.05);
+      vec3 c = mix(P1, P2, lit)*(1. + (aLeaf.z - .5)*.07);
+      float far = clamp((length(wPos.xz) - 650.)/550., 0., 1.);
+      c = mix(c, c*vec3(.86, 1., 1.14) + vec3(.03, .06, .09), far*.7);
+      c *= mix(uAmbTint, mix(vec3(dot(uSunTint, vec3(.333))), uSunTint, .5), lit);
+      vColA = c; vColB = c*1.03; }
+    #endif
     float night = (1. - smoothstep(.25, .5, uDay))*uMoonPaint;
     if (night > 0.){
       // each lobe is lit on its own top: the stroke's place on its own clump, not only the crown's form

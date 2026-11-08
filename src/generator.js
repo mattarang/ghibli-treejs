@@ -1800,7 +1800,8 @@ export const groundHeight = (x, z) => {
 
 // polar grid: dense under the plants, sparse out to the horizon
 export function generateGround(radius){
-  const rings = 260, sectors = 480, o = { pos: [], nor: [], idx: [], uv: [] }
+  // rings scale with the radius so the spacing near the centre stays what it was at 620 m (rings are spaced as (i/n)^1.9)
+  const rings = Math.round(260*(radius/620)**(1/1.9)), sectors = 480, o = { pos: [], nor: [], idx: [], uv: [] }
   for (let i = 0; i <= rings; i++) for (let k = 0; k <= sectors; k++){
     const rr = radius*(i/rings)**1.9, a = k/sectors*Math.PI*2, x = rr*Math.cos(a), z = rr*Math.sin(a), e = .5
     o.pos.push(x, groundHeight(x, z), z); o.uv.push(x, z)
