@@ -17,7 +17,12 @@ export function makeSky(){
         // Totoro's sky keeps its full blue to within a few degrees of the horizon, then pales fast. The blend runs in display space: mixed in linear
         // light, every in-between colour leans to the pale end and the whole lower sky reads washed out.
         vec3 g0 = pow(uHorizon, vec3(1./2.2)), g1 = pow(uTop, vec3(1./2.2));
-        vec3 c = pow(mix(g0, g1, pow(smoothstep(0., .16, y), .6)), vec3(2.2));
+        // two stages, as Ghibli paints a clear sky: pale at the horizon to the sky colour by ~9 degrees, then on up to a deeper, richer blue
+        // overhead. The zenith is the top colour squared against its own brightest channel (in display space): darker and more saturated,
+        // the same hue, so it follows every hour (noon #20a8c2 -> about #06769b, night navy -> a deeper navy).
+        float gm = max(max(g1.r, g1.g), g1.b);
+        vec3 gz = mix(g1, g1*g1/max(gm, 1e-3), .85)*.8;
+        vec3 c = pow(mix(mix(g0, g1, pow(smoothstep(0., .16, y), .6)), gz, smoothstep(.08, .8, y)), vec3(2.2));
         // ridge light: a soft white haze rising from behind the mountains, brightest just above their tops (2-5 degrees) and gone by ~12,
         // warmed by the sun's colour at dawn and dusk
         { float glow = smoothstep(.0, .05, y)*(1. - smoothstep(.04, .2, y));
