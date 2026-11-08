@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import GUI from 'lil-gui'
 import Stats from 'stats.js'
 import { SPECIES, CROWNS, BRUSHES } from './presets.js'
-import { generatePlant, generateGround, generateGrassCell, generateGrassCollars, generateFlowerCell, rocksOfCell, groundHeight, layoutScene, newBuffer, GESTURE_NAMES } from './generator.js'
+import { mulberry32, generatePlant, generateGround, generateGrassCell, generateGrassCollars, generateFlowerCell, rocksOfCell, groundHeight, layoutScene, newBuffer, GESTURE_NAMES } from './generator.js'
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { makeBrushAtlas, makeFieldTexture, makeGrassAtlas, makeFlowerAtlas } from './atlas.js'
 import { U, patch, newPalette, setPalette, paletteUniforms } from './ghibli-patch.js'
@@ -53,7 +53,7 @@ loadSavedRecipes(SPECIES)                                                // spec
 const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('species') : 'Camphor tree'
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
-  showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 21, flowers: 16, rocks: 12,
+  showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, farBushes: 30, farRocks: 1, grass: 21, flowers: 16, rocks: 2,
   mountains: true, mountainHeight: 1,
   time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 18, cloudSeed: 4, haze: .1, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
@@ -398,7 +398,7 @@ const flowerMat = patch(new THREE.MeshStandardMaterial({ map: makeFlowerAtlas(),
   uniforms: paletteUniforms(newPalette(['#000000', '#000000', '#000000', '#000000'])) })
 // Rocks are painted in planes: the toon ramp bands a smooth form into a few, cool grey-blue in shade, warm in sun, with moss settling on their tops
 const rockPal = newPalette(['#1f2a31', '#414d55', '#7a7f78', '#c4b896'])
-const rockMat = patch(new THREE.MeshStandardMaterial({ color: '#7a7f78', roughness: 1 }), {
+const rockLook = {
   toon: true, flatShadow: true, vertexPars: 'varying vec3 vRN; attribute float aAO; varying float vAO;', vertexBegin: 'vRN = normal; vAO = aAO;', fragmentPars: 'varying vec3 vRN; varying float vAO; float gTone = .5, gUp = 0.;',
   // value: lit top, dark sides, then dabs laid one way across the stone and slow patches of tone, so it reads as brushwork, not a smooth lump
   shade: `{ gUp = normalize(vRN).y; gTone = fbm2(vWPos.xz*.9 + vWPos.y*.7 + 3.);
@@ -409,21 +409,38 @@ const rockMat = patch(new THREE.MeshStandardMaterial({ color: '#7a7f78', roughne
     pal *= 1. - .5*cr*(1. - smoothstep(.35, .75, gUp));
     float m = smoothstep(.66, .74, gUp*.45 + fbm2(vWPos.xz*2.6 + 9.)*.75)*(.75 + .25*smoothstep(.4, .6, fbm2(vWPos.xz*9. + 4.)));                // moss in patches on what faces the sky
     pal = mix(pal, mix(vec3(.07, .17, .1), vec3(.26, .44, .18), smoothstep(.25, .65, kk)), m*.9); }`,
-  uniforms: paletteUniforms(rockPal) })
+}
+const rockMat = patch(new THREE.MeshStandardMaterial({ color: '#7a7f78', roughness: 1 }), { ...rockLook, uniforms: paletteUniforms(rockPal) })
 function rockGeometry(stones){
   const parts = stones.map(q => {
-    const g = mergeVerts(new THREE.IcosahedronGeometry(1, 3)), pos = g.attributes.position, v = new THREE.Vector3(), k = q.seed%1000
+    // carved stones need the detail to hold a face
+    const g = mergeVerts(new THREE.IcosahedronGeometry(1, q.stand ? 7 : 3)), pos = g.attributes.position, v = new THREE.Vector3(), k = q.seed%1000, carve = new Float32Array(pos.count)
     for (let i = 0; i < pos.count; i++){
       v.fromBufferAttribute(pos, i)
       // the same displacement at the same point, so shared corners stay shut; broad lumps, then a flatter top and a few cut planes
       const n = .22*Math.sin(v.x*2.1 + k)*Math.sin(v.y*1.7 + k*.3)*Math.sin(v.z*2.3 + k*.7) + .1*Math.sin(v.x*5.3 - v.z*4.1 + k)
-      v.multiplyScalar(1 + n); if (v.y > .6) v.y = .6 + (v.y - .6)*.4
+      if (q.stand){
+        // a standing stone: an egg, narrower toward its rounded top, gently lumpy; some carry a worn face on one side (two deep eye hollows
+        // under a brow, a flat nose ridge, a low mouth groove), the kind of old roadside carving moss has half reclaimed
+        const sv = v.clone(), taper = 1 - .1*Math.max(sv.y, 0) + .06*Math.max(-sv.y, 0)   // a squat, round-topped lump, a little fuller low down
+        let d = .1*Math.sin(v.x*2.3 + k)*Math.sin(v.y*1.9 + k*.3)*Math.sin(v.z*2.1 + k*.7)
+        if (q.face && sv.z > .2){
+          // carved deep enough to cast shade in their own hollows: two big round eye sockets, a heavy brow, a broad nose, a wide low mouth
+          const f = Math.min((sv.z - .2)/.4, 1), eye = (ex, ey) => Math.exp(-(((sv.x - ex)**2) + ((sv.y - ey)**2)*1.3)/.032)
+          const eyes = eye(-.3, .26) + eye(.3, .26), mouth = Math.exp(-((sv.y + .2)**2)/.006)*Math.exp(-sv.x*sv.x/.09)
+          d -= f*(.62*eyes + .2*mouth)
+          d += f*(.14*Math.exp(-((sv.y - .45)**2)/.008)*Math.exp(-sv.x*sv.x/.22) + .1*Math.exp(-sv.x*sv.x/.008)*Math.exp(-((sv.y - .04)**2)/.035))
+          carve[i] = f*Math.min(1, 1.6*eyes + 1.4*mouth)                   // where to paint the hollows dark
+        }
+        v.set(sv.x*taper, sv.y, sv.z*taper).multiplyScalar(1 + d)
+      } else { v.multiplyScalar(1 + n); if (v.y > .6) v.y = .6 + (v.y - .6)*.4 }
       pos.setXYZ(i, v.x, v.y, v.z)
     }
-    g.scale(q.s, q.s*q.flat, q.s*lerpN(.75, 1, (k%97)/97)); g.rotateY(q.turn); g.translate(q.x, q.y + q.s*q.flat*.12, q.z)   // most of the stone stands above the grass; only its lower lip is sunk
+    if (q.stand){ g.scale(q.s, q.h*.5, q.s*.85); g.rotateX(q.lean || 0); g.rotateY(q.turn); g.translate(q.x, q.y + q.h*.38, q.z) }   // sunk to about a quarter of its height, leaning a little
+    else { g.scale(q.s, q.s*q.flat, q.s*lerpN(.75, 1, (k%97)/97)); g.rotateY(q.turn); g.translate(q.x, q.y + q.s*q.flat*.12, q.z) }   // most of the stone stands above the grass; only its lower lip is sunk
     g.computeVertexNormals()
-    const ao = new Float32Array(pos.count); for (let i = 0; i < pos.count; i++) ao[i] = Math.min(Math.max((pos.getY(i) - q.y + .05)/(q.s*q.flat*.9), 0), 1)   // 0 where the stone meets the ground, 1 at its top
-    g.setAttribute('aAO', new THREE.BufferAttribute(ao, 1)); return g
+    const ao = new Float32Array(pos.count); for (let i = 0; i < pos.count; i++) ao[i] = Math.min(Math.max((pos.getY(i) - q.y + .05)/((q.stand ? q.h*.8 : q.s*q.flat*.9)), 0), 1)   // 0 where the stone meets the ground, 1 at its top
+    g.setAttribute('aAO', new THREE.BufferAttribute(ao, 1)); g.setAttribute('aCarve', new THREE.BufferAttribute(carve, 1)); return g
   })
   const g = mergeGeometries(parts); parts.forEach(x => x.dispose()); return g
 }
@@ -627,7 +644,37 @@ const field = (() => {
     count: () => cells.size,
   }
 })()
+// rocks out over the far meadow, beyond the field that follows the camera: a fixed scatter in large squares to the edge of the land
+// standing stones: the same paint with a soft ramp and a lighter, mossier palette, so their rounded forms and carved faces shade smoothly
+const standMat = patch(new THREE.MeshStandardMaterial({ color: '#7a7f78', roughness: 1 }), { ...rockLook, softRamp: true,
+  vertexPars: rockLook.vertexPars + ' attribute float aCarve; varying float vCarve;', vertexBegin: rockLook.vertexBegin + ' vCarve = aCarve;',
+  fragmentPars: rockLook.fragmentPars + ' varying float vCarve;',
+  // the carved hollows hold shadow and old moss: painted a deep cool green-grey, so the face reads at any light
+  palLine: rockLook.palLine + ' pal = mix(pal, vec3(.05, .09, .08), smoothstep(.15, .7, vCarve)*.85);', uniforms: paletteUniforms(newPalette(['#4a4632', '#7d7650', '#b0a678', '#ddd4a8'])) })
+const standStones = new THREE.Mesh(new THREE.BufferGeometry(), standMat); standStones.castShadow = standStones.receiveShadow = true; standStones.frustumCulled = false; scene.add(standStones)
+const farRocks = new THREE.Mesh(new THREE.BufferGeometry(), rockMat); farRocks.castShadow = farRocks.receiveShadow = true; farRocks.frustumCulled = false; scene.add(farRocks)
+function rebuildFarRocks(){
+  farRocks.geometry.dispose()
+  const stones = [], C = 24
+  if (p.farRocks > 0) for (let i = -25; i <= 25; i++) for (let j = -25; j <= 25; j++){
+    const d = Math.hypot((i + .5)*C, (j + .5)*C); if (d < 120 || d > 590) continue
+    for (const q of rocksOfCell(i, j, C, 1.5*p.farRocks, p.seed + 31, trees)) stones.push({ ...q, s: q.s*2.4 })   // larger out here, or they read as specks
+  }
+  // big boulders and standing stones, near and far: a few large stones that stick well out of the grass, and upright carved stones in
+  // ones and twos, some with a worn face, scattered over the meadow
+  const r = mulberry32(p.seed*977 + 41), clearOf = (x, z) => trees.every(q => Math.hypot(q.x - x, q.z - z) > q.r*2.2 + 3)
+  for (let n = 0, N = Math.round(8*p.farRocks); n < N; n++){
+    const R = lerpN(30, 560, Math.sqrt(r())), a = r()*Math.PI*2, x = R*Math.cos(a), z = R*Math.sin(a); if (!clearOf(x, z)) continue
+    stones.push({ x, z, y: groundHeight(x, z) - .1, s: lerpN(1.2, 2.6, r()), flat: lerpN(.6, .85, r()), turn: r()*7, seed: Math.floor(r()*1e6) })
+  }
+  // standing stones were tried (rock geometry still supports q.stand) and removed for now
+  const plain = stones.filter(q => !q.stand), stand = stones.filter(q => q.stand)
+  farRocks.geometry = plain.length ? rockGeometry(plain) : new THREE.BufferGeometry()
+  standStones.geometry.dispose(); standStones.geometry = stand.length ? rockGeometry(stand) : new THREE.BufferGeometry()
+  farRocks.userData.stones = stones   // for framing and inspection
+}
 function rebuildGrass(){
+  rebuildFarRocks()
   // the field (grass, flowers, rocks) follows the camera; only the collars where trunks meet the ground stay put
   grass.geometry.dispose()
   grass.geometry = p.grass > 0 ? toGeometry(generateGrassCollars(p.seed, trees)) : new THREE.BufferGeometry()
@@ -806,6 +853,8 @@ forestF.add({ async bench(){ const out = []
   window.__forestBench = out; console.log(out.join('\n')); alert(out.join('\n')) } }, 'bench').name('Run benchmark (100/300/1000)')
 sceneF.add(p, 'groveRadius', 8, 40, .5).name('Grove radius').onChange(later)
 sceneF.add(p, 'bushes', 0, 40, 1).name('Bushes').onChange(later)
+sceneF.add(p, 'farBushes', 0, 150, 1).name('Bushes far out').onChange(later)
+sceneF.add(p, 'farRocks', 0, 3, .05).name('Rocks far out').onChange(() => rebuildFarRocks())
 sceneF.add(p, 'grass', 0, 60, 1).name('Grass tufts per m²').onChange(later)
 sceneF.add(p, 'flowers', 0, 300, 5).name('Wildflowers per 100 m²').onChange(later)
 sceneF.add(p, 'rocks', 0, 80, 1).name('Rocks per hectare').onChange(later)

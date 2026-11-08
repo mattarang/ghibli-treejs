@@ -1955,5 +1955,14 @@ export function layoutScene(p){
     if (Math.cos(a - Math.PI/4) > .4) continue                       // keep the opening camera's foreground clear
     bushes.push({ x: R*Math.cos(a), z: R*Math.sin(a), scale: lerp(.7, 1.4, r()), seed: p.seed + 5000 + bushes.length*13 })
   }
+  // out over the far meadow: stands of one to four bushes scattered to the edge of the land, for interest in the distance. They reuse a
+  // handful of grown bushes (seed and size from a small set), so many of them cost little to build.
+  for (let s = 0, stands = Math.round((p.farBushes ?? 0)/2.5); s < stands; s++){
+    const R = lerp(70, 540, Math.sqrt(r())), a = r()*Math.PI*2, cx = R*Math.cos(a), cz = R*Math.sin(a)
+    for (let k = 0, n = 1 + Math.floor(r()*4); k < n; k++){
+      const d = k ? lerp(4, 11, r()) : 0, b = r()*Math.PI*2
+      bushes.push({ x: cx + Math.cos(b)*d, z: cz + Math.sin(b)*d, scale: [1.8, 2.4, 3][Math.floor(r()*3)], seed: p.seed + 7000 + Math.floor(r()*6)*13, far: true })
+    }
+  }
   return { plants, bushes }
 }
