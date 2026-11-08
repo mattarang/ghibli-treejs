@@ -18,6 +18,10 @@ export function makeSky(){
         // light, every in-between colour leans to the pale end and the whole lower sky reads washed out.
         vec3 g0 = pow(uHorizon, vec3(1./2.2)), g1 = pow(uTop, vec3(1./2.2));
         vec3 c = pow(mix(g0, g1, pow(smoothstep(0., .16, y), .6)), vec3(2.2));
+        // ridge light: a soft white haze rising from behind the mountains, brightest just above their tops (2-5 degrees) and gone by ~12,
+        // warmed by the sun's colour at dawn and dusk
+        { float glow = smoothstep(.0, .05, y)*(1. - smoothstep(.04, .2, y));
+          c = mix(c, mix(vec3(1.), uSunColor/max(max(uSunColor.r, uSunColor.g), uSunColor.b), .25), glow*.15*(1. - uNight)); }   // faint: the mist on the mountains carries the ridge light
         float sd = max(dot(d, uSun), 0.);
         c += uSunColor*(pow(sd, 24.)*.07 + pow(sd, 120.)*.25 + smoothstep(.9992, .9996, sd)*1.2);   // a tight glow: a broad one greys half the sky
         // the night sky, as Totoro paints it: a deep, nearly flat navy; stars in a few sizes, the bright ones with a small soft glow,

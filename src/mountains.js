@@ -72,6 +72,30 @@ export function makeMountains(fogColor){
       ${GLSL_NIGHT}
       void main(){ gl_FragColor = vec4(gNightGrade(mix(uP1, uP2, .45)*dot(uAmbTint, vec3(.333))*1.05), 1.); }` }))
   under.frustumCulled = false
+  // mist rising off the tops, as in the Spirited Away meadow shot: a soft veil standing on the skyline, thickest at the crest and thinning up
+  // into the sky, in long banks. One continuous ring in the scene (not in the cards, whose joins would show), drawn after the clouds and
+  // before the mountain cards: behind the range, in front of the clouds.
+  const mist = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
+    uniforms: { uSunTint: U.uSunTint, uAmbTint: U.uAmbTint, uNightGrade: U.uNightGrade, uDay: U.uDay },
+    transparent: true, depthTest: true, depthWrite: false,   // near things (the tree) cover it; clouds write no depth, so it stays in front of them
+    vertexShader: 'attribute vec2 aM; varying vec2 vM; void main(){ vM = aM; gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.); }',
+    fragmentShader: `uniform vec3 uSunTint, uAmbTint; uniform float uNightGrade, uDay; varying vec2 vM;
+      ${GLSL_NIGHT}
+      float h(float x){ return fract(sin(x*127.1)*43758.5453); }
+      // periodic value noise: p cells round the ring, so the mist closes on itself
+      float n(float x, float p){ float i = floor(x), f = fract(x); f = f*f*(3. - 2.*f); return mix(h(mod(i, p)), h(mod(i + 1., p)), f); }
+      void main(){
+        float v = vM.y, a = vM.x;                                          // v: 0 at 10 m under the crest, .15 at it, 1 at 65 m above; a: turns
+        float wisp = .5 + .5*smoothstep(.3, .7, n(a*40., 40.)*.75 + n(a*120., 120.)*.25);   // banks of ~100-300 m
+        float lift = .55 + .45*n(a*25. + 3., 25.);
+        float up = max(v - .15, 0.)/(.85*lift);
+        float k = (1. - smoothstep(0., 1., up))*wisp*.42*smoothstep(.2, .5, uDay);          // soft: a gentle veil, never a hard white band
+        vec3 c = gNightGrade(mix(vec3(dot(uAmbTint, vec3(.333))), mix(vec3(1.), uSunTint, .3), .55));
+        gl_FragColor = vec4(c, k);
+        #include <colorspace_fragment>
+      }` }))
+  mist.frustumCulled = false; mist.renderOrder = 20
+  group.add(mist)
   const bakeScene = new THREE.Scene(); bakeScene.add(under, mesh)
   let cardList = [], dirty = true, bakedFor = 0
   // the bake holds linear, premultiplied paint: un-premultiply, convert, premultiply again (as the clouds do), or edges go pale
@@ -87,7 +111,7 @@ export function makeMountains(fogColor){
   group.build = (scale = 1, seed = 1) => {
     for (const c of cardList){ group.remove(c.quad); c.quad.geometry.dispose(); c.quad.material.dispose(); c.rt.dispose() }
     cardList = []
-    const r = mulberry32(seed*7919 + 11), b = newBuffer(), cards = [], H = makeLand(seed, scale), uPos = [], uIdx = []
+    const r = mulberry32(seed*7919 + 11), b = newBuffer(), cards = [], H = makeLand(seed, scale), uPos = [], uIdx = [], mPos = [], mAt = [], mIdx = []
     const world = (az, rad) => [Math.cos(az)*rad, FOOT + H(az, rad), Math.sin(az)*rad]
     // the land's normal, from its height: x round the ring, z outward
     const normalAt = (az, rad) => { const e = 1.5, hx = (H(az + e/rad, rad) - H(az - e/rad, rad))/(2*e), hz = (H(az, rad + e) - H(az, rad - e))/(2*e)
@@ -161,13 +185,22 @@ export function makeMountains(fogColor){
       quad.frustumCulled = false; quad.renderOrder = 30                    // after the clouds (11-13): the mountains stand in front of them
       group.add(quad); cardList.push({ ...cd, rt, quad })
     }
-    mesh.geometry.dispose(); under.geometry.dispose()
+    mesh.geometry.dispose(); under.geometry.dispose(); mist.geometry.dispose()
     const g = new THREE.BufferGeometry(), put = (name, data, size) => g.setAttribute(name, new THREE.Float32BufferAttribute(data, size))
     put('position', b.pos, 3); put('normal', b.nor, 3); put('uv', b.uv, 2); put('aCorner', b.corner, 2); put('aStroke', b.stroke, 3)
     put('aLeaf', b.leaf, 3); put('aDab', b.dab, 1); put('aPatch', b.patch, 3); put('aWind', b.wind, 4); put('clusterCenter', b.center, 3)
     g.setIndex(new THREE.BufferAttribute(idx, 1))
     mesh.geometry = g
     const ug = new THREE.BufferGeometry(); ug.setAttribute('position', new THREE.Float32BufferAttribute(uPos, 3)); ug.setIndex(uIdx); under.geometry = ug
+    // the mist ring: one strip round the whole skyline, from 10 m under the crest to 65 m above it
+    for (let k = 0, steps = 1440; k <= steps; k++){
+      const az = k/steps*Math.PI*2
+      let top = -1; for (let rad = R_IN; rad <= R_OUT; rad += 12) top = Math.max(top, (FOOT + H(az, rad))/rad)
+      const m0 = mPos.length/3, R = R_MID - 40, yt = top*R
+      mPos.push(Math.cos(az)*R, yt - 10, Math.sin(az)*R, Math.cos(az)*R, yt + 65, Math.sin(az)*R); mAt.push(k/steps, 0, k/steps, 1)
+      if (k) mIdx.push(m0 - 2, m0, m0 - 1, m0 - 1, m0, m0 + 1)
+    }
+    const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.Float32BufferAttribute(mPos, 3)); mg.setAttribute('aM', new THREE.Float32BufferAttribute(mAt, 2)); mg.setIndex(mIdx); mist.geometry = mg
     group.strokes = b.idx.length/6; group.clumps = b.held.length
     dirty = true
   }

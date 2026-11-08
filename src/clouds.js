@@ -13,7 +13,8 @@ const SP = { height: 3, strokeAngle: 90, strokeJitter: 40, cardSize: 2.7, brushW
 export function makeClouds(){
   // the same four bands as foliage (critique/round11/bands.md), sampled from a Wind Rises cloud: P0 the deep blue of the shade side
   // (#09628a, picked by the user), P1 a lighter blue, P2 the cream-white body, P3 the bright rim each puff takes on its crest toward the sun
-  const palette = newPalette(['#09628a', '#5891b0', '#e6ebe6', '#fffcf2'])
+  // shade lifted toward this frame's clouds: their deepest shade is a light blue (#9dd2eb-#add0e7, value .9), never a dark slate
+  const palette = newPalette(['#5a93b8', '#9cc6dd', '#e6eef0', '#fffcf2'])
   const unused = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1)
   const mat = makeFoliageMaterial(makeSmoothAtlas(11), unused, palette, { value: new THREE.Color('#fff4dc') }, { value: new THREE.Color('#fff4dc') })
   Object.assign(mat, { transparent: true, depthWrite: false, alphaToCoverage: false, fog: false })
@@ -23,6 +24,7 @@ export function makeClouds(){
   const lobes = new THREE.DataTexture(new Float32Array(256*64*4), 256, 64, THREE.RGBAFormat, THREE.FloatType)
   lobes.magFilter = lobes.minFilter = THREE.NearestFilter
   mat.uniforms.tLobe = { value: lobes }
+  Object.assign(mat.uniforms, { uToonMix: { value: .3 }, uSoft: { value: .35 } })   // clouds blend their tones: the bands melt into each other instead of stepping
   Object.assign(mat.uniforms, { uLobeShade: { value: 1 }, uDayRim: { value: 1 }, uRimTop: { value: .66 } })
   Object.assign(mat.uniforms, { uAir: { value: 0 }, uHueVar: { value: .12 }, uSelfShade: { value: 0 }, uMass: { value: 0 }, uWind: { value: 0 }, uShadowFillK: { value: 0 }, uLanternI: { value: 0 }, uShadeCool: { value: 0 }, uMoonPaint: { value: 0 }, uPigment: { value: .35 }, uLightShape: { value: .1 }, uFleck: { value: 0 } })   // the palette carries the cloud's shade colour; the sky tint foliage takes would turn it lavender
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat)
@@ -36,10 +38,10 @@ export function makeClouds(){
   // The bake holds linear, premultiplied paint. Converting premultiplied colour to display colour brightens every half-transparent edge into a
   // pale outline, so the card un-premultiplies, converts, and premultiplies again: the same blend the strokes made on screen.
   const fade = { value: 1 }
-  const cardMat = tex => new THREE.ShaderMaterial({ uniforms: { map: { value: tex }, uFade: fade }, transparent: true, depthWrite: false,
+  const cardMat = tex => new THREE.ShaderMaterial({ uniforms: { map: { value: tex }, uFade: fade, uTexel: { value: new THREE.Vector2(1/512, 1/512) } }, transparent: true, depthWrite: false,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.); }',
-    fragmentShader: `uniform sampler2D map; uniform float uFade; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D map; uniform float uFade; uniform vec2 uTexel; varying vec2 vUv;
       void main(){ vec4 t = texture2D(map, vUv); if (t.a < .002) discard;
         vec3 c = t.rgb/t.a;                                                 // the paint's own colour, out of the premultiplied bake
         c = mix(c*12.92, 1.055*pow(c, vec3(1./2.4)) - .055, step(.0031308, c));   // to display colour, as the strokes were when they blended on screen
@@ -67,6 +69,7 @@ export function makeClouds(){
     for (const c of cardList){
       const w = Math.min(2048, Math.max(32, Math.ceil(ph*c.tx/Math.tan(18*Math.PI/180)))), h = Math.min(2048, Math.max(32, Math.ceil(ph*c.ty/Math.tan(18*Math.PI/180))))
       if (c.rt.width !== w || c.rt.height !== h) c.rt.setSize(w, h)
+      c.quad.material.uniforms.uTexel.value.set(1/w, 1/h)
       bakeCam.fov = 2*Math.atan(c.ty)*180/Math.PI; bakeCam.aspect = c.tx/c.ty; bakeCam.updateProjectionMatrix()
       bakeCam.position.set(0, 0, 0); bakeCam.up.copy(c.up); bakeCam.lookAt(c.out); bakeCam.updateMatrixWorld()
       mesh.geometry.setDrawRange(c.fromI, c.toI - c.fromI)

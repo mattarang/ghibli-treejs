@@ -184,7 +184,9 @@ const fragmentShader = /* glsl */`
     vec4 t = texture2D(tBrush, vUv);
     float w = fwidth(t.g) + 1e-4, alpha = smoothstep(.36 - w, .36 + w, t.g);
     #ifdef CLOUD
-      alpha = smoothstep(.2, .5, t.g + (t.r - .5)*.3);   // a cloud's edge is dry brush: feathered and broken, never a clean disc
+      // each dab is solid in its middle and turns see-through toward its edge, so where dabs overlap the one below shows through the rim of
+      // the one above: the tones mix at every border instead of meeting in a hard line
+      alpha = smoothstep(.1, .3, t.g + (t.r - .5)*.18)*mix(.55, 1., smoothstep(.3, .75, t.g));
     #endif
     if (alpha < .02) discard;
     float paint = t.r*1.3 - .15 + (1. - smoothstep(.5, .98, t.b))*.12;          // pigment and the thin paint at a stroke's edge
