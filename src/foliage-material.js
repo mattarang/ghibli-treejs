@@ -37,6 +37,9 @@ const vertexShader = /* glsl */`
     float wv = gWave(clump.xz);                                      // each clump meets the front when it gets there: it tosses
     o += vec3(uWindDir.x, 0., uWindDir.y)*gWaveTree(a.xy)*a.z*uSway*4. + vec3(.3, .15, .5)*gWaveTree(clump.xz)*a.w*.25*uSway;   // the whole crown leans with its trunk (so leaves stay on their limbs); clumps toss as the front passes them
     return (o + vec3(.5, .8, .5)*fl*a.w*uFlutter*(.4 + .6*gust)*(1. + 2.5*wv))*uWind; }
+  // value noise for the distant mountains' painterly patches
+  float mH(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x*p.y); }
+  float mVN(vec2 p){ vec2 i = floor(p), f = fract(p), u = f*f*(3. - 2.*f); return mix(mix(mH(i), mH(i + vec2(1, 0)), u.x), mix(mH(i + vec2(0, 1)), mH(i + vec2(1, 1)), u.x), u.y); }
   float toonRamp(float x){ float n = max(uBands, 1.), s = pow(x, .85)*n, f = floor(s), t = smoothstep(.5 - uSoft, .5 + uSoft, fract(s));
     return mix(x, clamp((f + t)/n, 0., 1.), uToonMix); }
   // Four bands per palette, the same for every species and colour form: P0 deep shade, P1 shade, P2 lit, P3 the light's rim on each lobe.
@@ -153,8 +156,16 @@ const vertexShader = /* glsl */`
     // straight behind the viewer would light every face we see, and a sun ahead would shade them all.
     { vec2 az = normalize(uSunDir.xz + vec2(1e-4)), radial = normalize(wPos.xz + vec2(1e-4)), tang = vec2(-radial.y, radial.x);
       float side = dot(tang, az) >= 0. ? 1. : -1.;
-      float lit = step(.02, dot(n.xz, tang*side) + n.y*.05);
-      vec3 c = mix(P1, P2, lit)*(1. + (aLeaf.z - .5)*.07);
+      // slopes facing the viewer sit right on the cut (their sideways lean is ~0), and clump by clump they flipped between lit and shade:
+      // a speckle. Only a flank clearly turned away from the sun's side is shaded; anything near facing us counts as lit.
+      float lit = step(-.14, dot(n.xz, tang*side) + n.y*.05);
+      vec3 c = mix(P1, P2, lit);
+      // painterly variation inside each band: broad patches (~70 m) leaning warm yellow-green or cool blue-green, smaller swathes (~20 m)
+      // a little lighter or darker, and each stroke its own touch. Hue and value only shift a step, so the two bands still read.
+      vec2 mp = wPos.xz;
+      float pA = mVN(mp/55.), pB = mVN(mp/18. + 31.), pC = mVN(mp/7. + 57.);
+      c *= mix(vec3(.84, .98, 1.14), vec3(1.22, 1.07, .74), smoothstep(.2, .8, pA));
+      c *= 1. + (pB - .5)*.4 + (pC - .5)*.18 + (aLeaf.z - .5)*.12;
       float far = clamp((length(wPos.xz) - 650.)/550., 0., 1.);
       c = mix(c, c*vec3(.86, 1., 1.14) + vec3(.03, .06, .09), far*.7);
       c *= mix(uAmbTint, mix(vec3(dot(uSunTint, vec3(.333))), uSunTint, .5), lit);

@@ -16,7 +16,7 @@ const STEP = 11                        // metres between clumps over the surface
 const SPAN = 24                       // degrees of ring per card
 const SP = { height: 3, strokeAngle: 90, strokeJitter: 50, cardSize: .8, brushWidth: 1, coverage: .3, plates: 1.4, plateSize: 1.2, strays: 0, core: true, crownBlend: 0, massBlend: .45, squash: .8 }
 // P0 deep, P1 shade, P2 lit, P3 the crest rim: sampled from the Spirited Away meadow shot (near hills #397653, peaks #4a8472, far #548084)
-const PALETTE = ['#173f2c', '#24603f', '#357a4e', '#4f9a5e']   // the near hills' darker, warmer green (#397653 h145 s.52; #326049), not the hazed peaks' mint
+const PALETTE = ['#1c4129', '#2d6136', '#468244', '#62a052']   // warmer than the hazed peaks: shade h~131, lit h~111   // the near hills' darker, warmer green (#397653 h145 s.52; #326049), not the hazed peaks' mint
 
 // The land: peaks round the ring, each a dome whose edge is pushed out along k spurs (so ridges radiate from the summit with gullies
 // between) and a lower ring of foothills in front. Heights are above FOOT; the meadow hides everything below about 40 m.
