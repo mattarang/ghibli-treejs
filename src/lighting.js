@@ -23,7 +23,9 @@ const mixKey = (i, t, f) => a.set(K[i][f]).lerp(b.set(K[i + 1][f]), t).clone()
 
 // noon's sun tint (as computed below at 12:00, full day)
 const NOON = new THREE.Color('#fff4e0'); NOON.multiplyScalar(1/Math.max(NOON.r, NOON.g, NOON.b)).lerp(new THREE.Color(1, 1, 1), .55)
+import { seasonSky, SUMMER_SKY } from './seasons.js'
 export function applyLighting(p, L){
+  const ss = p.seasonOn ? seasonSky(p.season) : SUMMER_SKY
   const h = ((p.time%24) + 24)%24
   let i = 0; while (i < K.length - 2 && K[i + 1][0] <= h) i++
   const t = (h - K[i][0])/(K[i + 1][0] - K[i][0])
@@ -31,7 +33,7 @@ export function applyLighting(p, L){
   const I = THREE.MathUtils.lerp(K[i][2], K[i + 1][2], t)*p.sunIntensity, ambK = THREE.MathUtils.lerp(K[i][6], K[i + 1][6], t)*p.ambient
 
   const day = h >= 5 && h < 19, arc = day ? (h - 5)/14 : ((h - 19 + 24)%24)/10
-  const elev = Math.max(.06, Math.sin(arc*Math.PI))*(day ? p.sunHeight : p.sunHeight*.8)
+  const elev = Math.max(.06, Math.sin(arc*Math.PI))*(day ? p.sunHeight : p.sunHeight*.8)*ss.sun   // the season: winter's sun rides lower
   const az = p.sunAzimuth*Math.PI/180 + (arc - .5)*Math.PI*1.1
   const dir = new THREE.Vector3(Math.cos(az)*Math.cos(elev), Math.sin(elev), Math.sin(az)*Math.cos(elev)).normalize()
   if (p.sunTint !== '#ffffff') color.multiply(new THREE.Color(p.sunTint))
@@ -57,6 +59,9 @@ export function applyLighting(p, L){
   U.uLightRel.value.set(sunT.r/NOON.r, sunT.g/NOON.g, sunT.b/NOON.b).multiplyScalar(THREE.MathUtils.lerp(.4, 1.06, Math.min(1, I/2.6))/1.06)
   U.uAmbTint.value.copy(amb).multiplyScalar(1/Math.max(amb.r, amb.g, amb.b)).lerp(white, .05 + .57*dayness).multiplyScalar(Math.min(1, .16 + .9*ambK))
 
+  // the season's sky: winter's zenith paler and greyer, autumn's a step deeper
+  if (ss.pale > 0){ const g = (top.r + top.g + top.b)/3; top.lerp(new THREE.Color(g*1.15, g*1.2, g*1.32), ss.pale); horizon.lerp(new THREE.Color(horizon.r*.98, horizon.g, horizon.b*1.02).multiplyScalar(1.02), ss.pale) }
+  if (ss.deep > 0) top.multiplyScalar(1 - ss.deep*.5)
   const state = { top, horizon, sunDir: dir, sunColor: color, cloud: p.clouds, night: 1 - THREE.MathUtils.smoothstep(I, .35, 1.2), ambK }
   L.sky.update(state); L.clouds.light(state); L.mountains?.light(state)
   // Distance turns land toward the sky's blue, not toward the pale horizon: far hills stay a step darker than the sky behind them, so they read as

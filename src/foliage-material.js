@@ -13,6 +13,9 @@ const vertexShader = /* glsl */`
   ${GLSL_CLOUDSHADE}
   ${GLSL_AIR}
   uniform vec3 uPalV[12]; vec3 P0, P1, P2, P3;
+  // the season: the next key's palette (and its colour forms), and how far the year has moved toward it. Each stroke turns over at its own
+  // moment (a hash of the stroke), so a tree changes leaf by leaf, green and orange side by side, never through a mud of the two colours.
+  uniform vec3 uPalB0, uPalB1, uPalB2, uPalB3, uPalVB[12]; uniform float uSeasonT, uLeafKeep, uSnow; float gTurn = 0., gUp = 0.;
   uniform vec3 uSunDir, uPal0, uPal1, uPal2, uPal3, uSssColor, uRimColor, uShadowFill, uAmbTint, uSunTint, uLanternPos, uLanternColor;
   varying vec2 vUv; varying vec3 vColA, vColB; varying float vCalm;
   #include <fog_pars_vertex>
@@ -49,7 +52,9 @@ const vertexShader = /* glsl */`
   vec3 turnHue(vec3 c, float a){ float y = dot(c, vec3(.299, .587, .114)), i = dot(c, vec3(.596, -.274, -.322)), q = dot(c, vec3(.211, -.523, .312)), s = sin(a), k = cos(a), u = i*k - q*s, v = i*s + q*k;
     return vec3(y + .956*u + .621*v, y - .272*u - .647*v, y - 1.106*u + 1.703*v); }
   void main(){
-    vUv = uv; P0 = uPal0; P1 = uPal1; P2 = uPal2; P3 = uPal3;
+    vUv = uv;
+    { float h = fract(sin(dot(aStroke*17.3 + clusterCenter*.61, vec3(12.9898, 78.233, 37.719)))*43758.5453); gTurn = smoothstep(h - .05, h + .05, uSeasonT*1.1 - .05); }
+    P0 = mix(uPal0, uPalB0, gTurn); P1 = mix(uPal1, uPalB1, gTurn); P2 = mix(uPal2, uPalB2, gTurn); P3 = mix(uPal3, uPalB3, gTurn);
     // a forest copy is placed by its instance: everything the stroke carries in its tree's own space is carried along (instances only move and scale, so the light baked for the tree still holds)
     mat4 M = modelMatrix; vec4 wnd = aWind; vec3 clump = clusterCenter;
     #ifdef USE_INSTANCING
@@ -67,7 +72,7 @@ const vertexShader = /* glsl */`
     if (aPatch.z >= 0.){ int lid = int(aPatch.z); vec4 lb = texelFetch(tLobe, ivec2(lid%256, lid/256), 0);
       vec3 off = wPos.xyz - (M*vec4(lb.xyz, 1.)).xyz;
       lobeH = clamp(dot(off, normalize(uSunDir + vec3(0., mix(.7, 1.5, nightE), 0.)))/(lb.w*iScale), -1., 1.);
-      lobeRim = 1. - abs(dot(normalize(off + vec3(0., 1e-4, 0.)), V)); }   // 1 where the lobe turns away from the eye: its silhouette
+      lobeRim = 1. - abs(dot(normalize(off + vec3(0., 1e-4, 0.)), V)); gUp = off.y/(lb.w*iScale); }   // 1 where the lobe turns away from the eye: its silhouette
     bool small = aDab > 1.5, massed = uMass > .5 && aPatch.z >= 0., closed;
     float F, score = 0., hueOf = 0.;
     if (massed){
@@ -75,7 +80,13 @@ const vertexShader = /* glsl */`
       // form, so whole clumps fall on one side together, and the border between light and shadow is a chain of clump-sized shapes.
       int id = int(aPatch.z);
       vec3 place = texelFetch(tSun, ivec2(id%256, id/256), 0).rgb; hueOf = place.g - .5;
-      int form = int(place.b*255. + .5); if (form > 0){ int o = (form - 1)*4; P0 = uPalV[o]; P1 = uPalV[o + 1]; P2 = uPalV[o + 2]; P3 = uPalV[o + 3]; }   // each tree's own colour form
+      int form = int(place.b*255. + .5);
+      // snow (uSnow, 0..1): it lies on the tops of the lobes, deeper as it falls; a stroke is snow or leaf, one or the other
+      bool snowy = false;
+      if (uSnow > 0.){ float hs = fract(sin(dot(aStroke*3.7 + clusterCenter*2.3, vec3(7.13, 157.1, 113.7)))*43758.5453);
+        snowy = gUp*.75 + n.y*.35 + (hs - .5)*.35 > 1. - uSnow*.85; }
+      if (form > 0){ int o = (form - 1)*4; P0 = mix(uPalV[o], uPalVB[o], gTurn); P1 = mix(uPalV[o + 1], uPalVB[o + 1], gTurn); P2 = mix(uPalV[o + 2], uPalVB[o + 2], gTurn); P3 = mix(uPalV[o + 3], uPalVB[o + 3], gTurn); }   // each tree's own colour form
+      if (snowy){ P0 = vec3(.1, .14, .26); P1 = vec3(.32, .42, .62); P2 = vec3(.8, .86, .94); P3 = vec3(1.); }   // snow: blue in shade, white in sun (linear)
       score = place.r*4. - 2. + dot(n, uSunDir)*.6 + aPatch.x*uLightShape*.9 - gCloudShade(wPos.xz)*1.6;   // a cloud passing over shades the crown with the ground
       // the underside of every lobe turns from the light: a crescent of shade under each one is what sets the lobes apart
       score += min(lobeH + .3 + (aLeaf.z - .5)*.25, 0.)*uLobeShade*2.4;
@@ -97,7 +108,10 @@ const vertexShader = /* glsl */`
     else if (small && crest && F > .3 && uDayRim > 0.) closed = false;
     if (closed){ gl_Position = vec4(2., 2., 2., 1.); return; }
     vec2 sd = (viewMatrix*vec4(aStroke, 0.)).xy; sd = normalize(sd + vec2(0., 1e-3));
-    mvPosition.xy += (sd*aCorner.x + vec2(-sd.y, sd.x)*aCorner.y)*iScale;
+    // leaf fall: the share of the year's leaf still on the tree (uLeafKeep). Each stroke has its own day: it shrinks away to nothing at its own
+    // moment, so a crown thins out patch by patch and its wood shows through, and buds back in the same way in spring.
+    float hk = fract(sin(dot(aStroke*7.31 + clusterCenter*1.37, vec3(39.346, 11.135, 83.155)))*24634.6345), stay = smoothstep(hk, hk + .06, uLeafKeep*1.06);
+    mvPosition.xy += (sd*aCorner.x + vec2(-sd.y, sd.x)*aCorner.y)*iScale*stay;
     if (aDab > .1 && aDab < .4) mvPosition.z += length(aCorner)*.4;              // a clump's body stands just behind its strokes, ahead of the wood inside it
     gl_Position = projectionMatrix*mvPosition;
     #include <fog_vertex>
@@ -166,6 +180,9 @@ const vertexShader = /* glsl */`
       float pA = mVN(mp/55.), pB = mVN(mp/18. + 31.), pC = mVN(mp/7. + 57.);
       c *= mix(vec3(.84, .98, 1.14), vec3(1.22, 1.07, .74), smoothstep(.2, .8, pA));
       c *= 1. + (pB - .5)*.4 + (pC - .5)*.18 + (aLeaf.z - .5)*.12;
+      // snow on the forested hills: on what faces the sky and on the higher ground, broken into patches by the forest
+      if (uSnow > 0.){ float sk = n.y*.7 + clamp(wPos.y/120., 0., 1.)*.5 + (pB - .5)*.5 + (pC - .5)*.25;
+        c = mix(c, mix(vec3(.36, .46, .68), vec3(.94, .96, 1.), lit), smoothstep(1.02 - .5*uSnow, 1.06 - .5*uSnow, sk)); }
       float far = clamp((length(wPos.xz) - 650.)/550., 0., 1.);
       c = mix(c, c*vec3(.86, 1., 1.14) + vec3(.03, .06, .09), far*.7);
       c *= mix(uAmbTint, mix(vec3(dot(uSunTint, vec3(.333))), uSunTint, .5), lit);
@@ -219,6 +236,6 @@ export function fillLobes(clumps){
 export function makeFoliageMaterial(brush, sun, palette, sss, rim){
   return new THREE.ShaderMaterial({
     vertexShader, fragmentShader, side: THREE.DoubleSide, alphaToCoverage: true, fog: true,
-    uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), ...U, tBrush: { value: brush }, tSun: { value: sun }, tLobe: { value: lobeTable }, uPalV: { value: Array.from({ length: 12 }, () => new THREE.Color()) }, uPal0: palette[0], uPal1: palette[1], uPal2: palette[2], uPal3: palette[3], uSssColor: sss, uRimColor: rim },
+    uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), ...U, tBrush: { value: brush }, tSun: { value: sun }, tLobe: { value: lobeTable }, uPalV: { value: Array.from({ length: 12 }, () => new THREE.Color()) }, uPalVB: { value: Array.from({ length: 12 }, () => new THREE.Color()) }, uPal0: palette[0], uPal1: palette[1], uPal2: palette[2], uPal3: palette[3], uPalB0: { value: palette[0].value.clone() }, uPalB1: { value: palette[1].value.clone() }, uPalB2: { value: palette[2].value.clone() }, uPalB3: { value: palette[3].value.clone() }, uSeasonT: { value: 0 }, uLeafKeep: { value: 1 }, uSnow: U.uSnow ?? { value: 0 }, uSssColor: sss, uRimColor: rim },
   })
 }

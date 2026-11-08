@@ -1791,19 +1791,50 @@ export function generatePlant(species, seed, root, scale, wood, foliage, ivy = n
 // valleys round, the way weathered hills are.
 const ridge = (x, z) => { const n = noise3(x, 4.7, z)*2 - 1; return 1 - Math.sqrt(n*n + .015) }   // a rounded crest: abs() made a knife edge no mesh could shade smoothly
 export const groundNormal = (x, z, e = .5) => norm([groundHeight(x - e, z) - groundHeight(x + e, z), 2*e, groundHeight(x, z - e) - groundHeight(x, z + e)])
-export const groundHeight = (x, z) => {
+const landHeight = (x, z) => {
   const r = Math.hypot(x, z), fade = clamp((r - 8)/30), hill = clamp((r - 38)/90)
   const roll = 2.2*Math.sin(x*.045 + 1)*Math.cos(z*.04) + .9*Math.sin(x*.11 - z*.08 + 2)
   const hills = 16*ridge(x*.009 + 3.1, z*.009)**2 + 6*ridge(x*.024 + 7.3, z*.024 + 1.9)**1.5 + 2*noise3(x*.06, 9.1, z*.06) - 9
   return fade*fade*roll + hill*hill*(3 - 2*hill)*hills
 }
+// The pond: in front of the tree as the framed view sees it (the camera stands out along +x+z), a little to one side so the tree stays clear.
+// Its outline is a lobed oval; pondDist is the distance from the shore as a share of the radius (negative inside). The same shape is written
+// in GLSL in main.js (POND_GLSL), and the two must agree.
+export const POND = { x: 17, z: 8, r: 7.5, sx: 1.35, turn: .5 }
+export const pondDist = (x, z) => {
+  const c = Math.cos(POND.turn), s = Math.sin(POND.turn), dx = x - POND.x, dz = z - POND.z, u = (dx*c + dz*s)/POND.sx, v = -dx*s + dz*c
+  const th = Math.atan2(v, u), R = POND.r*(1 + .16*Math.sin(2*th + 1) + .09*Math.sin(3*th + 2.3) + .05*Math.sin(5*th + .4))
+  return Math.hypot(u, v)/R - 1
+}
+// the bare bank: a ragged strip of earth round the water, about 0.8-1.6 m wide, that the grass keeps off (the same in GLSL: POND_GLSL)
+export const pondShore = (x, z) => .14 + .06*Math.sin(x*.9 + z*.4)*Math.sin(z*.8 - x*.5) + .025*Math.sin(x*2.3 - z*1.7)
+// where reeds stand: patches along the shore, from the water's edge to just up the bank
+export const reedAt = (x, z) => { const d = pondDist(x, z); return d >= -.045 && d <= -.005 && noise3(x*.25, 5.5, z*.25) >= .5 }   // in the shallows only, in a few stands
+// near the bank, grass leans away from the water and stands lower, so the strip of earth stays open: 0 on the bank's edge, 1 a metre or so up
+const bankBlend = (x, z) => { const e = pondDist(x, z) - pondShore(x, z); return e > .16 ? 1 : Math.max(0, e/.16)**.7 }
+const awayFromPond = (x, z) => Math.atan2(z - POND.z, x - POND.x)
+export const pondLevel = landHeight(POND.x, POND.z) - .3       // the water's surface, a little below the land at the pond's heart
+// the land, with a basin pressed into it for the pond: a flat strip of shore just above the water, then a bowl about 1.4 m deep
+export const groundHeight = (x, z) => {
+  const h = landHeight(x, z), d = pondDist(x, z)
+  if (d > .35) return h
+  const bowl = pondLevel - .08 - 1.4*Math.min(1, Math.max(0, -d)/.6)**.7, shore = pondLevel + .1
+  // a shelving beach: the bank eases down under the water over about a metre (no step at the waterline), crossing the surface at d ~ -0.04
+  if (d < .06){ const t = Math.min(1, Math.max(0, (d + .12)/.18)), s = t*t*(3 - 2*t); return Math.min(h, bowl + (shore - bowl)*s) }
+  return d < .1 ? Math.min(h, shore) : Math.min(h, shore + (h - shore)*((d - .1)/.25)**1.5)
+}
 
 // polar grid: dense under the plants, sparse out to the horizon
 export function generateGround(radius){
   // rings scale with the radius so the spacing near the centre stays what it was at 620 m (rings are spaced as (i/n)^1.9)
-  const rings = Math.round(260*(radius/620)**(1/1.9)), sectors = 480, o = { pos: [], nor: [], idx: [], uv: [] }
+  const n0 = Math.round(260*(radius/620)**(1/1.9)), sectors = 480, o = { pos: [], nor: [], idx: [], uv: [] }
+  // ring radii; across the pond's band (its shore is shaped within a few tens of cm) rings are split to ~0.3 m
+  const radii = [0], pr0 = Math.hypot(POND.x, POND.z) - POND.r*POND.sx*1.45, pr1 = Math.hypot(POND.x, POND.z) + POND.r*POND.sx*1.45
+  for (let i = 1; i <= n0; i++){ const a = radii[radii.length - 1], b = radius*(i/n0)**1.9, n = b > pr0 && a < pr1 ? Math.ceil((b - a)/.3) : 1
+    for (let s = 1; s <= n; s++) radii.push(a + (b - a)*s/n) }
+  const rings = radii.length - 1
   for (let i = 0; i <= rings; i++) for (let k = 0; k <= sectors; k++){
-    const rr = radius*(i/rings)**1.9, a = k/sectors*Math.PI*2, x = rr*Math.cos(a), z = rr*Math.sin(a), e = .5
+    const rr = radii[i], a = k/sectors*Math.PI*2, x = rr*Math.cos(a), z = rr*Math.sin(a), e = rr > pr0 && rr < pr1 ? .15 : .5
     o.pos.push(x, groundHeight(x, z), z); o.uv.push(x, z)
     o.nor.push(...norm([groundHeight(x - e, z) - groundHeight(x + e, z), 2*e, groundHeight(x, z - e) - groundHeight(x, z + e)]))
   }
@@ -1825,10 +1856,12 @@ const grassLong = (x, z) => clamp((noise3(x*.18, 3.1, z*.18)*.6 + noise3(x*.5 + 
 function grassTuft(o, r, x, z, near = false){
   const g = grassLong(x, z)
   if (r() > (near ? .75 : .45) + (near ? .25 : .55)*g) return                                       // clumped, but lit grass reads continuous: no bare patches
-  const plant = r() < .05, free = r() < .08, a = free ? r()*Math.PI*2 : grassFlow(x, z) + (r() - .5)*.7   // combed: nearly all sweep with the field's flow
+  const plant = r() < .05, free = r() < .08, bk = bankBlend(x, z)
+  let a = free ? r()*Math.PI*2 : grassFlow(x, z) + (r() - .5)*.7   // combed: nearly all sweep with the field's flow
+  if (bk < 1){ const aw = awayFromPond(x, z) + (r() - .5)*.8, dA = Math.atan2(Math.sin(aw - a), Math.cos(aw - a)); a += dA*(1 - bk) }   // on the bank: turned up the slope, away from the water
   const wisp = !plant && r() < .07, tall = r() < .08, y = groundHeight(x, z)
   const lean = plant ? lerp(.05, .3, r()) : lerp(.3, 1.1, r()**1.1), turf = lerp(.28, .62, r()**1.2)*(tall ? lerp(1.3, 1.6, r()) : 1)*(plant ? lerp(1.3, 1.6, r()) : 1)   // against a 1.7 m person: turf knee-low
-  const len = (wisp ? lerp(.45, .8, r()) : turf)*lerp(.85, 1.15, g), wid = wisp ? len*.28 : len*lerp(1, 1.4, r())   // short turf is a wide, low tuft
+  const len = (wisp ? lerp(.45, .8, r()) : turf)*lerp(.85, 1.15, g)*lerp(.35, 1, bk), wid = wisp ? len*.28 : len*lerp(1, 1.4, r())   // short turf is a wide, low tuft
   const t = norm([Math.cos(a)*lean, 1, Math.sin(a)*lean])
   addStroke(o, r, { q: [x, y - .06, z], n: groundNormal(x, z), t, len, wid: wid*(plant ? 1.15 : 1)*(r() < .5 ? -1 : 1), tile: [Math.floor(r()*4), plant ? 3 : Math.floor(r()*3)], pivot: [x, y, z], ao: wisp ? 2 : 1, tone: clamp(g + (r() - .5)*.5), wind: [x, z, 0, 0] })
 }
@@ -1838,14 +1871,20 @@ const cellRandom = (i, j, seed, salt) => mulberry32((Math.imul(i, 73856093) ^ Ma
 
 // Rocks of one square: now and then a low boulder, most of them with one or two smaller stones in company, clear of the trunks.
 // perHa is boulders and stones per hectare on average.
-export function rocksOfCell(i, j, size, perHa, seed, trees = []){
+export function rocksOfCell(i, j, size, perHa, seed, trees = [], shore = true){
   const r = cellRandom(i, j, seed, 919), out = []
+  // stones along the bank: a few half in the water, most on the earth strip, 0.15-0.5 m
+  if (shore && pondDist((i + .5)*size, (j + .5)*size) < .8){ const rs = cellRandom(i, j, seed, 929)
+    for (let k = 0; k < 40 && out.length < 4; k++){
+      const x = (i + rs())*size, z = (j + rs())*size, d = pondDist(x, z), s = lerp(.15, .5, rs()**2), turn = rs()*Math.PI*2, flat = lerp(.45, .7, rs()), sd = Math.floor(rs()*1e6)
+      if (d < -.025 || d > pondShore(x, z) + .02 || noise3(x*.3, 9.1, z*.3) < .45 || out.some(q => Math.hypot(q.x - x, q.z - z) < (q.s + s)*1.3)) continue
+      out.push({ x, z, y: groundHeight(x, z), s, turn, flat, seed: sd }) } }
   if (r() > perHa*size*size/10000/2) return out                         // a group holds two stones on average
   const lead = { x: (i + r())*size, z: (j + r())*size, s: lerp(.25, .9, r()**1.5) }
   for (let k = 0, n = 1 + Math.floor(r()*3); k < n; k++){
     const a = r()*Math.PI*2, d = k ? lead.s*lerp(1.4, 3, r()) : 0, s = k ? lead.s*lerp(.35, .8, r()) : lead.s, x = lead.x + Math.cos(a)*d, z = lead.z + Math.sin(a)*d
     const turn = r()*Math.PI*2, flat = lerp(.6, .95, r()), sd = Math.floor(r()*1e6)
-    if (trees.some(q => !q.clear && Math.hypot(q.x - x, q.z - z) < q.r*2 + s) || out.some(q => Math.hypot(q.x - x, q.z - z) < (q.s + s)*.9)) continue
+    if (trees.some(q => !q.clear && Math.hypot(q.x - x, q.z - z) < q.r*2 + s) || out.some(q => Math.hypot(q.x - x, q.z - z) < (q.s + s)*.9) || pondDist(x, z) < .3) continue
     out.push({ x, z, y: groundHeight(x, z), s, turn, flat, seed: sd })
   }
   return out
@@ -1865,31 +1904,49 @@ export function generateGrassCell(i, j, size, density, seed, trees = [], rocksPe
     .filter(q => q.x > x0 - q.r && q.x < x0 + size + q.r && q.z > z0 - q.r && q.z < z0 + size + q.r)
   const N = Math.max(1, Math.round(maxDensity*size*size)), at = cellRandom(i, j, seed, 79)
   const mark = (from, rank, kind) => { for (let v = from; v < o.pos.length/3; v++){ o.patch[v*3] = rank; o.patch[v*3 + 1] = kind } }
-  for (let k = 0, n = Math.min(N, Math.round(density*size*size)); k < n; k++){
-    const x = x0 + at()*size, z = z0 + at()*size, tr = mulberry32((Math.imul(i, 73856093) ^ Math.imul(j, 19349663) ^ Math.imul(k + 1, 2654435761) ^ seed) >>> 0)
-    if (clear.some(q => Math.hypot(q.x - x, q.z - z) < q.r)) continue           // nothing grows through a rock
-    const from = o.pos.length/3
-    grassTuft(o, tr, x, z, sward)
-    mark(from, k/N, 0)
-  }
   // near the walker, a sward under the tufts: low, wide, overlapping cards in the root colour, so the gaps between tufts fill with grass and
   // the field reads as one thick mat instead of separate clumps
   const swardFrom = o.pos.length/3
   if (sward) for (let k = 0, n = Math.round(14*size*size); k < n; k++){
     const x = x0 + r()*size, z = z0 + r()*size
-    if (clear.some(q => Math.hypot(q.x - x, q.z - z) < q.r)) continue
+    if (clear.some(q => Math.hypot(q.x - x, q.z - z) < q.r) || pondDist(x, z) < pondShore(x, z) + .015) continue
     // laid over toward the flow, so seen from above as well as from the side they cover the soil: the strokes face the camera, and a blade
     // standing straight up shrinks to nothing when you look down at it
-    const y = groundHeight(x, z), len = lerp(.3, .5, r()), a = grassFlow(x, z) + (r() - .5)*1.2, lean = lerp(1.8, 3.2, r()), t = norm([Math.cos(a)*lean, 1, Math.sin(a)*lean])
+    const bk = bankBlend(x, z); let a = grassFlow(x, z) + (r() - .5)*1.2
+    if (bk < 1){ const aw = awayFromPond(x, z) + (r() - .5)*.8; a += Math.atan2(Math.sin(aw - a), Math.cos(aw - a))*(1 - bk) }
+    const y = groundHeight(x, z), len = lerp(.3, .5, r())*lerp(.35, 1, bk), lean = lerp(1.8, 3.2, r()), t = norm([Math.cos(a)*lean, 1, Math.sin(a)*lean])
     addStroke(o, r, { q: [x, y - .03, z], n: groundNormal(x, z), t, len, wid: lerp(.35, .55, r())*(r() < .5 ? -1 : 1), tile: [Math.floor(r()*4), Math.floor(r()*3)], pivot: [x, y, z], ao: 1, tone: clamp(grassLong(x, z)*.8 + r()*.2), wind: [x, z, 0, 0] })
   }
-  mark(swardFrom, 0, 1)                                                // the sward: only near the walker, faded by distance in the shader
+  mark(swardFrom, 0, 1)
+  const swardEnd = o.idx.length
+  // rushes in a few stands in the shallows: tall, narrow and dark, so they read as rushes and not as grass; always shown
+  const reedFrom = o.pos.length/3
+  if (pondDist(x0 + size/2, z0 + size/2) < .6) for (let k = 0, n = Math.round(9*size*size); k < n; k++){
+    const x = x0 + r()*size, z = z0 + r()*size, d = pondDist(x, z)
+    if (!reedAt(x, z)) continue
+    const y = groundHeight(x, z), len = lerp(.9, 1.5, r()), lean = lerp(.03, .18, r()), a = r()*7, t = norm([Math.cos(a)*lean, 1, Math.sin(a)*lean])
+    addStroke(o, r, { q: [x, Math.max(y, pondLevel) - .05, z], n: [0, 1, 0], t, len, wid: len*lerp(.14, .22, r())*(r() < .5 ? -1 : 1), tile: [Math.floor(r()*4), 3], pivot: [x, y, z], ao: 1, tone: r()*.2, wind: [x, z, 0, 0] })
+  }
+  mark(reedFrom, -1, 0)                                                // the sward: only near the walker, faded by distance in the shader
   const collarFrom = o.pos.length/3
   if (density > 4) for (const q of stones.filter(q => q.own)) for (let k = 0, n = Math.round(10 + q.s*14); k < n; k++){
     const a = r()*7, d = q.s*lerp(1.05, 1.35, r()), x = q.x + Math.cos(a)*d, z = q.z + Math.sin(a)*d, y = groundHeight(x, z), len = lerp(.12, .25, r()), t = norm([(r() - .5)*.5, 1, (r() - .5)*.5])
+    if (pondDist(x, z) < pondShore(x, z) + .02) continue          // a bank stone sits on bare earth or in the water: no grass round it
     addStroke(o, r, { q: [x, y - .05, z], n: [0, 1, 0], t, len, wid: len*lerp(.9, 1.3, r()), tile: [Math.floor(r()*4), Math.floor(r()*3)], pivot: [x, y, z], ao: 1, tone: r(), wind: [x, z, 0, 0] })
   }
   mark(collarFrom, -1, 0)                                            // a stone's collar always shows
+  // the tufts, last and in rank order, so the ones a cell needs at a given distance are a prefix of its tail: the field draws only those
+  // (o.lod: where the sward ends, where the always-shown strokes end, and each tuft's rank and the index count after it)
+  const fixedEnd = o.idx.length, ranks = [], ends = []
+  for (let k = 0, n = Math.min(N, Math.round(density*size*size)); k < n; k++){
+    const x = x0 + at()*size, z = z0 + at()*size, tr = mulberry32((Math.imul(i, 73856093) ^ Math.imul(j, 19349663) ^ Math.imul(k + 1, 2654435761) ^ seed) >>> 0)
+    if (clear.some(q => Math.hypot(q.x - x, q.z - z) < q.r) || pondDist(x, z) < pondShore(x, z) + .015) continue   // nothing grows through a rock, in the water, or on the bare bank (with a margin: a tuft is wide)
+    const from = o.pos.length/3
+    grassTuft(o, tr, x, z, sward)
+    mark(from, k/N, 0)
+    if (o.idx.length > (ends.length ? ends[ends.length - 1] : fixedEnd)){ ranks.push(k/N); ends.push(o.idx.length) }
+  }
+  o.lod = { swardEnd, fixedEnd, ranks: Float32Array.from(ranks), ends: Uint32Array.from(ends) }
   return o
 }
 
@@ -1902,7 +1959,7 @@ export function generateFlowerCell(i, j, size, per100, seed, trees = []){
   for (let n = 0, m = 25 + Math.floor(r()*30); n < m; n++){
     const a = r()*Math.PI*2, d = P.s*Math.sqrt(-Math.log(1 - r()*.95))*.6, x = P.x + Math.cos(a)*d, z = P.z + Math.sin(a)*d
     const len = lerp(.25, .45, r()), lean = lerp(0, .25, r()), b = r()*Math.PI*2, t = norm([Math.cos(b)*lean, 1, Math.sin(b)*lean]), tile = Math.floor(r()*4), tone = r()
-    if (trees.some(q => !q.clear && Math.hypot(q.x - x, q.z - z) < q.r*1.4)) continue
+    if (trees.some(q => !q.clear && Math.hypot(q.x - x, q.z - z) < q.r*1.4) || pondDist(x, z) < pondShore(x, z) + .04) continue
     const y = groundHeight(x, z), s = len*.5
     addStroke(o, r, { q: [x + t[0]*s, y + t[1]*s - .03, z + t[2]*s], n: [0, 1, 0], t, len, wid: len*.9, tile: [tile, P.kind], pivot: [x, y, z], ao: 1, tone, wind: [x, z, 0, 0] })
   }
@@ -1964,7 +2021,7 @@ export function layoutScene(p){
   guard = 0
   while (bushes.length < p.bushes && guard++ < 400){
     const R = lerp(p.height*Math.max(.5, p.crownWidth*1.2) + 2, p.groveRadius + 10, Math.sqrt(r())), a = r()*Math.PI*2   // bushes keep clear of the crown
-    if (Math.cos(a - Math.PI/4) > .4) continue                       // keep the opening camera's foreground clear
+    if (Math.cos(a - Math.PI/4) > .4 || pondDist(R*Math.cos(a), R*Math.sin(a)) < .4) continue   // keep the opening camera's foreground and the pond clear
     bushes.push({ x: R*Math.cos(a), z: R*Math.sin(a), scale: lerp(.7, 1.4, r()), seed: p.seed + 5000 + bushes.length*13 })
   }
   // out over the far meadow: stands of one to four bushes scattered to the edge of the land, for interest in the distance. They reuse a

@@ -3,10 +3,11 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import GUI from 'lil-gui'
 import Stats from 'stats.js'
 import { SPECIES, CROWNS, BRUSHES } from './presets.js'
-import { mulberry32, generatePlant, generateGround, generateGrassCell, generateGrassCollars, generateFlowerCell, rocksOfCell, groundHeight, layoutScene, newBuffer, GESTURE_NAMES } from './generator.js'
+import { speciesKeys, formKeys, seasonPal, seasonPair, groundKeys, hillKeys, HILL_TURN, autumnShare, leafKeep, isEvergreen, snowCover, SNOW_GROUND, mixPal, seasonSky, SUMMER_SKY, SEASON_NAMES } from './seasons.js'
+import { mulberry32, POND, pondDist, pondLevel, generatePlant, generateGround, generateGrassCell, generateGrassCollars, generateFlowerCell, rocksOfCell, groundHeight, layoutScene, newBuffer, GESTURE_NAMES } from './generator.js'
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { makeBrushAtlas, makeFieldTexture, makeGrassAtlas, makeFlowerAtlas } from './atlas.js'
-import { U, patch, newPalette, setPalette, paletteUniforms } from './ghibli-patch.js'
+import { U, patch, newPalette, setPalette, paletteUniforms, GLSL_NIGHT } from './ghibli-patch.js'
 import { makeSky } from './sky.js'
 import { makeMountains } from './mountains.js'
 import { makeFoliageMaterial, fillLobes } from './foliage-material.js'
@@ -18,6 +19,8 @@ import { addRecipeGui, loadSavedRecipes } from './recipe-gui.js'
 import { makeForest } from './forest.js'
 
 const qs = new URLSearchParams(location.search)
+let reCloudT = 0, seasonReady = false   // the season's sky waits for the scene to exist
+U.uSnow = { value: 0 }   // the season's snow, 0..1: on evergreens' lobes, the hills, the ground (src/seasons.js)
 // An opaque context of our own: three turns alpha back on for any context it creates, and alpha-to-coverage would then leave partial alpha in the
 // canvas, which reads back as a dark outline round every lit stroke
 const canvas = document.createElement('canvas')
@@ -45,6 +48,90 @@ scene.add(hemi)
 const sky = makeSky()
 const clouds = makeClouds()
 scene.add(sky, clouds)
+// The pond, painted as Ghibli paints still water: the sky reflected (deeper overhead, paler toward the far bank as the view grazes), the dark
+// green of the bank mirrored in a band round the edge, a deep teal body, a pale waterline at the shore, and a few slow horizontal glints.
+// Its outline is the terrain's own (pondDist); the plane sits at pondLevel and the banks cover its edge.
+const POND_GLSL = `
+  float pondDist(vec2 p){ float c = cos(${POND.turn.toFixed(4)}), s = sin(${POND.turn.toFixed(4)}); vec2 d = p - vec2(${POND.x.toFixed(3)}, ${POND.z.toFixed(3)});
+    float u = (d.x*c + d.y*s)/${POND.sx.toFixed(3)}, v = -d.x*s + d.y*c, th = atan(v, u);
+    float R = ${POND.r.toFixed(3)}*(1. + .16*sin(2.*th + 1.) + .09*sin(3.*th + 2.3) + .05*sin(5.*th + .4));
+    return length(vec2(u, v))/R - 1.; }
+  float pondShore(vec2 p){ return .14 + .06*sin(p.x*.9 + p.y*.4)*sin(p.y*.8 - p.x*.5) + .025*sin(p.x*2.3 - p.y*1.7); }`
+// The reflection: the scene drawn from a camera mirrored under the water (half resolution, the grass field left out, clipped at the surface),
+// then painted rather than mirrored: smeared down, pulled toward the middle values, its tones gathered into a few bands, and cut by thin
+// horizontal ripples. Drawn only while the pond is in view.
+const reflRT = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter })
+const reflCam = new THREE.PerspectiveCamera(), reflM = { value: new THREE.Matrix4() }
+const POND_BOX = POND.r*POND.sx*1.6
+const pondMat = new THREE.ShaderMaterial({
+  uniforms: { uIce: { value: 0 }, uProj: { value: camera.projectionMatrix }, tRefl: { value: reflRT.texture }, uReflM: reflM, uRocks: U.uRocks, uRockN: U.uRockN, uTop: sky.material.uniforms.uTop, uHorizon: sky.material.uniforms.uHorizon, uSunTint: U.uSunTint, uAmbTint: U.uAmbTint, uNightGrade: U.uNightGrade, uTime: U.uTime, uDay: U.uDay, uWindDir: U.uWindDir },
+  vertexShader: 'uniform mat4 uReflM; varying vec3 vW; varying vec4 vR; void main(){ vec4 w = modelMatrix*vec4(position, 1.); vW = w.xyz; vR = uReflM*w; gl_Position = projectionMatrix*viewMatrix*w; }',
+  fragmentShader: `uniform vec3 uTop, uHorizon, uSunTint, uAmbTint; uniform float uNightGrade, uTime, uDay; uniform vec2 uWindDir; uniform mat4 uProj; uniform float uIce; uniform sampler2D tRefl; uniform vec3 uRocks[32]; uniform int uRockN; varying vec3 vW; varying vec4 vR;
+    ${GLSL_NIGHT}
+    ${POND_GLSL}
+    float h1(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x*p.y); }
+    float vn(vec2 p){ vec2 i = floor(p), f = fract(p), u = f*f*(3. - 2.*f); return mix(mix(h1(i), h1(i + vec2(1, 0)), u.x), mix(h1(i + vec2(0, 1)), h1(i + vec2(1, 1)), u.x), u.y); }
+    void main(){
+      float d = pondDist(vW.xz);
+      // the water's edge is the pond's own outline where the bank's ramp meets the surface (d = -0.0125 all round), drawn exactly: the ground
+      // mesh's crossing would zigzag along its triangles. Near the edge the water also wins a near tie with the ground (lifted 6 cm toward the
+      // eye in depth), so the mesh's few cm of error under the surface never show through.
+      if (d > -.0125) discard;
+      { float lift = .06*smoothstep(-.08, -.03, d); vec4 cl = uProj*viewMatrix*vec4(vW + normalize(cameraPosition - vW)*lift, 1.); gl_FragDepth = cl.z/cl.w*.5 + .5; }
+      vec3 V = normalize(cameraPosition - vW);
+      float graze = 1. - V.y;                                                   // 0 looking straight down, 1 along the surface
+      float dist = length(cameraPosition - vW), px = max(fwidth(vW.x), fwidth(vW.z));
+      // now and then a ring spreads where a drop or a water strider touched: cells of 2.5 m, each ringing once every 7-15 s
+      float ring = 0.; vec2 rn = vec2(0.);
+      { vec2 ci = floor(vW.xz/2.5); for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++){ vec2 cc = ci + vec2(x, y);
+          float per = mix(7., 15., h1(cc + 3.3)), ph = fract(uTime/per + h1(cc + 8.1)), age = ph*per;
+          vec2 o = (cc + vec2(h1(cc), h1(cc + 1.7)))*2.5; if (pondDist(o) > -.08) continue;
+          float R = age*.45, dd = length(vW.xz - o), w = max(.025, px*1.2), fade = (1. - smoothstep(.0, 2.2, age))*step(age, 2.2);
+          float e = (1. - smoothstep(0., w, abs(dd - R)))*fade, e2 = (1. - smoothstep(0., w, abs(dd - R*.6)))*fade*.6*step(.4, age);
+          ring = max(ring, max(e, e2)); rn += normalize(vW.xz - o + 1e-4)*exp(-pow((dd - R)/.08, 2.))*fade; } }
+      // collars: a thin pale ring where a bank stone stands in the water
+      float collar = 0.;
+      {
+        for (int i = 0; i < 32; i++){ if (i >= uRockN) break; float rs = uRocks[i].z; vec2 o = uRocks[i].xy; if (pondDist(o) > .0) continue;
+          float dd = length(vW.xz - o), w = max(.02, px*1.2), rr = rs*mix(.78, .92, vn(vW.xz*4.));
+          collar = max(collar, (1. - smoothstep(0., w, abs(dd - rr)))*.9 + (1. - smoothstep(0., w, abs(dd - rr*1.25)))*.35); } }
+      // ripples: thin horizontal slices (across the view), each nudged sideways and up or down a little, drifting with the wind
+      vec2 q = vW.xz + uTime*uWindDir*.25; vec2 sd = normalize(vec2(-V.z, V.x) + 1e-4);
+      vec2 g = vec2(dot(q, sd)*.9, dot(q, vec2(-sd.y, sd.x))*7.);
+      float rip = vn(vec2(g.x*.35, g.y)) - .5, rip2 = vn(vec2(g.x*.15, g.y*.45) + 9.) - .5;
+      vec2 ruv = vR.xy/vR.w + vec2(rip*.012 + rip2*.006, rip*.004)*mix(1., .4, smoothstep(10., 60., dist)) + rn*.01/max(dist*.15, 1.);
+      // smeared down the screen (a reflection stretches toward the viewer and loses its detail), from a blurred level
+      vec3 r = vec3(0.); for (int k = 0; k < 6; k++) r += textureLod(tRefl, ruv + vec2(0., (float(k) - 1.5)*.006), 1.5).rgb; r /= 6.;
+      // painted, not mirrored: in display values, pulled toward the middle (darks lighter, lights darker) and gathered into a few bands
+      vec3 rd = pow(max(r, 0.), vec3(1./2.2)); float l = dot(rd, vec3(.3, .59, .11));
+      float lc = mix(l, .42, .22), K = 4., lq = (floor(lc*K) + smoothstep(.35, .65, fract(lc*K)))/K;
+      rd *= mix(lc, lq, .6)/max(l, 1e-3);
+      // the water's own colour shows through: a cool teal glaze, deeper looking down, the reflection strongest as the view grazes
+      // the body in three bands by depth: the shallows over the bed a mossy teal, then mid, then deep; seen most looking down
+      float dep = -d + (vn(vW.xz*.9) - .5)*.05;
+      vec3 deep = mix(mix(vec3(.08, .17, .12), vec3(.04, .13, .12), smoothstep(.1, .13, dep)), vec3(.02, .085, .09), smoothstep(.28, .32, dep));
+      vec3 refl = pow(rd*vec3(.82, .95, .97), vec3(2.2));
+      vec3 c = mix(gNightGrade(deep), refl, mix(.45, .92, smoothstep(.2, .95, graze)));
+      // the shallows: over the beach the bed shows through, a muddy olive, most when looking down; the reflection takes it at a graze
+      float sh = smoothstep(-.075, -.02, d + (vn(vW.xz*1.3) - .5)*.015);
+      c = mix(c, gNightGrade(vec3(.17, .17, .1)*mix(uAmbTint, uSunTint, .6)), sh*.55*(1. - smoothstep(.5, .95, graze)));
+      // glints: a few short strokes of light, only where the sky is reflected bright, and not under your feet
+      float glint = smoothstep(.86, .9, vn(g + vec2(0., vn(q*.3)*3.)))*smoothstep(.5, .65, vn(q*.18 + 7.))*smoothstep(.55, .75, l)*smoothstep(.3, .8, graze)*smoothstep(5., 14., dist);
+      c = mix(c, gNightGrade(mix(vec3(1.), uSunTint, .3)*.9), glint*.6*uDay);
+      // ice (winter): a pale blue sheet that keeps a faint reflection, with a few long cracks; no rings, no glints
+      if (uIce > 0.){ float cr = smoothstep(.97, .995, vn(vec2(dot(vW.xz, vec2(.8, .6))*.9, dot(vW.xz, vec2(-.6, .8))*3.)))*.5;
+        vec3 ice = gNightGrade(mix(vec3(.6, .74, .86), vec3(.82, .9, .96), smoothstep(.3, .9, graze))*mix(uAmbTint, uSunTint, .6));
+        c = mix(c, ice*(1. - cr*.3) + refl*.12, uIce*.85); ring *= 1. - uIce; glint *= 1. - uIce; }
+      vec3 pale = gNightGrade(vec3(.7, .82, .8)*mix(uAmbTint, uSunTint, .6));
+      c = mix(c, pale, ring*.35*smoothstep(40., 15., dist));
+      c = mix(c, pale, collar*.45*smoothstep(30., 10., dist));
+      // the waterline: a thin pale line where the water meets the bank
+      c = mix(c, gNightGrade(vec3(.7, .8, .76)*mix(uAmbTint, uSunTint, .6)), smoothstep(-.024, -.014, d)*.22);
+      gl_FragColor = vec4(c, 1.);
+      #include <colorspace_fragment>
+    }` })
+const pond = new THREE.Mesh(new THREE.CircleGeometry(POND.r*POND.sx*1.6, 96).rotateX(-Math.PI/2), pondMat)
+pond.position.set(POND.x, pondLevel, POND.z); pond.renderOrder = 1; scene.add(pond)
 const mountains = makeMountains(scene.fog.color); scene.add(mountains)   // painted hills and mountains round the horizon
 const L = { sun, hemi, sky, clouds, mountains, scene, reach: 80 }
 
@@ -54,7 +141,7 @@ const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('s
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
   showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, farBushes: 30, farRocks: 1, grass: 21, flowers: 16, rocks: 2,
-  mountains: true, mountainHeight: 1,
+  mountains: true, mountainHeight: 1, seasonOn: qs.has('season'), season: +(qs.get('season') || .25),
   time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 18, cloudSeed: 4, haze: .1, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
   windOn: true, wind: 1, autoRotate: false, exposure: 1, forest: +(qs.get('forest') || 0), forestKinds: 4, lodScale: 1,
@@ -100,9 +187,13 @@ const WAVE_FN = `
 `
 const WAVE = WAVE_FN   // the clock, wind and field are declared once for every patched fragment (ghibli-patch PARS)                // the fragment side has to declare the clock; the vertex side already does
 const GROUND_SHADE = `{ vec2 fp = gXZ.x > 1e5 ? vWPos.xz : gXZ;               // the field is read at the ground, or at a tuft's root: a blade is the colour of the soil it stands in
-  vec2 w = fp + 3.*vec2(fld(fp*.09), fld(fp*.09 + 7.));
-  vec2 d = vec2(w.x*.82 + w.y*.57, w.y*.82 - w.x*.57);
-  float sunK = min(gLit/uSunUp, 1.), drift = fld(d*.025 + 2.), wash = fld(d*.06 + 13.);
+
+#ifdef GRASS_ROOT
+  vec4 rA = vRootA, rB = vRootB; vec2 w = vec2(0.);
+#else
+  vec4 rA, rB; vec2 w = gRootTerms(fp, rA, rB);
+#endif
+  float drift = rA.x, wash = rA.y;
   // light or shade: cast shadow decides, with a short firm step; slopes turned from the sun fall to a half-tone even out of any shadow
   float inSun = smoothstep(.3, .55, gSeen + (wash - .5)*.1), facing = gNdl/uSunY;                // 1 on flat ground whatever the sun's height; below 1 on slopes turned from it
   // cloud shadows: big soft patches, 60-150 m, sweeping across with the wind at about 6 m/s
@@ -112,6 +203,10 @@ const GROUND_SHADE = `{ vec2 fp = gXZ.x > 1e5 ? vWPos.xz : gXZ;               //
   float fc = facing + (wash - .5)*.12, fw = max(fwidth(fc)*.75, 1e-4);
   float lit = inSun*mix(.45, 1., smoothstep(.85 - fw, .85 + fw, fc));   // a slope turned from the sun is a lighter tier than a cast shadow   // (one shade) a slope turned from the sun goes most of the way to shade: the folds of the land carry the light
   gLitF = lit; gLitV = lit;   // shade is shade: a cast shadow and a slope turned from the sun take the same value and the same dark under the grass                                            // one light for the ground and every blade on it
+  float onGrass = step(.5, length(gGroundN));                               // blades carry their own paint: the ground's strokes are for the ground
+  float edge = 1. - abs(inSun*2. - 1.), crest = smoothstep(.6, .85, wash)*smoothstep(.8, 1., lit);   // along the edge of a cast shadow, and on lit crests
+  float stroke = 0.;
+#ifndef GRASS_ROOT
   // the stroke frame: down the fall line where the land slopes, along the wind where it is flat
   vec3 dn = normalize(cross(dFdx(vWPos), dFdy(vWPos))), wn = mix(dn, gGroundN, step(.5, length(gGroundN))); if (wn.y < 0.) wn = -wn;   // the ground's own surface, or the terrain under a tuft's root
   vec2 fall = length(wn.xz) > .04 ? normalize(wn.xz) : vec2(.82, .57);
@@ -119,13 +214,13 @@ const GROUND_SHADE = `{ vec2 fp = gXZ.x > 1e5 ? vWPos.xz : gXZ;               //
   vec2 sp = vec2(dot(w, fall), dot(w, vec2(-fall.y, fall.x))), sw = sp + .15*vec2(fld(sp*1.7), fld(sp*1.7 + 3.));
   vec2 q1 = sw*vec2(1./.35, 1./.09), q2 = sw*vec2(1./1.1, 1./.28);           // flicks: ~0.35 m near, ~1.1 m further out, long down the slope
   float lod1 = 1. - smoothstep(.6, 1.3, max(fwidth(q1).x, fwidth(q1).y*.4)), lod2 = 1. - smoothstep(.6, 1.3, max(fwidth(q2).x, fwidth(q2).y*.4));
-  float onGrass = step(.5, length(gGroundN));                               // blades carry their own paint: the ground's strokes are for the ground
-  float edge = 1. - abs(inSun*2. - 1.), crest = smoothstep(.6, .85, wash)*smoothstep(.8, 1., lit);   // along the edge of a cast shadow, and on lit crests
   float dens = (.08 + .6*max(edge, crest))*(1. - onGrass);
   vec2 F1 = vec2(0.), F2 = vec2(0.);
   if (dens > 0.){ F1 = gDab(q1); F2 = gDab(q2 + 17.); }                     // (perf) grass pixels never pay for the ground's strokes
   float f1 = F1.x*step(1. - dens, F1.y)*lod1, f2 = F2.x*step(1. - dens, F2.y)*lod2*(1. - lod1*.7);
-  float stroke = max(f1, f2), sgn = lit > .85 ? 1. : -1.;   // a stroke is lighter only in full light; in half-tone and shade it is a darker mark
+  stroke = max(f1, f2);   // a stroke is lighter only in full light; in half-tone and shade it is a darker mark
+#endif
+  float sgn = lit > .85 ? 1. : -1.;   // a stroke is lighter only in full light; in half-tone and shade it is a darker mark
   // two bands, as every stylized grass setup lights it: light and shade with a soft step. Variety does not go through the light (banded, it
   // breaks into shards); it lives in the base colour below.
   kk = mix(.27, .6, lit) + (drift - .5)*.06 + (wash - .5)*.12*mix(.4, 1., lit) + stroke*sgn*mix(.05, .1, lit) + crest*.05;   // with no bands to cross, value can move again
@@ -133,7 +228,8 @@ const GROUND_SHADE = `{ vec2 fp = gXZ.x > 1e5 ? vWPos.xz : gXZ;               //
   // wind: bands of gust sweep across the field; under one the grass bends and shows its paler side
   // a gust is drawn the way anime draws it: clusters of short parallel strokes along the wind where the bent blades catch the light,
   // thickest right behind the front and thinning out after it, on the ground only (the tufts flash their own tips)
-  { vec2 hp = vWPos.xz, wdir = uWindDir, hq = vec2(dot(hp, wdir)/1.3, dot(hp, vec2(-wdir.y, wdir.x))/.38);   // streaks: pointed at both ends, 0.7-3 m long, mixed lengths along the band   // drawn where the pixel is, ground or blade
+  // (perf) the streaks only show past 22 m (smoothstep(22., 45., ...) below): nearer pixels skip the block, the field reads and the phase
+  if (uWind > 0. && distance(vWPos.xz, cameraPosition.xz) > 22.) { vec2 hp = vWPos.xz, wdir = uWindDir, hq = vec2(dot(hp, wdir)/1.3, dot(hp, vec2(-wdir.y, wdir.x))/.38);   // streaks: pointed at both ends, 0.7-3 m long, mixed lengths along the band   // drawn where the pixel is, ground or blade
     hq += vec2(fld(hp*.3)*3., 0.);
     float lodH = 1. - smoothstep(.7, 1.6, max(fwidth(hq).x*.4, fwidth(hq).y));
     vec2 q = gPhase(hp), H = vec2(0.);
@@ -145,39 +241,39 @@ const GROUND_SHADE = `{ vec2 fp = gXZ.x > 1e5 ? vWPos.xz : gXZ;               //
     gWaveF = H.x*step(H.y, band*clump*1.35)*lodH*smoothstep(22., 45., distance(hp, cameraPosition.xz))*smoothstep(.75, .9, gLitV); }   // the light catches the bent blades only where there is sun   // each stroke is on or off: it lights when the gust here is stronger than its own threshold
   // grass painted into the ground: thin marks laid along the line of sight, so seen across the ground they stand up as blades; a coarser
   // set takes over where the fine one would shimmer, and the whole layer fades in where real tufts thin out
+
+#ifndef GRASS_ROOT
   { vec2 vd = normalize(fp - cameraPosition.xz + vec2(1e-3)), bq = vec2(dot(fp, vec2(-vd.y, vd.x))/.06, dot(fp, vd)/.5), bq2 = bq/3.;
     float l1 = 1. - smoothstep(.5, 1.2, max(fwidth(bq).x, fwidth(bq).y*.3)), l2 = 1. - smoothstep(.5, 1.2, max(fwidth(bq2).x, fwidth(bq2).y*.3));
     gBladeOn = smoothstep(4., 12., distance(fp, cameraPosition.xz))*(1. - onGrass); vec2 B1 = vec2(0.), B2 = vec2(0.);
     if (gBladeOn > 0.){ B1 = gDab(bq); B2 = gDab(bq2 + 7.); }                  // (perf) ground only
     gBlade = B1.x*l1 + B2.x*l2*(1. - l1); }
+#endif
+
   // colour: light warm, shade cool; a few shade strokes pick up the sky
   // colour lives in the field, at the scales Ref A paints it: broad areas of fresh green, chartreuse and blue-green over ~30 m, broken by
   // smaller swathes over ~8 m; light crests go pale yellow-green; shade is teal and also drifts
-  float hueA = smoothstep(.3, .7, fld(d*.03 + 41.)), hueB = smoothstep(.35, .65, fld(d*vec2(.09, .14) + 23.));
+  float hueA = rA.z, hueB = rA.w;
   vec3 litC = mix(mix(vec3(.9, 1., 1.1), vec3(1.0, 1.01, .95), hueA), vec3(1.16, 1.06, .7), hueA*hueB);
   litC = mix(litC, vec3(1.18, 1.12, .78), crest*.6);
   vec3 shadeC = mix(vec3(.84, .98, 1.2), vec3(.78, 1., 1.3), hueB);
   gTint = mix(vec3(.96, 1., 1.04), vec3(1.), lit);                       // the sampled colours already carry their temperature: no extra tint on top
-  vec3 clump = vec3(fld(fp*.29 + 61.), 0., fld(fp*.29 + 83.));   // (perf) one lookup, where a 9-cell Voronoi search cost ~0.6 ms on grass                                              // clumps of 2-5 m share a hue, ground and grass alike (as Ghost of Tsushima's)
-  gHA = clamp(hueA + (clump.z - .5)*.1, 0., 1.); gHB = clamp(hueB + (clump.x - .5)*.08, 0., 1.); gLitP = lit;
+  gHA = rA.z; gHB = rA.w; gLitP = lit;
   gMod *= 1. + (drift - .5)*.06;
   // distance: on a clear day the far hills only cool a little toward teal and keep their light and shade (no haze flattening them)
-  { float far = smoothstep(120., 600., distance(fp, cameraPosition.xz));
+  { float far = rB.x;
     gTint = mix(gTint, mix(vec3(.85, 1., 1.12), vec3(.95, 1., 1.04), lit), far*.2); kk = mix(kk, .36 + lit*.2, far*.04); gFar = far; }
-  float near = 1e3, aoT = 0., nT = fld(fp*2.1) - .5;
-  for (int i = 0; i < uTreeN; i++){ if (uContactBox.w > .5 && max(abs(uTrees[i].x - uContactBox.x), abs(uTrees[i].y - uContactBox.y)) < uContactBox.z) continue;   /* baked: its own wood gives its contact */ float r = uTrees[i].z, d = length(fp - uTrees[i].xy); near = min(near, d/r); aoT = max(aoT, 1. - smoothstep(r*.9, r*2.6, d + nT*r*.5)); }   // one pass: the bare foot and the contact shade
-  near += (fld(fp*1.3) - .5)*.8;
-  gFoot = 1. - smoothstep(.5, 1.5, near);
-  // where the wood itself has been baked, contact follows each root's and the trunk's own outline instead of a radial pool
-  { float wide, cAO = gContactAO(fp, wide); if (gContactIn > .5){ aoT = cAO; gFoot = smoothstep(.2, .6, wide)*.8; } }
+  gFoot = rB.y;
   kk *= 1. - .34*gFoot;
-  // contact shade: a soft cool pool where a trunk or a stone meets the ground, the way a painter grounds it (no AO pass: positions are known)
-  { float ao = 0.;
-    ao = aoT;
-    float nR = fld(fp*3.3) - .5;
-    for (int i = 0; i < 32; i++){ if (i >= uRockN) break; float r = uRocks[i].z, d = length(fp - uRocks[i].xy); ao = max(ao, 1. - smoothstep(r*.85, r*1.7, d + nR*r*.3)); }   // only the stones near the camera
-    // the colour moves to the deep tier in GROUND_PAL
-    gAO = ao; gTint *= mix(vec3(1.), vec3(.94, .98, 1.04), ao); } }`
+  // contact shade: a soft cool pool where a trunk or a stone meets the ground (gRootTerms); the colour moves to the deep tier in GROUND_PAL
+  gAO = rB.z; gTint *= mix(vec3(1.), vec3(.94, .98, 1.04), gAO);
+  // the pond's bank: bare earth in a ragged strip round the water, darker and wet in the last hand's breadth
+#ifndef GRASS_ROOT
+  if (distance(fp, vec2(${POND.x.toFixed(3)}, ${POND.z.toFixed(3)})) < ${(POND.r*POND.sx*1.6).toFixed(2)}){ float pd = pondDist(fp), sw = pondShore(fp) - fld(fp*1.7)*.03 - fld(fp*5.3)*.02;   // a ragged edge, at two scales, only ever inside the line the grass keeps behind
+    gShore = 1. - smoothstep(sw - .008, sw + .002, pd); gShoreU = sw - pd;
+    gWet = 1. - smoothstep(-.01, .06, pd + (fld(fp*2.3) - .5)*.02); }
+#endif
+  }`
 // bare earth at a tree's foot: in shade a darker, warmer turn of the ground's own shade colour (a fixed earth colour read as a grey stain), in sun a warm ochre (Ghibli paints lit dirt light and warm, never mud)
 const GROUND_PAL = `pal *= mix(1., mix(.92, 1.13, gBlade), gBladeOn*(1. - gFar*.5));   // the painted blades: light tips, dark gaps
   pal = mix(pal, mix(pal, vec3(.95, .99, .86), .8), gWaveF);   // the hatch: near-white, a little warm                      // a passing ripple: the grass bows and shows its pale side                       // a passing gust
@@ -191,7 +287,8 @@ const GROUND_PAL = `pal *= mix(1., mix(.92, 1.13, gBlade), gBladeOn*(1. - gFar*.
     // chartreuse lift toward P3, a teal lean in shade. On MEADOW this gives exactly the sampled greens; an autumn straw palette keeps its own hue.
     vec3 g1 = pow(uPal1, vec3(1./2.2)), g2 = pow(uPal2, vec3(1./2.2)), g3 = pow(uPal3, vec3(1./2.2));
     vec3 litC = mix(mix(g2*vec3(.947, .988, 1.175), g2*vec3(1.158, 1.06, .984), gHA), g3*vec3(1.058, 1.03, .963), gHA*gHB*.6);   /* MEADOW: #5aa64a, #6eb23e, #a5d14f */
-    vec3 shC = gHueRot(gSatTo(g1, gSat(g2)*.95), mix(.07, .3, gHB));   // shade keeps the light's saturation; the teal lean is a hue turn, not added blue                                                                               /* MEADOW: #305437, toward teal #2e5450 */
+    vec3 shC = gHueRot(gSatTo(g1, gSat(g2)*.95), mix(.07, .3, gHB));
+    shC = mix(shC, g1, uSnow);   // snow: its shade is the palette's own blue, not matched to the white's (nil) saturation   // shade keeps the light's saturation; the teal lean is a hue turn, not added blue                                                                               /* MEADOW: #305437, toward teal #2e5450 */
     // contact: sun and sky both blocked, so it is the deep tier whatever the sun does: P0, and the accent at its core (a trunk's or stone's foot)
     // only the core of the contact pool is deep: the rest of a canopy's footprint is ordinary shade (P1), as under Laputa's great tree
     float litP = gLitP*(1. - smoothstep(.45, .85, gAO)*.9);
@@ -201,8 +298,53 @@ const GROUND_PAL = `pal *= mix(1., mix(.92, 1.13, gBlade), gBladeOn*(1. - gFar*.
     pal = mix(pal, tgt/mix(vec3(.84, .9, 1.), vec3(1.06, .99, .89), litP), .9*(1. - gFoot*(1. - gAO))*(1. - gFar*.6));   // divide out noon's light only: dawn, dusk and night still tint and darken the field   // the light's own tint is applied after this: divide it out so the sampled colour is what shows
     // marks down the fall line and pale crests, also in the base colour: warmer and lighter in light, cooler and a touch darker in shade
     pal = mix(pal, gStroke > 0. ? pal*vec3(1.08, 1.08, .86) + .02 : pal*vec3(.9, .97, 1.1), abs(gStroke)*.8);
-    pal = mix(pal, pal*vec3(1.1, 1.08, .82) + .03, gCrest*.5); }`
-const GROUND_FRAG = WAVE + ' float gCloud = 0.; vec2 gStreak(vec2 p){ vec2 i = floor(p); float on = 0., tone = 1.; for (int dy = -1; dy <= 1; dy++) for (int dx = -2; dx <= 2; dx++){ vec2 c = i + vec2(dx, dy); float h = h21(c), h2 = h21(c + 3.1), h3 = h21(c + 7.7); float len = mix(.6, 2.6, h*h), cx = c.x + h2, cy = c.y + .5 + (h3 - .5)*.5, t = (p.x - cx)/len + .5; if (t > 0. && t < 1.){ float w = mix(.12, .42, h21(c + 5.3))*pow(1. - abs(2.*t - 1.), 1.4); if (abs(p.y - cy) < w && on < .5){ on = 1.; tone = h3; } } } return vec2(on, tone); } float gWaveF = 0., gBlade = 0., gBladeOn = 0.; float gHA = 0., gHB = 0., gLitP = 1., gStroke = 0., gCrest = 0., gFar = 0.; vec2 gXZ = vec2(1e6); vec3 gGroundN = vec3(0.); float gPig = 0., gLitF = 1., gLitV = 1.; vec2 gDab(vec2 p){ vec2 i = floor(p), f = fract(p); float top = -1., tone = .5; for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++){ vec2 g = vec2(x, y), c = i + g, r = g + vec2(h21(c), h21(c + 31.7))*.8 + .1 - f; float h = h21(c + 5.1), e = length(r*vec2(1., 1.25 + h*.4)); if (e < .42 + .2*h21(c + 2.3) && h > top){ top = h; tone = h21(c + 11.7); } } return vec2(step(0., top), tone); } vec3 gVor(vec2 p){ vec2 i = floor(p), f = fract(p), id = i; float d1 = 8., d2 = 8.; for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++){ vec2 g = vec2(x, y), o = vec2(h21(i + g), h21(i + g + 31.7))*.8 + .1, r = g + o - f; float e = dot(r, r); if (e < d1){ d2 = d1; d1 = e; id = i + g; } else if (e < d2) d2 = e; } return vec3(h21(id + 5.1), sqrt(d2) - sqrt(d1), h21(id + 11.7)); } uniform vec3 uGrassFar; uniform int uTreeN; uniform vec3 uTrees[24]; uniform vec3 uRocks[32]; uniform int uRockN; float gAO = 0.; float gFoot = 0.; float fld(vec2 p){ return texture2D(tField, p/16.).r; }' + ' uniform sampler2D tContact; uniform vec4 uContactBox; ' + GLSL_CONTACT
+    pal = mix(pal, pal*vec3(1.1, 1.08, .82) + .03, gCrest*.5);
+    // the bare bank: a warm, light ochre earth in sun (Ghibli paints lit dirt light and warm), a cool umber in shade, darker where wet
+    if (gShore > 0.){ vec2 ep = vWPos.xz;
+      // broad patches: warm ochre and a cooler grey-brown, as a painter lays the dirt in two or three washes
+      float big = smoothstep(.35, .65, fld(ep*.45 + 5.)), mid = fld(ep*1.6 + 9.);
+      vec3 eL = mix(vec3(.8, .66, .45), vec3(.68, .6, .5), big), eS = mix(vec3(.44, .36, .33), vec3(.37, .35, .36), big);
+      vec3 e = mix(eS, eL, litP)*(.94 + mid*.12);
+      // small stones and grit: dabs at ~8 cm, light on top in sun with a dark underside, a few darker; gone where they would shimmer
+      // grit: sparse, varied, low contrast (a scatter, not a pattern)
+      vec2 pq = ep/vec2(.045, .035), pq2 = ep/.12; float lodP = 1. - smoothstep(.45, 1., max(fwidth(pq.x), fwidth(pq.y))), lodQ = 1. - smoothstep(.45, 1., max(fwidth(pq2.x), fwidth(pq2.y)));
+      vec2 P = gDab(pq); float grit = P.x*step(.86, P.y)*lodP*smoothstep(.3, .6, fld(ep*.9 + 3.));
+      e = mix(e, e*mix(.82, 1.12, step(.5, fract(P.y*13.))), grit*.7);
+      // a few pebbles, each a lit top over a dark underside: the dab, and the same dab shifted toward the viewer (its near, lower edge)
+      vec2 tow = normalize(cameraPosition.xz - ep + 1e-4)*.16;
+      vec2 Q = gDab(pq2 + 31.), Qs = gDab(pq2 + 31. - tow); float peb = Q.x*step(.93, Q.y)*lodQ, pebS = Qs.x*step(.93, Qs.y)*lodQ*(1. - peb);
+      e = mix(e, mix(e*.78, e*1.12 + .02, litP), peb*.75);
+      e = mix(e, e*.62, pebS*.7);
+      // damp toward the water: darker and a little olive, then wet and dark at the edge
+      e = mix(e, e*vec3(.6, .63, .58), smoothstep(0., 1., gWet)*.75);
+      e = mix(e, vec3(.25, .25, .18)*mix(.7, 1., litP), smoothstep(.75, 1., gWet)*.6);
+      // under the grass's edge: a dark line where the turf overhangs the bank, 
+      e *= 1. - .35*(1. - smoothstep(.0, .02, gShoreU))*(1. - gWet);
+      e *= 1. + (kk - mix(.27, .6, gLitP))*.5;   // the field's own washes, softly: its flick strokes read as leaves on bare earth
+      e = pow(e, vec3(2.2))/mix(vec3(.84, .9, 1.), vec3(1.06, .99, .89), litP);
+      pal = mix(pal, e, gShore*(1. - uSnow)); } }`   // under snow the bank is snow like the rest
+const GROUND_ROOT = `
+// what the ground's look takes from the spot itself, not from the light: the field's drift and wash, its hue masks, distance, a tree's bare foot
+// and contact, stones' contact. The ground reads them per pixel; a grass tuft reads them once per vertex at its root (the same for the whole tuft).
+vec2 gRootTerms(vec2 fp, out vec4 rA, out vec4 rB){
+  vec2 w = fp + 3.*vec2(fld(fp*.09), fld(fp*.09 + 7.));
+  vec2 d = vec2(w.x*.82 + w.y*.57, w.y*.82 - w.x*.57);
+  float drift = fld(d*.025 + 2.), wash = fld(d*.06 + 13.);
+  float hueA = smoothstep(.3, .7, fld(d*.03 + 41.)), hueB = smoothstep(.35, .65, fld(d*vec2(.09, .14) + 23.));
+  vec3 clump = vec3(fld(fp*.29 + 61.), 0., fld(fp*.29 + 83.));
+  float far = smoothstep(120., 600., distance(fp, cameraPosition.xz));
+  float near = 1e3, aoT = 0., nT = fld(fp*2.1) - .5;
+  for (int i = 0; i < uTreeN; i++){ if (uContactBox.w > .5 && max(abs(uTrees[i].x - uContactBox.x), abs(uTrees[i].y - uContactBox.y)) < uContactBox.z) continue;   /* baked: its own wood gives its contact */ float r = uTrees[i].z, d = length(fp - uTrees[i].xy); near = min(near, d/r); aoT = max(aoT, 1. - smoothstep(r*.9, r*2.6, d + nT*r*.5)); }   // one pass: the bare foot and the contact shade
+  near += (fld(fp*1.3) - .5)*.8;
+  float foot = 1. - smoothstep(.5, 1.5, near);
+  { float wide, cAO = gContactAO(fp, wide); if (gContactIn > .5){ aoT = cAO; foot = smoothstep(.2, .6, wide)*.8; } }
+  float ao = aoT, nR = fld(fp*3.3) - .5;
+  for (int i = 0; i < 32; i++){ if (i >= uRockN) break; float r = uRocks[i].z, d = length(fp - uRocks[i].xy); ao = max(ao, 1. - smoothstep(r*.85, r*1.7, d + nR*r*.3)); }   // only the stones near the camera
+  rA = vec4(drift, wash, clamp(hueA + (clump.z - .5)*.1, 0., 1.), clamp(hueB + (clump.x - .5)*.08, 0., 1.)); rB = vec4(far, foot, ao, 0.);
+  return w; }`
+const GROUND_FRAG = WAVE + ' float gCloud = 0.; vec2 gStreak(vec2 p){ vec2 i = floor(p); float on = 0., tone = 1.; for (int dy = -1; dy <= 1; dy++) for (int dx = -2; dx <= 2; dx++){ vec2 c = i + vec2(dx, dy); float h = h21(c), h2 = h21(c + 3.1), h3 = h21(c + 7.7); float len = mix(.6, 2.6, h*h), cx = c.x + h2, cy = c.y + .5 + (h3 - .5)*.5, t = (p.x - cx)/len + .5; if (t > 0. && t < 1.){ float w = mix(.12, .42, h21(c + 5.3))*pow(1. - abs(2.*t - 1.), 1.4); if (abs(p.y - cy) < w && on < .5){ on = 1.; tone = h3; } } } return vec2(on, tone); } float gWaveF = 0., gBlade = 0., gBladeOn = 0.; float gHA = 0., gHB = 0., gLitP = 1., gStroke = 0., gCrest = 0., gFar = 0.; vec2 gXZ = vec2(1e6); vec3 gGroundN = vec3(0.); float gPig = 0., gLitF = 1., gLitV = 1.; vec2 gDab(vec2 p){ vec2 i = floor(p), f = fract(p); float top = -1., tone = .5; for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++){ vec2 g = vec2(x, y), c = i + g, r = g + vec2(h21(c), h21(c + 31.7))*.8 + .1 - f; float h = h21(c + 5.1), e = length(r*vec2(1., 1.25 + h*.4)); if (e < .42 + .2*h21(c + 2.3) && h > top){ top = h; tone = h21(c + 11.7); } } return vec2(step(0., top), tone); } vec3 gVor(vec2 p){ vec2 i = floor(p), f = fract(p), id = i; float d1 = 8., d2 = 8.; for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++){ vec2 g = vec2(x, y), o = vec2(h21(i + g), h21(i + g + 31.7))*.8 + .1, r = g + o - f; float e = dot(r, r); if (e < d1){ d2 = d1; d1 = e; id = i + g; } else if (e < d2) d2 = e; } return vec3(h21(id + 5.1), sqrt(d2) - sqrt(d1), h21(id + 11.7)); } uniform vec3 uGrassFar; uniform int uTreeN; uniform vec3 uTrees[24]; uniform vec3 uRocks[32]; uniform int uRockN; float gAO = 0.; float gFoot = 0.; float gShore = 0., gWet = 0., gShoreU = 0.; uniform float uSnow; float fld(vec2 p){ return texture2D(tField, p/16.).r; }' + POND_GLSL + ' uniform sampler2D tContact; uniform vec4 uContactBox; ' + GLSL_CONTACT + GROUND_ROOT
+// the same, for a grass tuft's vertex shader
+const GROUND_ROOT_VERT = ' uniform sampler2D tField; float fld(vec2 p){ return texture2D(tField, p/16.).r; } uniform int uTreeN; uniform vec3 uTrees[24]; uniform vec3 uRocks[32]; uniform int uRockN; uniform sampler2D tContact; uniform vec4 uContactBox; ' + GLSL_CONTACT + GROUND_ROOT
 // (WAVE is defined above GROUND_SHADE)
 // The sward: under the grass the ground is painted a step darker, so every gap between blades is a deep blue-green and the lit blades
 // read against it, as a background painter lays the dark first. It fades out past the grass's reach.
@@ -285,9 +427,13 @@ const FLECK = `uniform float uFlecks; varying vec2 vLS;
   bool fleckHole(vec2 p){ if (uFlecks <= 0.) return false;
     float near = smoothstep(.3, .75, fvn(p/6.) + (uFlecks - .3)*.6);              // flecks gather where the canopy happens to be thin, and leave whole stretches solid
     return spot(p, 1.8, 0., uFlecks*near*1.5) || spot(p, .75, 7.3, uFlecks*near); }`
-const makeFoliageDepth = tex => {
+// a stroke that has fallen (leaf fall, src/seasons.js) casts nothing: the same per-stroke day as in the foliage shader
+const STROKE_FALL = `{ float hk = fract(sin(dot(aStroke*7.31 + clusterCenter*1.37, vec3(39.346, 11.135, 83.155)))*24634.6345);
+  if (smoothstep(hk, hk + .06, uLeafKeep*1.06) < .5) mvPosition = vec4(0., 0., 1e5, 1.); }`
+const makeFoliageDepth = tex => { const keepU = { value: 1 }
   const m = patch(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide, alphaMap: tex, alphaTest: .36 }),
-    { wind: true, clumpExpr: 'clusterCenter', vertexPars: STROKE_PARS + ' attribute vec3 clusterCenter; varying vec2 vLS;', afterView: STROKE_FAN + ' vLS = mvPosition.xy;' })
+    { wind: true, clumpExpr: 'clusterCenter', vertexPars: STROKE_PARS + ' attribute vec3 clusterCenter; varying vec2 vLS; uniform float uLeafKeep;', afterView: STROKE_FAN + ' vLS = mvPosition.xy;' + STROKE_FALL, uniforms: { uLeafKeep: keepU } })
+  m.userData.leafKeep = keepU
   const base = m.onBeforeCompile
   m.onBeforeCompile = sh => { base(sh)
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FLECK).replace('#include <alphatest_fragment>', '#include <alphatest_fragment>\n  if (fleckHole(vLS)) discard;') }
@@ -303,8 +449,8 @@ const casterMat = tex => new THREE.MeshBasicMaterial({ colorWrite: false, depthW
 //  moss:    greens that climb from the roots and sit on top of limbs, in painted shapes with firm edges
 // Sun lands in broken plates on big wood; wood buried in the crown goes to the crown's shadow; the foot of the trunk takes the ground's colour.
 const barkLook = { uBarkScale: { value: 1 }, uBarkStretch: { value: 1 }, uBarkPlates: { value: 0 }, uBarkBands: { value: 0 } }
-const sink = { value: 1 }, crownDark = { value: 1 }, pxAngle = { value: .001 }    // both only mean anything with foliage there to hide the wood
-const makeWoodMat = (barkPal, inkPal, color) => patch(new THREE.MeshStandardMaterial({ color, roughness: .9 }), {
+const sink = { value: 1 }, crownDark = { value: 1 }, pxAngle = { value: .001 }, woodHid = { keep: 1 }   // keep: the share of leaf on the tree (seasons)    // both only mean anything with foliage there to hide the wood
+const makeWoodMat = (barkPal, inkPal, color, hid = { sink, crownDark }) => patch(new THREE.MeshStandardMaterial({ color, roughness: .9 }), {
   toon: true, wind: true, flatShadow: true, softRamp: true, pigment: 'gRidge*.3',
   // Wood inside a clump sinks behind the leaves in depth alone, the amount it is buried: it stays where it is on screen, so a limb runs up to the
   // foliage and goes in, and never shows as a loose piece floating in front of a clump's body. Its shadow doesn't move.
@@ -314,7 +460,7 @@ const makeWoodMat = (barkPal, inkPal, color) => patch(new THREE.MeshStandardMate
     // wood is never drawn thinner than about a pixel and a half: far twigs stay visible lines instead of fading out and leaving the crown's leaves floating
     ' { vec3 wq = (modelMatrix*vec4(transformed, 1.)).xyz; float need = .8*uPxAngle*distance(wq, cameraPosition); if (clusterCenter.x > 0. && clusterCenter.x < need) transformed += normal*(need - clusterCenter.x); }',
   fragmentPars: `varying float vCrack; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow, uCrownDark;
-    uniform float uBarkScale, uBarkStretch, uBarkPlates, uBarkBands; vec3 gB = vec3(0.); float gSun = 1., gRidge = 0., gMoss = 0., gLichen = 0., gCrack = 0., gHue = 0.;`,
+    uniform float uBarkScale, uBarkStretch, uBarkPlates, uBarkBands, uSnow; vec3 gB = vec3(0.); float gSun = 1., gRidge = 0., gMoss = 0., gLichen = 0., gCrack = 0., gHue = 0., gSnowB = 0.;`,
   color: `{ gB = vec3(vB.xy*uBarkScale, vB.z*1.45*uBarkScale/uBarkStretch); vec2 ring = gB.xy; float thick = vLeafA.x;
     float big = fbm3(vec3(ring*1.7, gB.z*.5) + 3.), fine = fbm3(vec3(ring*5.5, gB.z*1.6));
     gRidge = ((big - .5)*1.1 + (fine - .5)*.4)*(.25 + .75*vLeafA.z);
@@ -329,6 +475,12 @@ const makeWoodMat = (barkPal, inkPal, color) => patch(new THREE.MeshStandardMate
     float up = normalize(vWN).y*.5 + .5, low = 1. - smoothstep(.1, 3.2, vH);
     float m = fbm3(vec3(ring*2.3, gB.z*.3) + 9.) + .1*low + .55*(up - .55);    // moss lies on what faces the sky and gathers at the foot
     gMoss = smoothstep(.79 - .3*uMoss, .82 - .3*uMoss, m)*smoothstep(.1, .6, thick)*vLeafA.z;
+    // snow (uSnow): a ridge along the top of every thick bough and on the shoulders where limbs part, with a broken lower edge, and a drift
+    // at the foot of the trunk; thin wood sheds it
+    if (uSnow > 0.){ float sn = up + (fbm3(vec3(ring*2.6, gB.z*1.4) + 77.) - .5)*.22;
+      gSnowB = smoothstep(.86 - .14*uSnow, .89 - .14*uSnow, sn)*smoothstep(.18, .45, thick)*step(.02, uSnow);
+      gSnowB = max(gSnowB, uSnow*(1. - smoothstep(.06, .32, vH + (fbm3(vec3(ring*3., 1.) + 5.) - .5)*.2)));
+      gSnowB = max(gSnowB, gMoss*smoothstep(.1, .5, uSnow)*smoothstep(.68, .8, up)); gMoss *= 1. - uSnow*smoothstep(.68, .8, up); }   // moss on what faces the sky lies where snow settles: under snow it is snow (moss up a trunk's side stays moss)
     gMod = 1. + gRidge*.08; diffuseColor.rgb *= gMod; }`,
   // bark is painted in three values: a deep side away from the sun, a middle, and mottled dabs of light on the sun side. Noise along the
   // grain breaks the borders between them into brush marks. Under a canopy the lit dabs thin out to the patches the sun reaches.
@@ -351,8 +503,9 @@ const makeWoodMat = (barkPal, inkPal, color) => patch(new THREE.MeshStandardMate
     pal = mix(pal, mix(vec3(.035, .06, .025), vec3(.14, .2, .05), smoothstep(.12, .62, kk)), gMoss*(1. - .6*gCrack));
     pal *= 1. - .4*gCrack;
     pal = mix(pal, uFootColor, smoothstep(.6, -.1, vH)*.6);
-    pal = mix(pal, mix(uPal0, uInk, .2), vLeafA.y*uCrownDark);`,  // wood deep in the crown goes to its own darkest bark, barely touched by the crown's colour: never painted as foliage
-  uniforms: { ...paletteUniforms(barkPal), uInk: inkPal[0], uFootColor: pals.ground[0], uSink: sink, uCrownDark: crownDark, uPxAngle: pxAngle, ...barkLook } })
+    pal = mix(pal, mix(uPal0, uInk, .2), vLeafA.y*uCrownDark);
+    pal = mix(pal, mix(vec3(.24, .32, .52), vec3(.9, .93, .98), smoothstep(.12, .5, kk + gSun*.3)), gSnowB);`,   // snow: blue in shade, white where the sun lands  // wood deep in the crown goes to its own darkest bark, barely touched by the crown's colour: never painted as foliage
+  uniforms: { ...paletteUniforms(barkPal), uInk: inkPal[0], uFootColor: pals.ground[0], uSink: hid.sink, uCrownDark: hid.crownDark, uPxAngle: pxAngle, ...barkLook } })
 const woodMat = makeWoodMat(pals.bark, pals.foliage, p.bark[2])
 // ivy: its own leafy brushes and dark greens, standing a step off the bark
 const ivyPal = newPalette(['#15352a', '#27583c', '#4f8848', '#94bc68'])
@@ -377,12 +530,13 @@ const grassMat = patch(new THREE.MeshStandardMaterial({ color: p.ground[2], roug
       float near = max(1. - s1, uGrassLodT.z*(1. - smoothstep(14., 20., dt)));
       float want = mix(mix(.3333, .05, s2), 1., near);
       fade *= aPatch.y > .5 ? near : 1. - smoothstep(want - .04, want, aPatch.x); }
+    fade *= 1. - .7*uSnow;   // under snow only the tops of the tufts show
     vec2 sd = normalize((viewMatrix*vec4(aStroke, 0.)).xy + vec2(0., 1e-3));
     mvPosition.xy += (sd*abs(aCorner.x) + sd*aCorner.x + vec2(-sd.y, sd.x)*aCorner.y)*fade; }
     if (aCorner.x > 0.){ vec3 sway = windOffset(wPos.xyz, vec3(aWind.x, 0., aWind.y), vec4(aWind.xy, .22, .9)) - vec3(uWindDir.x, 0., uWindDir.y)*gWaveTree(aWind.xy)*.22*uSway*4.*uWind + vec3(uWindDir.x, -.35, uWindDir.y)*gWave(aWind.xy)*abs(aCorner.x)*1.9; mvPosition.xyz += (viewMatrix*vec4(sway, 0.)).xyz; } vU = aCorner.x > 0. ? 1. : 0.;`,
-  vertexPars: STROKE_PARS + ' attribute vec3 aLeaf; attribute vec3 aPatch; uniform vec4 uGrassLod; uniform vec3 uGrassLodT; varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; uniform vec3 uGrassFar;', vertexBegin: 'vLeafA = aLeaf; vGN = normal; vRootXZ = aWind.xy;', fragmentPars: GROUND_FRAG + ' varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; float gPaint = .5, gTemp = .5;',
+  vertexPars: STROKE_PARS + ' attribute vec3 aLeaf; attribute vec3 aPatch; uniform vec4 uGrassLod; uniform float uSnow; uniform vec3 uGrassLodT; varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; uniform vec3 uGrassFar; varying vec4 vRootA, vRootB;' + GROUND_ROOT_VERT, vertexBegin: 'vLeafA = aLeaf; vGN = normal; vRootXZ = aWind.xy; gRootTerms(aWind.xy, vRootA, vRootB);   /* (perf) the ground terms at the root, once a vertex instead of once a pixel */', fragmentPars: '\n#define GRASS_ROOT\n' + GROUND_FRAG + ' varying vec4 vRootA, vRootB; varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; float gPaint = .5, gTemp = .5;',
   // every blade its own colour: warm yellow-green, neutral or cool teal by the brush, cooler and greyer in shade, none of it at the root
-  palLine: GROUND_PAL.replace('gFoot*.4', 'gFoot*.4*(1. - smoothstep(0., .7, vU))') + `{ float sunB = gLitV, hl = smoothstep(.9, .97, gTemp), t = mix(.72, min(gTemp/.85, 1.), sunB), up = smoothstep(.15, .8, vU)*uDay*.8;
+  palLine: GROUND_PAL.replace('gFoot*.4', 'gFoot*.4*(1. - smoothstep(0., .7, vU))').replace('if (gShore > 0.)', 'if (false)') + `{ float sunB = gLitV, hl = smoothstep(.9, .97, gTemp), t = mix(.72, min(gTemp/.85, 1.), sunB), up = smoothstep(.15, .8, vU)*uDay*.8;
     vec3 tint = t < .5 ? mix(vec3(1.06, 1.06, .74), vec3(1.), t*2.) : mix(vec3(1.), vec3(.78, .97, 1.12), t*2. - 1.);   // warm blades lean yellow-green, never straw (Spirited Away's grass stays h95-100)
     pal *= mix(vec3(1.), tint, up); pal = mix(pal, vec3(dot(pal, vec3(.3, .59, .11))), smoothstep(.6, 1., t)*.3*up);
     pal = mix(pal, uPal3*vec3(.96, 1.02, .82), smoothstep(.45, 0., gTemp)*sunB*up*.25);
@@ -406,7 +560,7 @@ const flowerMat = patch(new THREE.MeshStandardMaterial({ map: makeFlowerAtlas(),
 // Rocks are painted in planes: the toon ramp bands a smooth form into a few, cool grey-blue in shade, warm in sun, with moss settling on their tops
 const rockPal = newPalette(['#1f2a31', '#414d55', '#7a7f78', '#c4b896'])
 const rockLook = {
-  toon: true, flatShadow: true, vertexPars: 'varying vec3 vRN; attribute float aAO; varying float vAO;', vertexBegin: 'vRN = normal; vAO = aAO;', fragmentPars: 'varying vec3 vRN; varying float vAO; float gTone = .5, gUp = 0.;',
+  toon: true, flatShadow: true, vertexPars: 'varying vec3 vRN; attribute float aAO; varying float vAO;', vertexBegin: 'vRN = normal; vAO = aAO;', fragmentPars: 'varying vec3 vRN; varying float vAO; float gTone = .5, gUp = 0.; uniform float uSnow;',
   // value: lit top, dark sides, then dabs laid one way across the stone and slow patches of tone, so it reads as brushwork, not a smooth lump
   shade: `{ gUp = normalize(vRN).y; gTone = fbm2(vWPos.xz*.9 + vWPos.y*.7 + 3.);
     float dabs = fbm2(vec2(dot(vWPos.xz, vec2(.8, .6))*7. + vWPos.y*2., vWPos.y*6. + dot(vWPos.xz, vec2(-.6, .8))*2.));
@@ -415,7 +569,10 @@ const rockLook = {
     float cr = 1. - smoothstep(0., .035, abs(fbm2(vWPos.xz*1.4 + vec2(vWPos.y*1.8, vWPos.y*.6)) - .5));   // a few cracks, on the sides only
     pal *= 1. - .5*cr*(1. - smoothstep(.35, .75, gUp));
     float m = smoothstep(.66, .74, gUp*.45 + fbm2(vWPos.xz*2.6 + 9.)*.75)*(.75 + .25*smoothstep(.4, .6, fbm2(vWPos.xz*9. + 4.)));                // moss in patches on what faces the sky
-    pal = mix(pal, mix(vec3(.07, .17, .1), vec3(.26, .44, .18), smoothstep(.25, .65, kk)), m*.9); }`,
+    pal = mix(pal, mix(vec3(.07, .17, .1), vec3(.26, .44, .18), smoothstep(.25, .65, kk)), m*.9*(1. - uSnow));
+    // snow: where the moss grew (the tops), spreading a little further down as it deepens; blue in shade, white in sun
+    if (uSnow > 0.){ float sn = smoothstep(.62 - .14*uSnow, .68 - .14*uSnow, gUp*.45 + fbm2(vWPos.xz*2.6 + 9.)*.75)*smoothstep(.05, .3, uSnow);
+      pal = mix(pal, mix(vec3(.24, .32, .52), vec3(.9, .93, .98), smoothstep(.2, .6, kk)), max(sn, m*uSnow)); } }`,
 }
 const rockMat = patch(new THREE.MeshStandardMaterial({ color: '#7a7f78', roughness: 1 }), { ...rockLook, uniforms: paletteUniforms(rockPal) })
 function rockGeometry(stones){
@@ -485,11 +642,21 @@ const addMesh = (mat, depth, cast, name) => { const m = new THREE.Mesh(new THREE
   m.frustumCulled = false; m.castShadow = cast; m.receiveShadow = true; if (depth) m.customDepthMaterial = depth; scene.add(m); return m }
 const foliage = addMesh(foliageMat, null, false, 'foliage'), caster = addMesh(casterMat(atlas.tex), foliageDepth, true, 'caster'), wood = addMesh(woodMat, woodDepth, true, 'wood'), ivy = addMesh(ivyMat, null, false, 'ivy')
 foliage.receiveShadow = caster.receiveShadow = false
+// the bushes' meshes, made on the first rebuild (their materials come from speciesMats, below)
+const bushLeaf = addMesh(foliageMat, null, false, 'bushes'), bushCaster = addMesh(casterMat(atlas.tex), null, true, 'bushCaster'), bushWood = addMesh(woodMat, woodDepth, true, 'bushWood')
+bushLeaf.receiveShadow = bushCaster.receiveShadow = false; bushLeaf.renderOrder = -.2; bushWood.renderOrder = -.1
+let bushMats = null
+function useBushMats(){ if (bushMats) return
+  bushMats = speciesMats({ ...SPECIES['Round bush'], name: 'Round bush' })
+  bushLeaf.material = bushMats.leaf; bushCaster.material = casterMat(bushMats.tex); bushCaster.customDepthMaterial = bushMats.leafDepth; bushWood.material = bushMats.wood }
 caster.onBeforeRender = (r, sc, cam, geometry) => geometry.setDrawRange(0, 0)     // the caster exists for the shadow pass: the main pass skips it
 caster.onAfterRender = (r, sc, cam, geometry) => geometry.setDrawRange(0, Infinity)
 // nearest and most solid first: everything drawn after is rejected wherever something already stands in front of it, and the pricey wide
 // surfaces (the field, then the sky) only pay for the pixels left over
 const ground = addMesh(groundMat, null, false, 'ground'), grass = addMesh(grassMat, null, false, 'grass'), flowers = addMesh(flowerMat, null, false, 'flowers'), rocks = addMesh(rockMat, null, true, 'rocks')
+// (perf) the ground's shader is one of the frame's heaviest: drawn after the grass, foliage, wood and rocks, every pixel they cover is rejected by
+// the depth test before it shades (1-3 ms measured). The sky (10) and the clouds and hills (11+) still come after it.
+ground.renderOrder = 1
 foliage.renderOrder = -.2; wood.renderOrder = -.1; ground.renderOrder = .1
 ground.geometry.dispose(); ground.geometry = toGeometry(generateGround(620))
 
@@ -506,10 +673,10 @@ function setStats(ms, clumps){
 const trees = []
 // Bushes barely change between rebuilds and took most of their time: each is grown once at the origin, then copied into place
 const bushCache = new Map()
-function placeBush(bush, q, woodB, leafB){
+function placeBush(bush, q, woodB, leafB, held){
   const key = q.seed + ':' + q.scale
   if (!bushCache.has(key)){ const wood = newBuffer(), leaf = newBuffer(), n = generatePlant(bush, q.seed, [0, 0, 0], q.scale, wood, leaf); bushCache.set(key, { wood, leaf, n }) }
-  const { wood, leaf, n } = bushCache.get(key), y = groundHeight(q.x, q.z) - .05, plant = leafB.held?.length ? leafB.held[leafB.held.length - 1].plant + 1 : 0, ids = (leafB.held ??= []).length
+  const { wood, leaf, n } = bushCache.get(key), y = groundHeight(q.x, q.z) - .05, plant = held.length ? held[held.length - 1].plant + 1 : 0, ids = held.length
   const copy = (src, dst) => {
     const base = dst.pos.length/3
     for (let i = 0; i < src.pos.length; i += 3) dst.pos.push(src.pos[i] + q.x, src.pos[i + 1] + y, src.pos[i + 2] + q.z)
@@ -521,7 +688,7 @@ function placeBush(bush, q, woodB, leafB){
   for (let i = 0; i < wood.center.length; i += 3) woodB.center.push(wood.center[i], wood.center[i + 1] + y, wood.center[i + 2] + q.z)    // x carries the girth
   for (let i = 0; i < leaf.center.length; i += 3) leafB.center.push(leaf.center[i] + q.x, leaf.center[i + 1] + y, leaf.center[i + 2] + q.z)
   for (let i = 0; i < leaf.patch.length; i += 3) leafB.patch.push(leaf.patch[i], leaf.patch[i + 1], leaf.patch[i + 2] < 0 ? -1 : leaf.patch[i + 2] + ids)
-  for (const c of leaf.held) leafB.held.push({ ...c, plant, c: [c.c[0] + q.x, c.c[1] + y, c.c[2] + q.z] })
+  for (const c of leaf.held) held.push({ ...c, plant, c: [c.c[0] + q.x, c.c[1] + y, c.c[2] + q.z] })
   return n
 }
 
@@ -535,13 +702,14 @@ function speciesMats(sp){
   const tex = makeBrushAtlas(sp.leaf, sp.edge), leafPal = newPalette(sp.palette)
   const leaf = makeFoliageMaterial(tex, sunTable, leafPal, { value: new THREE.Color(sp.sss) }, { value: new THREE.Color(sp.rim) })
   ;(sp.colors ?? []).forEach((f, k) => f.palette.forEach((hex, n) => leaf.uniforms.uPalV.value[k*4 + n].set(hex)))
-  const m = { leaf, leafDepth: makeFoliageDepth(tex), wood: makeWoodMat(newPalette(sp.bark), leafPal, sp.bark[2]) }
-  mixMats.set(key, m); return m
+  const hid = { sink: { value: (sp.clumpRadius ?? 1)*1.5 }, crownDark: { value: 1 } }, sink0 = hid.sink.value
+  const m = { leaf, leafDepth: makeFoliageDepth(tex), wood: makeWoodMat(newPalette(sp.bark), leafPal, sp.bark[2], hid), sp, leafPal, hid, sink0, tex }
+  mixMats.set(key, m); seasonMats(m); return m
 }
 function buildForest(){
   const t0 = performance.now()
   if (atlas.key !== brushKey()){ const old = atlas.tex; atlas.tex = makeBrushAtlas(p.leaf, p.edge); atlas.key = brushKey(); foliageMat.uniforms.tBrush.value = foliageDepth.alphaMap = caster.material.alphaMap = atlas.tex; old.dispose() }
-  for (const m of [foliage, caster, wood, ivy]) m.visible = false
+  for (const m of [foliage, caster, wood, ivy, bushLeaf, bushCaster, bushWood]) m.visible = false
   const mix = [{ p, mats: { leaf: foliageMat, leafDepth: foliageDepth, wood: woodMat } },
     ...p.forestMix.filter(n => n !== p.species).map(n => { const sp = { ...structuredClone(SPECIES[n]), name: n }; return { p: sp, mats: speciesMats(sp) } })]
   forest.build(mix, { count: p.forest, kinds: p.forestKinds, seed: p.seed })
@@ -556,8 +724,8 @@ function buildForest(){
 }
 function rebuild(){
   if (p.forest > 0) return buildForest()
-  if (forest.state.protos.length){ forest.clear(); for (const m of [foliage, caster, wood, ivy]) m.visible = true; applyFoliage?.() }
-  U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5 : 0
+  if (forest.state.protos.length){ forest.clear(); for (const m of [foliage, caster, wood, ivy, bushLeaf, bushCaster, bushWood]) m.visible = true; applyFoliage?.() }
+  U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5*woodHid.keep : 0
   const t0 = performance.now(), woodB = newBuffer(), leafB = newBuffer(), ivyB = newBuffer()
   const { plants, bushes } = layoutScene({ ...p, height: p.height*p.size, groveRadius: p.groveRadius*Math.max(1, p.size) })
   trees.length = 0
@@ -569,8 +737,11 @@ function rebuild(){
   generatePlant.envelopes = []
   for (const q of plants) clumps += generatePlant(p, q.seed, [q.x, groundHeight(q.x, q.z) - .08, q.z], q.scale, woodB, leafB, ivyB)
   mainWood = generatePlant.debug?.branches ?? null                       // the branch records of the tree just grown, for the branch debug view
-  const bush = { ...SPECIES['Round bush'] }
-  for (const q of bushes) clumps += placeBush(bush, q, woodB, leafB)
+  // bushes are a species of their own: their own meshes and materials (palette, brushes, season), lit from the same clump tables as the trees
+  useBushMats()
+  const bush = { ...SPECIES['Round bush'] }, bushWoodB = newBuffer(), bushLeafB = newBuffer()
+  for (const q of bushes) clumps += placeBush(bush, q, bushWoodB, bushLeafB, leafB.held ??= [])
+  for (const [m, g] of [[bushLeaf, bushLeafB], [bushCaster, platesOf(bushLeafB)], [bushWood, bushWoodB]]){ m.geometry.dispose(); m.geometry = g.pos.length ? toGeometry(g) : new THREE.BufferGeometry() }
   ivy.geometry.dispose(); ivy.geometry = ivyB.pos.length ? toGeometry(ivyB) : new THREE.BufferGeometry()
   foliage.geometry.dispose(); foliage.geometry = toGeometry(leafB)
   heldClumps = leafB.held || []; shaders.clear(); fillLobes(heldClumps)
@@ -633,7 +804,8 @@ const field = (() => {
         const c = old || { level, flowers: null, rocks: null }
         if (old?.grass){ group.remove(old.grass); old.grass.geometry.dispose() }
         c.level = level
-        c.grass = p.grass > 0 ? mesh(toGeometry(generateGrassCell(i, j, GRASS_CELL, p.grass*(level === 2 ? 3 : level ? .15 : 1), p.seed, around, p.rocks, level === 2, p.grass*3)), grassMat, false) : null
+        if (p.grass > 0){ const b = generateGrassCell(i, j, GRASS_CELL, p.grass*(level === 2 ? 3 : level ? .15 : 1), p.seed, around, p.rocks, level === 2, p.grass*3)
+          c.grass = mesh(toGeometry(b), grassMat, false); c.lod = b.lod; c.i = i; c.j = j } else c.grass = null
         if (!old){
           if (p.flowers > 0){ const b = generateFlowerCell(i, j, GRASS_CELL, p.flowers, p.seed, around); if (b.pos.length) c.flowers = mesh(toGeometry(b), flowerMat, false) }
           const stones = p.rocks > 0 ? rocksOfCell(i, j, GRASS_CELL, p.rocks, p.seed, around) : []
@@ -642,6 +814,18 @@ const field = (() => {
         }
         cells.set(k, c)
       }
+      // (perf) draw only the tufts a cell can show: the shader shrinks each tuft whose rank is above the share wanted where it stands (want,
+      // below, the same formula), and want only falls with distance, so the cell's nearest point gives the most it can need. The rest are
+      // never sent: same image, a third to most of the grass's vertex work saved.
+      { const L = U.uGrassLod.value, T = U.uGrassLodT.value, ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a)/(b - a))); return t*t*(3 - 2*t) }
+        const boxD = (x0, z0, px, pz) => Math.hypot(Math.max(x0 - px, 0, px - x0 - GRASS_CELL), Math.max(z0 - pz, 0, pz - z0 - GRASS_CELL))
+        for (const c of cells.values()){ if (!c.grass || !c.lod) continue
+          const x0 = c.i*GRASS_CELL, z0 = c.j*GRASS_CELL, d = boxD(x0, z0, L.x, L.y), dt = boxD(x0, z0, T.x, T.y)
+          const s1 = ss(L.z - 12, L.z - 6, d), s2 = ss(L.w - 12, L.w - 6, d), near = Math.max(1 - s1, T.z*(1 - ss(14, 20, dt)))
+          const want = (1/3 + (.05 - 1/3)*s2)*(1 - near) + near, { ranks, ends, swardEnd, fixedEnd } = c.lod
+          let lo = 0, hi = ranks.length; while (lo < hi){ const m = (lo + hi) >> 1; if (ranks[m] < want) lo = m + 1; else hi = m }   // tufts ranked below want
+          const start = near > 0 ? 0 : swardEnd, end = lo ? ends[lo - 1] : fixedEnd
+          if (view.grassRanges === false) c.grass.geometry.setDrawRange(0, Infinity); else c.grass.geometry.setDrawRange(start, end - start) } }   // (view.grassRanges = false: everything, for comparison)
       { // the stones nearest the camera ground themselves in the field's paint
         const near = []; for (const c of cells.values()) if (c.stones) for (const q of c.stones) near.push([Math.hypot(q.x - cx, q.z - cz), q])
         near.sort((a, b) => a[0] - b[0])
@@ -651,7 +835,7 @@ const field = (() => {
       for (const [k, c] of cells){ const [i, j] = k.split(',').map(Number)
         if (Math.hypot((i + .5)*GRASS_CELL - cx, (j + .5)*GRASS_CELL - cz) > reach + GRASS_CELL*2.5){ dropCell(c); cells.delete(k) } }
     },
-    count: () => cells.size,
+    count: () => cells.size, group,
   }
 })()
 // rocks out over the far meadow, beyond the field that follows the camera: a fixed scatter in large squares to the edge of the land
@@ -668,11 +852,11 @@ function rebuildFarRocks(){
   const stones = [], C = 24
   if (p.farRocks > 0) for (let i = -25; i <= 25; i++) for (let j = -25; j <= 25; j++){
     const d = Math.hypot((i + .5)*C, (j + .5)*C); if (d < 120 || d > 590) continue
-    for (const q of rocksOfCell(i, j, C, 1.5*p.farRocks, p.seed + 31, trees)) stones.push({ ...q, s: q.s*2.4 })   // larger out here, or they read as specks
+    for (const q of rocksOfCell(i, j, C, 1.5*p.farRocks, p.seed + 31, trees, false)) stones.push({ ...q, s: q.s*2.4 })   // larger out here, or they read as specks
   }
   // big boulders and standing stones, near and far: a few large stones that stick well out of the grass, and upright carved stones in
   // ones and twos, some with a worn face, scattered over the meadow
-  const r = mulberry32(p.seed*977 + 41), clearOf = (x, z) => trees.every(q => Math.hypot(q.x - x, q.z - z) > q.r*2.2 + 3)
+  const r = mulberry32(p.seed*977 + 41), clearOf = (x, z) => pondDist(x, z) > .45 && trees.every(q => Math.hypot(q.x - x, q.z - z) > q.r*2.2 + 3)
   for (let n = 0, N = Math.round(8*p.farRocks); n < N; n++){
     const R = lerpN(30, 560, Math.sqrt(r())), a = r()*Math.PI*2, x = R*Math.cos(a), z = R*Math.sin(a); if (!clearOf(x, z)) continue
     stones.push({ x, z, y: groundHeight(x, z) - .1, s: lerpN(1.2, 2.6, r()), flat: lerpN(.6, .85, r()), turn: r()*7, seed: Math.floor(r()*1e6) })
@@ -710,6 +894,37 @@ function applyLook(){
   setPalette(pals.foliage, p.palette); setPalette(pals.bark, p.bark); setPalette(pals.ground, p.ground)
   woodMat.color.set(p.bark[2]); groundMat.color.set(p.ground[2]); grassMat.color.set(p.ground[2])
   sssColor.value.set(p.sss); rimColor.value.set(p.rim); U.uFleck.value = p.fleck; U.uMoss.value = p.moss
+  applySeason()
+}
+// ---- the season: every palette in the scene between its four keys (src/seasons.js) ----
+const MEADOW = SPECIES['Camphor tree'].ground
+// a tree's leaves, its colour forms, and its backlight and rim, which follow its lit leaves into autumn (off: the species' own colours)
+function seasonLeaves(sp, pal, mat, sss, rim, depth){
+  const name = sp.name ?? p.species, keys = speciesKeys(name, sp), on = p.seasonOn, u = mat.uniforms
+  const keep = on && !isEvergreen(name) ? leafKeep(p.season) : 1
+  u.uLeafKeep.value = keep; if (depth?.userData.leafKeep) depth.userData.leafKeep.value = keep
+  const [A, B, t] = on ? seasonPair(keys, p.season) : [sp.palette, sp.palette, 0], P = on ? seasonPal(keys, p.season) : sp.palette
+  setPalette(pal, A); B.forEach((hex, n) => u['uPalB' + n].value.set(hex)); u.uSeasonT.value = t
+  ;(sp.colors ?? []).forEach((f, k) => { const [a, b] = on ? seasonPair(formKeys(keys, f), p.season) : [f.palette, f.palette]
+    a.forEach((hex, n) => u.uPalV.value[k*4 + n].set(hex)); b.forEach((hex, n) => u.uPalVB.value[k*4 + n].set(hex)) })
+  if (on){ rim.value.set(P[3]); sss.value.set(P[3]).lerp(new THREE.Color('#fff0b0'), .3) } else { rim.value.set(sp.rim); sss.value.set(sp.sss) }
+  return keep
+}
+const seasonMats = m => { const keep = seasonLeaves(m.sp, m.leafPal, m.leaf, m.leaf.uniforms.uSssColor, m.leaf.uniforms.uRimColor, m.leafDepth); m.hid.crownDark.value = keep; m.hid.sink.value = m.sink0*keep }
+function applySeason(){
+  const keep = seasonLeaves({ ...p, name: p.species }, pals.foliage, foliageMat, sssColor, rimColor, foliageDepth)
+  // wood the leaves hid: as they fall it comes forward and takes its own bark colour (crownDark and sink are for wood inside a full crown)
+  woodHid.keep = keep; crownDark.value = p.showFoliage ? keep : 0; sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5*keep : 0
+  for (const m of mixMats.values()) seasonMats(m)
+  const snow = p.seasonOn ? snowCover(p.season) : 0; U.uSnow.value = snow
+  const g = p.seasonOn ? mixPal(seasonPal(groundKeys(MEADOW), p.season), SNOW_GROUND, snow) : p.ground
+  setPalette(pals.ground, g); groundMat.color.set(g[2]); grassMat.color.set(g[2])
+  flowerMat.visible = snow < .3; pondMat.uniforms.uIce.value = Math.min(1, Math.max(0, (snow - .4)/.4))
+  mountains.setPalette(p.seasonOn ? seasonPal(hillKeys(mountains.basePalette), p.season) : mountains.basePalette, HILL_TURN, p.seasonOn ? autumnShare(p.season)*.55 : 0)
+  if (p.forest > 0) forest.rebake()
+  renderer.shadowMap.needsUpdate = true
+  // the sky: sun height and sky colour at once; the clouds are regrown a moment after the slider stops (a rebuild takes a few frames)
+  if (seasonReady){ relight(); clearTimeout(reCloudT); reCloudT = setTimeout(reCloud, 120) }
 }
 function frame(){
   if (p.forest > 0){ const R = forest.state.radius || 50; camera.position.set(R*.9, R*.35 + 15, R*.9); controls.target.set(0, 8, 0); controls.update(); return }
@@ -770,8 +985,8 @@ compareF.add({ forget(){ compare.forget() } }, 'forget').name('Forget my picture
 const treeF = gui.addFolder('Plant')
 // wood alone, for reviewing structure: leaves, ivy and their shadows go, and buried wood comes back to its true depth
 function applyFoliage(){
-  foliage.visible = caster.visible = ivy.visible = p.showFoliage
-  sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5 : 0; crownDark.value = p.showFoliage ? 1 : 0
+  foliage.visible = caster.visible = ivy.visible = bushLeaf.visible = bushCaster.visible = p.showFoliage
+  sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5*woodHid.keep : 0; crownDark.value = p.showFoliage ? woodHid.keep : 0
   renderer.shadowMap.needsUpdate = true
 }
 applyFoliage()
@@ -889,12 +1104,17 @@ lightF.add(p, 'sunIntensity', 0, 2.5, .01).name('Sun strength').onChange(relight
 lightF.addColor(p, 'sunTint').name('Sun tint').onChange(relight)
 lightF.add(p, 'ambient', 0, 2, .01).name('Ambient').onChange(relight)
 lightF.add(p, 'shadowSoft', 0, 16, .1).name('Shadow softness').onChange(relight)
-const reCloud = () => clouds.build(p.clouds, p.cloudSeed)
+const cloudShape = () => p.seasonOn ? seasonSky(p.season) : SUMMER_SKY
+const reCloud = () => { const sh = cloudShape(); clouds.build(Math.max(1, Math.round(p.clouds*sh.count)), p.cloudSeed, sh); clouds.setCool(sh.cool) }
 lightF.add(p, 'clouds', 0, 30, 1).name('Clouds').onChange(reCloud)
 lightF.add(p, 'cloudSeed', 1, 99, 1).name('Cloud seed').onChange(reCloud)
 lightF.add(p, 'haze', 0, .95, .01).name('Haze').onChange(relight)
 lightF.add(p, 'mountains').name('Distant mountains').onChange(() => mountains.set(p.mountains, p.mountainHeight))
 lightF.add(p, 'mountainHeight', .3, 2, .01).name('Mountain height').onChange(() => mountains.set(p.mountains, p.mountainHeight))
+const seasonF = gui.addFolder('Season')
+seasonF.add(p, 'seasonOn').name('Follow the season').onChange(applySeason).listen()
+seasonF.add(p, 'season', 0, 1, .005).name('Time of year (spring → winter)').onChange(() => { p.seasonOn = true; applySeason() }).listen()
+seasonF.add({ jump: 'Summer' }, 'jump', SEASON_NAMES).name('Jump to').onChange(v => { p.season = v; p.seasonOn = true; applySeason() })
 const lampF = lightF.addFolder('Lantern').close()
 const lamp = () => { U.uLanternI.value = p.lantern*2; U.uLanternColor.value.set(p.lanternColor); U.uLanternPos.value.set(p.lanternX, p.lanternY, p.lanternZ)
   lantern.position.copy(U.uLanternPos.value); lantern.material.color.set(p.lanternColor); lantern.visible = p.lantern > 0 }
@@ -992,7 +1212,7 @@ function layout(){ const w = innerWidth - compare.width - (compare.width && !gui
 addEventListener('resize', layout)
 
 // ---- go ----
-applyLook(); clouds.build(p.clouds, p.cloudSeed); rebuild(); rebuildGrass(); lamp(); frame()
+applyLook(); reCloud(); rebuild(); rebuildGrass(); lamp(); frame(); seasonReady = true
 if (qs.has('close')) gui.close()
 window.__foliage = { clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
 // profiling: frame rate and frame time, then draw calls and triangles per frame (these include the shadow pass)
@@ -1015,6 +1235,67 @@ function holdFrameRate(){
   heldSlow = ms > 17.4 && ms < 80 ? heldSlow + 1 : 0
   if (heldSlow > 1 && view.resolution > 1){ view.resolution -= .125; heldSlow = 0; renderer.setPixelRatio(view.resolution); resCtl.updateDisplay() }
 }
+// the pond's reflection (after Three's Reflector): mirror the camera through the water's plane, clip everything below the surface with an
+// oblique near plane, and keep the matrix that maps a point on the water to its place in the reflection
+const pondSphere = new THREE.Sphere(new THREE.Vector3(POND.x, pondLevel, POND.z), POND.r*POND.sx*1.45), _fr = new THREE.Frustum(), _m = new THREE.Matrix4()
+const _sz = new THREE.Vector2(), _look = new THREE.Vector3(), _pl = new THREE.Plane(), _cl = new THREE.Vector4(), _qv = new THREE.Vector4(), _hide = [], _was = []   // reused: no garbage each frame
+// The reflection draws only the wood's skin (trunk, limbs, roots), not its thin branch tubes (aLeaf.z = 1): the tubes are about half the wood's
+// triangles, mostly inside the crown, and lost in the reflection's smear. A second geometry shares the wood's buffers with its own index.
+let skinOf = { src: null, geo: null }
+function woodSkin(g){
+  if (skinOf.src === g) return skinOf.geo
+  skinOf.geo?.dispose()
+  const L = g.attributes.aLeaf, I = g.index, keep = []
+  if (I) for (let t = 0; t < I.count; t += 3){ const a = I.getX(t); if (L.getZ(a) !== 1) keep.push(a, I.getX(t + 1), I.getX(t + 2)) }
+  const s = new THREE.BufferGeometry(); for (const k in g.attributes) s.setAttribute(k, g.attributes[k])
+  s.setIndex(keep); s.boundingSphere = g.boundingSphere
+  return (skinOf = { src: g, geo: s }).geo
+}
+// (perf) half rate while the camera holds still: the reflection is re-drawn every frame while the camera moves (a stale one would slide
+// against the bank), and every other frame otherwise, where only the crown's sway is a frame behind and the ripples and smear hide it.
+// The texture and its matrix (uReflM) always go together, so a held frame still lines up. view.reflectionEvery = 1 draws every frame.
+const _lastCam = new THREE.Matrix4(), _lastProj = new THREE.Matrix4(); let reflSkip = 0, reflSize = 0
+const matNear = (a, b, e) => { for (let i = 0; i < 16; i++) if (Math.abs(a.elements[i] - b.elements[i]) > e) return false; return true }   // damping settles in ever smaller steps
+function renderPondReflection(){
+  const cp = camera.position
+  _fr.setFromProjectionMatrix(_m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
+  if (cp.y < pondLevel + .05 || !_fr.intersectsSphere(pondSphere)){ pond.visible = false; return }
+  if (view.reflection === false){ pond.visible = true; return }
+  pond.visible = true
+  const moved = !matNear(_lastCam, camera.matrixWorld, 2e-4) || !matNear(_lastProj, camera.projectionMatrix, 1e-6) || reflSize !== renderer.getDrawingBufferSize(_sz).x
+  if (!moved && ++reflSkip < (view.reflectionEvery ?? 2)) return
+  reflSkip = 0; _lastCam.copy(camera.matrixWorld); _lastProj.copy(camera.projectionMatrix); reflSize = _sz.x
+  const sz = renderer.getDrawingBufferSize(_sz), w = Math.max(2, sz.x >> 1), h = Math.max(2, sz.y >> 1)
+  if (reflRT.width !== w || reflRT.height !== h) reflRT.setSize(w, h)
+  const look = _look.set(0, 0, -1).applyQuaternion(camera.quaternion).add(cp)
+  reflCam.position.set(cp.x, 2*pondLevel - cp.y, cp.z)
+  reflCam.up.set(0, 1, 0).applyQuaternion(camera.quaternion); reflCam.up.y = -reflCam.up.y
+  reflCam.lookAt(look.x, 2*pondLevel - look.y, look.z); reflCam.updateMatrixWorld()
+  reflCam.projectionMatrix.copy(camera.projectionMatrix)
+  reflM.value.set(.5, 0, 0, .5, 0, .5, 0, .5, 0, 0, .5, .5, 0, 0, 0, 1).multiply(reflCam.projectionMatrix).multiply(reflCam.matrixWorldInverse)
+  // oblique near plane at the water (Lengyel), a few cm down so the bank's foot still meets it
+  _pl.normal.set(0, 1, 0); _pl.constant = -(pondLevel - .03); const pl = _pl.applyMatrix4(reflCam.matrixWorldInverse)
+  const cl = _cl.set(pl.normal.x, pl.normal.y, pl.normal.z, pl.constant), e = reflCam.projectionMatrix.elements
+  const qv = _qv.set((Math.sign(cl.x) + e[8])/e[0], (Math.sign(cl.y) + e[9])/e[5], -1, (1 + e[10])/e[14])
+  cl.multiplyScalar(2/cl.dot(qv)); e[2] = cl.x; e[6] = cl.y; e[10] = cl.z + 1; e[14] = cl.w
+  reflCam.projectionMatrixInverse.copy(reflCam.projectionMatrix).invert()
+  const hide = _hide; hide.length = 0; hide.push(pond, person, envelopeView, branchView, flowers); const fg = field.group
+  // the grass is most of the frame's cost: only the cells along the far bank are reflected (the near bank's reflection is hidden under it)
+  const tx = POND.x - cp.x, tz = POND.z - cp.z, tl = Math.hypot(tx, tz) || 1
+  for (const m of fg.children){ if (m.material === flowerMat){ hide.push(m); continue } if (m.material !== grassMat || !m.geometry.boundingSphere) continue
+    const bc = m.geometry.boundingSphere.center, ox = bc.x - POND.x, oz = bc.z - POND.z
+    if (Math.hypot(ox, oz) > POND_BOX + 4 || (ox*tx + oz*tz)/tl < -2) hide.push(m) }
+  _was.length = 0; for (const o of hide){ _was.push(o.visible); o.visible = false }
+  const wg = wood.geometry; wood.geometry = woodSkin(wg)
+  const sh = renderer.shadowMap.needsUpdate; renderer.shadowMap.needsUpdate = false   // the main pass redraws shadows; the reflection reuses them
+  // the reflected grass at the field's middle density (the dense near level is a third of its blades again, and the smear hides them)
+  const lod = U.uGrassLod.value.clone(), lodT = U.uGrassLodT.value.z; U.uGrassLod.value.z = 0; U.uGrassLodT.value.z = 0
+  renderer.setRenderTarget(reflRT); renderer.clear(); renderer.render(scene, reflCam); renderer.setRenderTarget(null)
+  U.uGrassLod.value.copy(lod); U.uGrassLodT.value.z = lodT
+  renderer.shadowMap.needsUpdate = sh
+  for (let i = 0; i < hide.length; i++) hide[i].visible = _was[i]
+  wood.geometry = wg
+}
 let last = performance.now()
 renderer.setAnimationLoop(now => {
   fps.st.begin(); ms.st.begin()
@@ -1032,6 +1313,7 @@ renderer.setAnimationLoop(now => {
   holdFrameRate()
   if (p.forest > 0){ forest.update(camera, p.lodScale); if (frameNo%15 === 0){ const c = forest.state.counts; statsEl.textContent = `${size} · full ${c[0]} · medium ${c[1]} · low ${c[2]} · impostor ${c[3]} · ${(renderer.info.render.triangles/1e6).toFixed(2)}M tris drawn` } }
   clouds.bake(renderer); mountains.bake(renderer)                      // only redraw when the light has changed
+  renderPondReflection()
   renderer.render(scene, camera)
   fps.st.end(); ms.st.end()
   const info = renderer.info.render, t = info.triangles/1000

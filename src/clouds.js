@@ -17,6 +17,7 @@ export function makeClouds(){
   const palette = newPalette(['#5a93b8', '#9cc6dd', '#e6eef0', '#fffcf2'])
   const unused = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1)
   const mat = makeFoliageMaterial(makeSmoothAtlas(11), unused, palette, { value: new THREE.Color('#fff4dc') }, { value: new THREE.Color('#fff4dc') })
+  mat.uniforms.uSnow = { value: 0 }                                    // clouds never take snow
   Object.assign(mat, { transparent: true, depthWrite: false, alphaToCoverage: false, fog: false })
   mat.defines = { ...(mat.defines || {}), CLOUD: 1 }
   // every puff is a lobe: its own table of centres and sizes (in the cloud's world place), so each one is modelled top to underside and
@@ -81,7 +82,7 @@ export function makeClouds(){
   }
   group.markDirty = () => { dirty = true }
 
-  group.build = (count, seed) => {
+  group.build = (count, seed, shape = { tall: 1, spread: 1 }) => {
     const r = mulberry32(seed*7919 + 3), b = newBuffer(), cards = []
     for (let c = 0; c < count; c++){
       // the first two sit where the opening camera looks; low, because cumulus stands on the horizon rather than overhead
@@ -96,7 +97,7 @@ export function makeClouds(){
       const size = hero ? (c < 2 ? 18 + r()*7 : 22 + r()*12) : tier === 1 ? 12 + r()*8 : (3.5 + r()*6)*(1 - .45*high), world = 12   // the two in the opening view a little smaller, so they frame rather than fill it
       // masses, as a crown has: each tower is one shelf with its own clumps, large low down and small along the top, on one flat base
       const shelves = Array.from({ length: 2 + Math.floor(r()*3) }, (_, i) => { const at = (i ? (r() - .5)*1.7 : (r() - .5)*.4)*size, rx = size*(i ? .3 + r()*.2 : .55), h = size*(i ? .32 + r()*.3 : .62)
-        return { cx: at, cz: 0, rx, h, bottom: 0, phase: r()*7 } })
+        return { cx: at*shape.spread, cz: 0, rx: rx*shape.spread, h: h*shape.tall, bottom: 0, phase: r()*7 } })   // the season: flatter and wider in the cold
       const clumps = []
       for (const v of shelves){
         for (let i = 0, n = Math.round(v.rx*v.h*.55*12/size*(hero ? 4.5 : tier === 1 ? 2.2 : 1)); i < n; i++){   // a big cloud is many small puffs, not a few big ones
@@ -158,7 +159,11 @@ export function makeClouds(){
   // sun and wash arrive through the foliage shader; night only has to take the paint itself down
   const base = palette.map(c => c.value.clone())
   // at night the sky is clear, as in Totoro: the clouds thin to faint slate-blue veils
-  group.light = s => { palette.forEach((c, i) => c.value.copy(base[i]).multiplyScalar(1 - .8*s.night)); fade.value = 1 - .6*s.night; dirty = true }
+  // winter's clouds: a little greyer and cooler (the season's cool, 0..1)
+  const greys = base.map(c => new THREE.Color(c.r*.82, c.g*.86, c.b*.96)); let cool = 0, lastS = null
+  const paint = () => { if (!lastS) return; palette.forEach((c, i) => c.value.copy(base[i]).lerp(greys[i], cool*.6).multiplyScalar(1 - .8*lastS.night)); fade.value = 1 - .6*lastS.night; dirty = true }
+  group.light = s => { lastS = s; paint() }
+  group.setCool = k => { cool = k; paint() }
   group.material = mat
   return group
 }

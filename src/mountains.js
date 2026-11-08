@@ -7,7 +7,7 @@ import * as THREE from 'three'
 import { mulberry32, emitFoliage, newBuffer } from './generator.js'
 import { makeSmoothAtlas } from './atlas.js'
 import { makeFoliageMaterial } from './foliage-material.js'
-import { newPalette, U, GLSL_NIGHT } from './ghibli-patch.js'
+import { newPalette, U, GLSL_NIGHT, setPalette } from './ghibli-patch.js'
 
 const UNIT = 6.5                      // metres per local unit: clumps of 1-1.4 units are 7-9 m stands of trees, a few pixels each at 900 m
 const FOOT = -8                       // the plain in front of the mountains sits at the meadow's edge (-6 to +11 m): forested, it is the tree line
@@ -225,6 +225,8 @@ export function makeMountains(fogColor){
     dirty = false
   }
   group.light = () => { dirty = true }
+  group.basePalette = PALETTE
+  group.setPalette = (hexes, turn, share) => { setPalette(palette, hexes); turn?.forEach((h, n) => mat.uniforms['uPalB' + n].value.set(h)); mat.uniforms.uSeasonT.value = share ?? 0; dirty = true }   // the season: the hills' forest changes colour, so the cards bake again
   group.update = camera => group.position.set(camera.position.x, 0, camera.position.z)
   let builtScale = 0
   group.set = (on, scale) => { group.visible = on; if (on && scale !== builtScale){ builtScale = scale; group.build(scale) } }
