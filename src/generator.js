@@ -1854,19 +1854,27 @@ export function rocksOfCell(i, j, size, perHa, seed, trees = []){
 // The grass of one square of land, size x size metres from (i*size, j*size). The same square always grows the same tufts, so squares can be
 // grown and dropped as the camera moves without anything popping. A thinner square (density lower) grows the first of the same tufts.
 // Grass keeps off the rocks of this square and its neighbours, and rings the foot of this square's own rocks.
-export function generateGrassCell(i, j, size, density, seed, trees = [], rocksPerHa = 0, sward = false){
+// LOD without popping: a cell's tufts are the first n of a fixed list of candidates (positions from one stream, each tuft's shape from its own),
+// so a denser level holds every tuft of a sparser one and only adds more. Each tuft carries its rank in that list (aPatch.x, 0..1); the shader
+// shrinks tufts whose rank is above the density wanted at their distance, so they grow in and fade out smoothly before any level change.
+export function generateGrassCell(i, j, size, density, seed, trees = [], rocksPerHa = 0, sward = false, maxDensity = density){
   const r = cellRandom(i, j, seed, 77), o = newBuffer(), x0 = i*size, z0 = j*size
   const stones = []
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const q of rocksOfCell(i + a, j + b, size, rocksPerHa, seed, trees)) stones.push({ ...q, own: !a && !b })
   const clear = [...trees.filter(q => q.clear), ...stones.map(q => ({ x: q.x, z: q.z, r: q.s*1.05 }))]
     .filter(q => q.x > x0 - q.r && q.x < x0 + size + q.r && q.z > z0 - q.r && q.z < z0 + size + q.r)
-  for (let k = 0, n = Math.round(density*size*size); k < n; k++){
-    const x = x0 + r()*size, z = z0 + r()*size
-    if (clear.some(q => Math.hypot(q.x - x, q.z - z) < q.r)) { r(); continue }     // nothing grows through a rock
-    grassTuft(o, r, x, z, sward)
+  const N = Math.max(1, Math.round(maxDensity*size*size)), at = cellRandom(i, j, seed, 79)
+  const mark = (from, rank, kind) => { for (let v = from; v < o.pos.length/3; v++){ o.patch[v*3] = rank; o.patch[v*3 + 1] = kind } }
+  for (let k = 0, n = Math.min(N, Math.round(density*size*size)); k < n; k++){
+    const x = x0 + at()*size, z = z0 + at()*size, tr = mulberry32((Math.imul(i, 73856093) ^ Math.imul(j, 19349663) ^ Math.imul(k + 1, 2654435761) ^ seed) >>> 0)
+    if (clear.some(q => Math.hypot(q.x - x, q.z - z) < q.r)) continue           // nothing grows through a rock
+    const from = o.pos.length/3
+    grassTuft(o, tr, x, z, sward)
+    mark(from, k/N, 0)
   }
   // near the walker, a sward under the tufts: low, wide, overlapping cards in the root colour, so the gaps between tufts fill with grass and
   // the field reads as one thick mat instead of separate clumps
+  const swardFrom = o.pos.length/3
   if (sward) for (let k = 0, n = Math.round(14*size*size); k < n; k++){
     const x = x0 + r()*size, z = z0 + r()*size
     if (clear.some(q => Math.hypot(q.x - x, q.z - z) < q.r)) continue
@@ -1875,10 +1883,13 @@ export function generateGrassCell(i, j, size, density, seed, trees = [], rocksPe
     const y = groundHeight(x, z), len = lerp(.3, .5, r()), a = grassFlow(x, z) + (r() - .5)*1.2, lean = lerp(1.8, 3.2, r()), t = norm([Math.cos(a)*lean, 1, Math.sin(a)*lean])
     addStroke(o, r, { q: [x, y - .03, z], n: groundNormal(x, z), t, len, wid: lerp(.35, .55, r())*(r() < .5 ? -1 : 1), tile: [Math.floor(r()*4), Math.floor(r()*3)], pivot: [x, y, z], ao: 1, tone: clamp(grassLong(x, z)*.8 + r()*.2), wind: [x, z, 0, 0] })
   }
+  mark(swardFrom, 0, 1)                                                // the sward: only near the walker, faded by distance in the shader
+  const collarFrom = o.pos.length/3
   if (density > 4) for (const q of stones.filter(q => q.own)) for (let k = 0, n = Math.round(10 + q.s*14); k < n; k++){
     const a = r()*7, d = q.s*lerp(1.05, 1.35, r()), x = q.x + Math.cos(a)*d, z = q.z + Math.sin(a)*d, y = groundHeight(x, z), len = lerp(.12, .25, r()), t = norm([(r() - .5)*.5, 1, (r() - .5)*.5])
     addStroke(o, r, { q: [x, y - .05, z], n: [0, 1, 0], t, len, wid: len*lerp(.9, 1.3, r()), tile: [Math.floor(r()*4), Math.floor(r()*3)], pivot: [x, y, z], ao: 1, tone: r(), wind: [x, z, 0, 0] })
   }
+  mark(collarFrom, -1, 0)                                            // a stone's collar always shows
   return o
 }
 
@@ -1905,6 +1916,7 @@ export function generateGrassCollars(seed, trees = []){
     const a = r()*7, d = q.r*lerp(q.clear ? 1 : .75, q.clear ? 1.3 : 1.7, r()), x = q.x + Math.cos(a)*d, z = q.z + Math.sin(a)*d, y = groundHeight(x, z), len = lerp(.2, .4, r())*(q.clear ? .6 : 1), t = norm([(r() - .5)*.5, 1, (r() - .5)*.5])
     addStroke(o, r, { q: [x, y - .05, z], n: [0, 1, 0], t, len, wid: len*lerp(.8, 1.2, r()), tile: [Math.floor(r()*4), Math.floor(r()*3)], pivot: [x, y, z], ao: 1, tone: r(), wind: [x, z, 0, 0] })
   }
+  for (let v = 0; v < o.pos.length/3; v++){ o.patch[v*3] = -1; o.patch[v*3 + 1] = 0 }   // collars always show: never faded by the field's LOD
   return o
 }
 

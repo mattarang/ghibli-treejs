@@ -370,10 +370,17 @@ const grassMat = patch(new THREE.MeshStandardMaterial({ color: p.ground[2], roug
   // the tuft is anchored at its root (so its one shadow lookup is where it meets the ground) and stood up from there along its stroke
   // the tuft stands up from its root along its stroke, then fans out; toward the edge of the field's reach it shrinks to nothing
   afterView: `{ float gd = length(wPos.xz - uGrassFar.xy), fade = (1. - smoothstep(uGrassFar.z*.78, uGrassFar.z*.98, gd))*mix(1., 1.6, smoothstep(40., 110., gd));
+    // LOD: the share of tufts wanted here (1 dense, 1/3 normal, .05 sparse), ramped down just inside each level change so a cell's tufts have
+    // already shrunk away before the next, sparser cell takes over; each tuft grows or fades by its rank against it
+    { float d = length(aWind.xy - uGrassLod.xy), dt = length(aWind.xy - uGrassLodT.xy);
+      float s1 = smoothstep(uGrassLod.z - 12., uGrassLod.z - 6., d), s2 = smoothstep(uGrassLod.w - 12., uGrassLod.w - 6., d);
+      float near = max(1. - s1, uGrassLodT.z*(1. - smoothstep(14., 20., dt)));
+      float want = mix(mix(.3333, .05, s2), 1., near);
+      fade *= aPatch.y > .5 ? near : 1. - smoothstep(want - .04, want, aPatch.x); }
     vec2 sd = normalize((viewMatrix*vec4(aStroke, 0.)).xy + vec2(0., 1e-3));
     mvPosition.xy += (sd*abs(aCorner.x) + sd*aCorner.x + vec2(-sd.y, sd.x)*aCorner.y)*fade; }
     if (aCorner.x > 0.){ vec3 sway = windOffset(wPos.xyz, vec3(aWind.x, 0., aWind.y), vec4(aWind.xy, .22, .9)) - vec3(uWindDir.x, 0., uWindDir.y)*gWaveTree(aWind.xy)*.22*uSway*4.*uWind + vec3(uWindDir.x, -.35, uWindDir.y)*gWave(aWind.xy)*abs(aCorner.x)*1.9; mvPosition.xyz += (viewMatrix*vec4(sway, 0.)).xyz; } vU = aCorner.x > 0. ? 1. : 0.;`,
-  vertexPars: STROKE_PARS + ' attribute vec3 aLeaf; varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; uniform vec3 uGrassFar;', vertexBegin: 'vLeafA = aLeaf; vGN = normal; vRootXZ = aWind.xy;', fragmentPars: GROUND_FRAG + ' varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; float gPaint = .5, gTemp = .5;',
+  vertexPars: STROKE_PARS + ' attribute vec3 aLeaf; attribute vec3 aPatch; uniform vec4 uGrassLod; uniform vec3 uGrassLodT; varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; uniform vec3 uGrassFar;', vertexBegin: 'vLeafA = aLeaf; vGN = normal; vRootXZ = aWind.xy;', fragmentPars: GROUND_FRAG + ' varying vec3 vLeafA; varying float vU; varying vec3 vGN; varying vec2 vRootXZ; float gPaint = .5, gTemp = .5;',
   // every blade its own colour: warm yellow-green, neutral or cool teal by the brush, cooler and greyer in shade, none of it at the root
   palLine: GROUND_PAL.replace('gFoot*.4', 'gFoot*.4*(1. - smoothstep(0., .7, vU))') + `{ float sunB = gLitV, hl = smoothstep(.9, .97, gTemp), t = mix(.72, min(gTemp/.85, 1.), sunB), up = smoothstep(.15, .8, vU)*uDay*.8;
     vec3 tint = t < .5 ? mix(vec3(1.06, 1.06, .74), vec3(1.), t*2.) : mix(vec3(1.), vec3(.78, .97, 1.12), t*2. - 1.);   // warm blades lean yellow-green, never straw (Spirited Away's grass stays h95-100)
@@ -606,6 +613,9 @@ const field = (() => {
       const look = walk.on ? 30 : cam.position.distanceTo(controls.target)
       const reach = Math.min(Math.max(look + 45, 55), 135) + Math.min(lift, 20)
       U.uGrassFar.value.set(cx, cz, reach)
+      // the distances where the cell levels change, for the shader's smooth density: dense inside r2, a third of that inside r0, then sparse
+      U.uGrassLod.value.set(cx, cz, Math.max(GRASS_CLOSE, look*.55), Math.max(GRASS_NEAR, look + 20))
+      U.uGrassLodT.value.set(controls.target.x, controls.target.z, walk.on ? 0 : 1)
       const want = [], span = reach + GRASS_CELL, i0 = Math.floor((cx - span)/GRASS_CELL), i1 = Math.floor((cx + span)/GRASS_CELL), j0 = Math.floor((cz - span)/GRASS_CELL), j1 = Math.floor((cz + span)/GRASS_CELL)
       for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++){
         const d = Math.hypot((i + .5)*GRASS_CELL - cx, (j + .5)*GRASS_CELL - cz)
@@ -623,7 +633,7 @@ const field = (() => {
         const c = old || { level, flowers: null, rocks: null }
         if (old?.grass){ group.remove(old.grass); old.grass.geometry.dispose() }
         c.level = level
-        c.grass = p.grass > 0 ? mesh(toGeometry(generateGrassCell(i, j, GRASS_CELL, p.grass*(level === 2 ? 3 : level ? .15 : 1), p.seed, around, p.rocks, level === 2)), grassMat, false) : null
+        c.grass = p.grass > 0 ? mesh(toGeometry(generateGrassCell(i, j, GRASS_CELL, p.grass*(level === 2 ? 3 : level ? .15 : 1), p.seed, around, p.rocks, level === 2, p.grass*3)), grassMat, false) : null
         if (!old){
           if (p.flowers > 0){ const b = generateFlowerCell(i, j, GRASS_CELL, p.flowers, p.seed, around); if (b.pos.length) c.flowers = mesh(toGeometry(b), flowerMat, false) }
           const stones = p.rocks > 0 ? rocksOfCell(i, j, GRASS_CELL, p.rocks, p.seed, around) : []
