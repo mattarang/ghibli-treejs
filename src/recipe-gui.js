@@ -17,7 +17,9 @@ const GLOBAL = [
   ['perceive', 'Sight (shoot lengths)', 2, 10, .1, 5],
   ['maxShoot', 'Steps per year', 1, 8, 1, 4],
   ['years', 'Years of growth', 5, 60, 1, 30],
-  ['noReturn', 'No growing back in', 0, 1, .01, .2]]
+  ['noReturn', 'No growing back in', 0, 1, .01, .2],
+  ['topFree', 'Free twigs above (share of crown, 0 = off)', 0, 1, .01, 0],
+  ['maxOrder', 'Branching orders above the stems (0 = no limit)', 0, 10, 1, 0]]
 
 // ---- saved recipes live in the browser and join the species list ----
 export function loadSavedRecipes(SPECIES){
@@ -29,6 +31,18 @@ const saveRecipe = (name, settings) => { let saved = {}; try { saved = JSON.pars
 const forgetRecipe = name => { let saved = {}; try { saved = JSON.parse(localStorage.getItem(STORE) || '{}') } catch {}; delete saved[name]; localStorage.setItem(STORE, JSON.stringify(saved)) }
 
 // ---- a crown outline from a traced black-and-white image: half-width at 33 heights from its lowest point to its highest (the tracer's own rule) ----
+// an image as a slab mask: dark pixels, cropped to their bounds and shrunk to about 96 rows of '0'/'1' (small enough to keep in a recipe)
+export function maskFromImage(img, rowsWanted = 96){
+  const c = document.createElement('canvas'); c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0); const W = c.width, H = c.height, px = g.getImageData(0, 0, W, H).data
+  const dark = (x, y) => { const i = (y*W + x)*4; return px[i + 3] > 128 && (px[i] + px[i + 1] + px[i + 2])/3 < 128 }
+  let x0 = W, x1 = -1, y0 = H, y1 = -1
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (dark(x, y)){ if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y }
+  if (x1 < 0) return null
+  const h = y1 - y0 + 1, w = x1 - x0 + 1, step = Math.max(1, h/rowsWanted), rows = []
+  for (let ry = 0; ry < Math.round(h/step); ry++){ let row = ''; for (let rx = 0; rx < Math.round(w/step); rx++) row += dark(Math.min(x0 + Math.floor((rx + .5)*step), x1), Math.min(y0 + Math.floor((ry + .5)*step), y1)) ? '1' : '0'; rows.push(row) }
+  return rows
+}
 export function outlineFromImage(img){
   const c = document.createElement('canvas'); c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height
   const g = c.getContext('2d'); g.drawImage(img, 0, 0); const W = c.width, H = c.height, px = g.getImageData(0, 0, W, H).data
@@ -59,6 +73,24 @@ export function addRecipeGui({ gui, p, SPECIES, speciesCtl, later, setSpecies, r
     try { const o = JSON.parse(t); if (!Array.isArray(o) || o.length < 3 || o.some(v => typeof v !== 'number')) throw 0; setOutline(o) } catch { alert('That isn\'t a list of numbers like [0.1, 0.4, …, 0].') } } }, 'paste').name('Paste outline numbers…')
   outF.add({ copy(){ navigator.clipboard?.writeText(JSON.stringify(p.rings?.outline ?? [])) } }, 'copy').name('Copy current outline')
   outF.add({ tracer(){ open('/tools/trace.html', '_blank') } }, 'tracer').name('Open the tracer')
+  // other crown shapes: a primitive, or an image as a flat slab (keeps holes, lopsidedness and separate parts the spun outline can't)
+  const shape = { kind: p.rings?.shape?.kind ?? 'traced outline', fine: p.rings?.shape?.fine ?? 0, depth: p.rings?.shape?.depth ?? .08, width: p.rings?.shape?.width ?? 1, turns: p.rings?.shape?.turns ?? 2.5, ring: p.rings?.shape?.ring ?? .62, tube: p.rings?.shape?.tube ?? .3, upright: !!p.rings?.shape?.upright }
+  const applyShape = () => { if (!p.rings?.colonise) return; const keep = p.rings.shape?.mask
+    p.rings = { ...p.rings, crownOnly: true, shape: shape.kind === 'traced outline' ? undefined : { kind: shape.kind === 'image slab' ? 'slab' : shape.kind, fine: shape.fine, depth: shape.depth, width: shape.width, turns: shape.turns, ring: shape.ring, tube: shape.tube, upright: shape.upright, mask: keep } }
+    if (shape.kind === 'image slab' && !keep){ alert('Load an image for the slab first.'); return } rebuild() }
+  const kindCtl = outF.add(shape, 'kind', ['traced outline', 'sphere', 'cube', 'torus', 'spiral', 'image slab']).name('Crown shape').onChange(applyShape)
+  outF.add(shape, 'fine', 0, 1, .01).name('Shape fidelity (fill, small tufts)').onChange(applyShape)
+  outF.add(shape, 'width', .3, 3, .01).name('Shape width (× height)').onChange(applyShape)
+  outF.add(shape, 'depth', .01, .5, .01).name('Slab depth (× height)').onChange(applyShape)
+  outF.add(shape, 'turns', 1, 6, .1).name('Spiral turns').onChange(applyShape)
+  outF.add(shape, 'ring', .2, 1, .01).name('Torus / spiral radius').onChange(applyShape)
+  outF.add(shape, 'tube', .05, .5, .01).name('Torus / spiral thickness').onChange(applyShape)
+  outF.add(shape, 'upright').name('Torus stands upright').onChange(applyShape)
+  const sfile = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' })
+  sfile.onchange = () => { const f = sfile.files[0]; if (!f) return; const img = new Image(); img.onload = () => { const mask = maskFromImage(img); if (!mask) return alert('No dark shape found in that image.')
+    p.rings = { ...p.rings, crownOnly: true, shape: { kind: 'slab', fine: shape.fine, depth: shape.depth, width: shape.width, mask } }; shape.kind = 'image slab'; kindCtl.updateDisplay(); rebuild() }; img.src = URL.createObjectURL(f); sfile.value = '' }
+  outF.add({ slab(){ sfile.click() } }, 'slab').name('Load image as 2D slab…')
+  const pullShape = () => { const sh = p.rings?.shape; shape.kind = !sh ? 'traced outline' : sh.kind === 'slab' ? 'image slab' : sh.kind; outF.controllersRecursive().forEach(c => c.updateDisplay()) }
 
   // ---- Growth habit: every value the self-organising growth reads, per branch order where it varies by order ----
   const habitF = gui.addFolder('Growth habit').close()
@@ -149,5 +181,5 @@ export function addRecipeGui({ gui, p, SPECIES, speciesCtl, later, setSpecies, r
   recipeF.add({ imp(){ rfile.click() } }, 'imp').name('Load recipe file…')
   recipeF.add({ forget(){ if (!confirm(`Remove the saved species "${p.species}" from this browser? Built-in species are not affected.`)) return; forgetRecipe(p.species); alert('Removed. It will be gone from the list next time the page loads.') } }, 'forget').name('Forget saved species')
 
-  return { refresh(){ pull(); lookPull(); buildForms() } }
+  return { refresh(){ pull(); lookPull(); buildForms(); pullShape() } }
 }

@@ -129,7 +129,7 @@ function oneShape(d, S, x0, y0, T){
     if (m !== best && m !== air){ if (m && m < air) d[at(x, y)] = 0; else d[at(x, y)] = 255 } }
 }
 
-function settlePaint(g, S, r, R = 5, solidTile = () => false){
+function settlePaint(g, S, r, R = 5, solidTile = () => false, keepBlue = false){
   const img = g.getImageData(0, 0, S, S), d = img.data, A = new Float32Array(S*S), B = new Float32Array(S*S)
   for (let i = 0; i < S*S; i++) A[i] = d[i*4 + 1]/255
   const blur = (src, dst, dx, dy) => { const k = 1/(2*R + 1)
@@ -149,7 +149,7 @@ function settlePaint(g, S, r, R = 5, solidTile = () => false){
     // the tooth only bites at the edge of a stroke: inside, paint is solid, or the noise punches a weave of pinholes through it
     const atEdge = 1 - Math.min(1, Math.max(0, (soft - .45)/.3))
     d[i + 1] = Math.max(0, Math.min(255, ((soft - .5)*3 + .5 + (tooth - .5)*.5*atEdge)*255))
-    d[i + 2] = soft*255
+    if (!keepBlue) d[i + 2] = soft*255                                     // the grass brush keeps blue for each blade's temperature
     const mottle = noise(x, y, .05, 1.1)*.7 + noise(x, y, .13, 2.6)*.3    // pigment pools in broad, slow shapes
     d[i] = Math.max(0, Math.min(255, d[i]*.55 + mottle*115))
   }
@@ -190,24 +190,58 @@ export function makeBrushAtlas(body, edge = body, seed = 3){
 
 // Grass tufts: a fan of tapered flicks from a shared root, drawn with the root at the left of the tile so the stroke's
 // direction is the way the blades grow. Paint gets lighter toward the tips.
+// The grass brush. Each tile is a plant lying along +x, root at the left. R is the paint's value, G the shape, B the blade's temperature
+// (0 warm yellow-green .. .85 cool teal); B at full marks the sharp lit stroke a painter picks out along a sunlit blade.
+// Rows 0-2: tufts of thin blades. Row 3: the other plants a Ghibli meadow mixes in: two clumps of broad strap leaves, bare seed stalks,
+// and an arching spray.
 export function makeGrassAtlas(seed = 9){
   const S = 1024, T = S/4, c = document.createElement('canvas'); c.width = c.height = S
-  const g = c.getContext('2d'), r = mulberry32(seed)
+  const g = c.getContext('2d'), r = mulberry32(seed), HL = 255
+  const tempOf = x => Math.round(Math.min(.85, Math.max(0, x))*255)
   g.fillStyle = '#000'; g.fillRect(0, 0, S, S)
+  // one blade: a shaded body, a lit half along one edge, and sometimes the sharp lit stroke
+  const blade = (bx, rootY, ex, ey, mx, my, w, v, temp, lit = .72, hl = false) => {
+    const fill = (off, wid, a, b) => {
+      const grad = g.createLinearGradient(bx, 0, ex, 0); grad.addColorStop(0, `rgb(${Math.round(a*255)},255,${temp})`); grad.addColorStop(1, `rgb(${Math.round(Math.min(1, b)*255)},255,${temp})`)
+      g.fillStyle = grad; g.beginPath(); g.moveTo(bx, rootY + off*.3); g.quadraticCurveTo(mx, my - wid + off, ex, ey); g.quadraticCurveTo(mx, my + wid + off, bx, rootY + off*.3); g.fill()
+    }
+    fill(0, w, v, v + .5); fill(-w*.45, w*.5, v + .1, v + lit)
+    if (hl){ g.strokeStyle = `rgb(255,255,${HL})`; g.lineWidth = Math.max(1.5, w*.35); g.lineCap = 'round'
+      g.beginPath(); const t0 = .35; g.moveTo(bx + (mx - bx)*t0*2*(1 - t0) + 0, rootY + (my - w*.8 - rootY)*2*t0*(1 - t0) + (ey - rootY)*t0*t0)
+      g.quadraticCurveTo(mx, my - w*.8, ex - (ex - bx)*.04, ey); g.stroke() }
+  }
   for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++){
-    const x0 = tx*T, y0 = ty*T
+    const x0 = tx*T, y0 = ty*T, rootY = y0 + T*.5, bx = x0 + T*.02
     g.save(); g.beginPath(); g.rect(x0 + 3, y0 + 3, T - 6, T - 6); g.clip()
-    const n = 7 + Math.floor(r()*6), rootY = y0 + T*.5
-    for (let i = 0; i < n; i++){
-      // every blade leaves one root as a point and swells before it tapers: no flat base for the eye to catch
-      const s = (i + .5)/n*2 - 1, bx = x0 + T*.03, len = T*(.55 + r()*.4)*(1 - .25*s*s), ey = rootY + s*T*(.16 + r()*.2), ex = bx + len
-      const w = T*(.05 + r()*.04), mx = bx + len*.5, my = rootY + (ey - rootY)*.35 + (r() - .5)*T*.05, v = .15 + r()*.15
-      const grad = g.createLinearGradient(bx, 0, ex, 0); grad.addColorStop(0, `rgb(${Math.round(v*255)},255,0)`); grad.addColorStop(1, `rgb(${Math.round(Math.min(1, v + .65)*255)},255,0)`)
-      g.fillStyle = grad; g.beginPath(); g.moveTo(bx, rootY); g.quadraticCurveTo(mx, my - w, ex, ey); g.quadraticCurveTo(mx, my + w, bx, rootY); g.fill()
+    if (ty < 3 || tx === 3){
+      // a tuft: thin blades back to front, darker behind, lighter in front, mostly short with a few long; the last tile of row 3 arches wide
+      const spray = ty === 3, n = spray ? 16 : 14 + Math.floor(r()*9)
+      for (let i = 0; i < n; i++){
+        const depth = i/(n - 1), s = r()*2 - 1, len = T*(spray ? .55 + r()*.4 : (.2 + .8*r()**1.5)*(1 - .25*s*s))
+        const bend = spray ? s*T*.42 : (r() - .5)*T*.5 + s*T*.22, ey = rootY + s*T*.1 + bend, ex = bx + len*(1 - Math.abs(bend)/T*(spray ? .6 : .35))
+        const w = T*(.016 + r()*.02), mx = bx + len*(spray ? .42 : .5), my = rootY + s*T*.04 + bend*(spray ? .15 : .3), v = .06 + depth*.22 + r()*.06
+        blade(bx, rootY, ex, ey, mx, my, w, v, tempOf(.55 - depth*.5 + (r() - .5)*.8), .72, depth > .55 && r() < .28)
+      }
+    } else if (tx < 2){
+      // strap leaves: a few broad blades with a lit half (a thin midrib line magnifies into a stepped stripe close up), standing among the grass
+      for (let i = 0, n = 3 + Math.floor(r()*3); i < n; i++){
+        const depth = i/(n - 1), s = r()*2 - 1, len = T*(.6 + r()*.36), bend = s*T*.3, ey = rootY + bend, ex = bx + len*(1 - Math.abs(bend)/T*.4)
+        const w = T*(.05 + r()*.035), mx = bx + len*.5, my = rootY + bend*.35, v = .02 + depth*.12
+        blade(bx, rootY, ex, ey, mx, my, w, v, tempOf(.8 - depth*.25), .55)   // darker and cooler than the turf, so they read as their own plant   // a broad leaf's light is its lit half: a sharp stroke on it reads serrated
+      }
+    } else {
+      // seed stalks: bare stems, each ending in a small warm head of seeds
+      for (let i = 0, n = 4 + Math.floor(r()*3); i < n; i++){
+        const s = r()*2 - 1, len = T*(.6 + r()*.36), ey = rootY + s*T*.22, ex = bx + len, mx = bx + len*.5, my = rootY + s*T*.06
+        g.strokeStyle = `rgb(${Math.round((.22 + r()*.15)*255)},255,${tempOf(.45)})`; g.lineWidth = T*.008; g.lineCap = 'round'
+        g.beginPath(); g.moveTo(bx, rootY); g.quadraticCurveTo(mx, my, ex, ey); g.stroke()
+        for (let k = 0; k < 9; k++){ const u = .8 + k*.022, px = bx + (ex - bx)*u, py = rootY + (ey - rootY)*u*u + (r() - .5)*T*.02
+          g.fillStyle = `rgb(${Math.round((.55 + r()*.3)*255)},255,${tempOf(.05)})`; g.beginPath(); g.ellipse(px, py, T*.016, T*.008, Math.atan2(ey - rootY, ex - bx), 0, Math.PI*2); g.fill() }
+      }
     }
     g.restore()
   }
-  settlePaint(g, S, r, 2)
+  settlePaint(g, S, r, 2, () => false, true)
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.NoColorSpace; t.flipY = false; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter
   return t
@@ -258,3 +292,42 @@ export function makeSmoothAtlas(seed = 7){
   t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true
   return t
 }
+
+// Wildflowers, painted the way a Ghibli background shows them: a dark stem and a small flat head of a few strokes, no detail.
+// A tile is one flower lying along +x (root at the left, as the grass), in colour, on a clear ground. Rows: white daisy, yellow buttercup,
+// violet, pink clover.
+export function makeFlowerAtlas(seed = 21){
+  const S = 512, T = S/4, c = document.createElement('canvas'); c.width = c.height = S
+  const g = c.getContext('2d'), r = mulberry32(seed)
+  const kinds = [
+    { petals: ['#fbfaf2', '#e8ecef'], eye: '#f2c230', n: 9, rad: .21 },
+    { petals: ['#f7d23a', '#e9b520'], eye: '#c98a12', n: 5, rad: .18 },
+    { petals: ['#8e7fd0', '#6f62b8'], eye: '#f3e6a8', n: 6, rad: .16 },
+    { petals: ['#e9a2bf', '#d27aa2'], eye: '#f7d4e2', n: 0, rad: .18 },
+  ]
+  for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++){
+    const k = kinds[ty], x0 = tx*T, y0 = ty*T, cy = y0 + T/2 + (r() - .5)*T*.1, hx = x0 + T*(.66 + r()*.12), R = T*k.rad*(.85 + r()*.3)
+    g.save(); g.beginPath(); g.rect(x0 + 2, y0 + 2, T - 4, T - 4); g.clip()
+    // stem and a leaf, dark and cool, so the head floats clear of the grass
+    g.strokeStyle = '#2d5a3c'; g.lineWidth = T*.035; g.lineCap = 'round'
+    g.beginPath(); g.moveTo(x0 + 3, cy + (r() - .5)*T*.06); g.quadraticCurveTo(x0 + T*.4, cy + (r() - .5)*T*.12, hx, cy); g.stroke()
+    g.fillStyle = '#336b44'; g.beginPath(); const lx = x0 + T*(.2 + r()*.15), side = r() < .5 ? -1 : 1
+    g.ellipse(lx + T*.06, cy + side*T*.06, T*.09, T*.025, side*.5, 0, Math.PI*2); g.fill()
+    if (k.n){
+      for (let i = 0; i < k.n; i++){
+        const a = i/k.n*Math.PI*2 + r()*.3
+        g.fillStyle = k.petals[i%2]; g.beginPath(); g.ellipse(hx + Math.cos(a)*R*.55, cy + Math.sin(a)*R*.55, R*.55, R*.24, a, 0, Math.PI*2); g.fill()
+      }
+      g.fillStyle = k.eye; g.beginPath(); g.arc(hx, cy, R*.3, 0, Math.PI*2); g.fill()
+    } else {
+      // clover: a round head of small dabs
+      for (let i = 0; i < 14; i++){ const a = r()*Math.PI*2, d = Math.sqrt(r())*R*.75
+        g.fillStyle = k.petals[i%2]; g.beginPath(); g.arc(hx + Math.cos(a)*d, cy + Math.sin(a)*d, R*.32, 0, Math.PI*2); g.fill() }
+    }
+    g.restore()
+  }
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter
+  return t
+}
+

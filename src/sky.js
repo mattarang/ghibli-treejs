@@ -14,10 +14,31 @@ export function makeSky(){
       float fbm(vec2 p){ float s=0., a=.5; for(int i=0;i<6;i++){ s+=a*n(p); p=p*2.03+vec2(7.3,3.1); a*=.5; } return s; }
       void main(){
         vec3 d = normalize(vDir); float y = max(d.y, 0.);
-        vec3 c = mix(uHorizon, uTop, pow(smoothstep(0., .36, y), .6));
+        // Totoro's sky keeps its full blue to within a few degrees of the horizon, then pales fast. The blend runs in display space: mixed in linear
+        // light, every in-between colour leans to the pale end and the whole lower sky reads washed out.
+        vec3 g0 = pow(uHorizon, vec3(1./2.2)), g1 = pow(uTop, vec3(1./2.2));
+        vec3 c = pow(mix(g0, g1, pow(smoothstep(0., .16, y), .6)), vec3(2.2));
         float sd = max(dot(d, uSun), 0.);
-        c += uSunColor*(pow(sd, 6.)*.16 + pow(sd, 90.)*.3 + smoothstep(.9992, .9996, sd)*1.2);
-        if (uNight > .01 && d.y > 0.){ vec2 g = floor(d.xz/(d.y + .6)*180.); c += step(.9975, h(g))*uNight*.8*(.5 + .5*sin(uTime*2. + g.x)); }
+        c += uSunColor*(pow(sd, 24.)*.07 + pow(sd, 120.)*.25 + smoothstep(.9992, .9996, sd)*1.2);   // a tight glow: a broad one greys half the sky
+        // the night sky, as Totoro paints it: a deep, nearly flat navy; stars in a few sizes, the bright ones with a small soft glow,
+        // a few loose clusters, all thinning toward the horizon haze
+        if (uNight > .01 && d.y > 0.){
+          vec2 sp = d.xz/(d.y + .35);
+          float st = 0.;
+          for (int k = 0; k < 3; k++){
+            float sc = k == 0 ? 26. : k == 1 ? 60. : 140.;                          // big and rare, middle, many small
+            vec2 q = sp*sc + float(k)*17.3, i = floor(q), f = fract(q) - .5;
+            float hh = h(i), on = step(k == 0 ? .93 : k == 1 ? .96 : .994, hh);
+            vec2 o = (vec2(h(i + 3.1), h(i + 7.7)) - .5)*.6;
+            float r = length(f - o), rad = k == 0 ? .07 : k == 1 ? .1 : .12, aa = fwidth(q.x)*.7 + 1e-4;   // in cell units: big cells, small stars
+            float core = 1. - smoothstep(rad - aa, rad + aa, r);
+            float halo = k == 0 ? (1. - smoothstep(0., rad*4., r))*.25 : 0.;
+            st += on*(core + halo)*(k == 0 ? 1. : k == 1 ? .75 : .5)*(.75 + .25*sin(uTime*(1.5 + hh*3.) + hh*40.));
+          }
+          float cl = smoothstep(.62, .8, n(sp*3.2 + 11.));                            // loose clusters
+          { vec2 q = sp*220., i = floor(q); st += step(.94, h(i + 41.))*cl*.5*(1. - smoothstep(.12, .3, length(fract(q) - .5))); }
+          c += vec3(.9, .95, 1.)*st*uNight*smoothstep(0., .18, d.y);
+        }
         gl_FragColor = vec4(c, 1.);
         #include <colorspace_fragment>
       }`,

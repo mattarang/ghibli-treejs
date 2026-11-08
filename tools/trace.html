@@ -35,6 +35,10 @@
     <button data-tool="line" title="Open line, stroked black">Line</button>
     <button data-tool="free" title="Drag to draw freehand; becomes a simplified shape">Freehand</button>
     <button data-tool="move" title="Drag a shape to move it; Shift-drag to rotate it about its centre (M)">Move / rotate</button>
+    <button data-tool="wand" title="Click a region of the photo to fill it black; Alt-click removes it (W)">Magic wand</button>
+  </div>
+  <div class="group"><span class="dim">Wand tolerance</span><input id="tol" type="range" min="2" max="120" value="32"><span id="tolV">32</span>
+    <button id="thresh" title="Fill every pixel darker than the slider black: a whole image at once">Threshold image</button><input id="threshV" type="range" min="10" max="245" value="128"><button id="invertMask" title="Swap black and white in the filled areas">Invert fill</button><button id="clearMask">Clear fill</button>
   </div>
   <div class="group"><span class="dim">Line width</span><input id="width" type="range" min="1" max="60" value="6"><span id="widthV">6</span></div>
   <div class="group"><span class="dim">Photo</span><input id="opacity" type="range" min="0" max="100" value="60"></div>
@@ -48,12 +52,14 @@
 </main>
 <footer>
   Click to place points · click the first point or <kbd>Enter</kbd> to close · <kbd>Backspace</kbd> drops the last point · <kbd>Esc</kbd> cancels ·
-  drag points to move them, right-click a point to delete it · <kbd>M</kbd> move tool: drag a shape to move it, <kbd>Shift</kbd>-drag to rotate · scroll to zoom, <kbd>Space</kbd>-drag or middle-drag to pan · <kbd>B</kbd> preview · <kbd>S</kbd> spun preview · <kbd>⌘Z</kbd> undo
+  drag points to move them, right-click a point to delete it · <kbd>W</kbd> magic wand: click a region to fill it (<kbd>Alt</kbd>-click removes) · <kbd>M</kbd> move tool: drag a shape to move it, <kbd>Shift</kbd>-drag to rotate · scroll to zoom, <kbd>Space</kbd>-drag or middle-drag to pan · <kbd>B</kbd> preview · <kbd>S</kbd> spun preview · <kbd>⌘Z</kbd> undo
 </footer>
 <script>
 const cv = document.getElementById('c'), ctx = cv.getContext('2d'), $ = id => document.getElementById(id)
 let img = null, name = 'trace', shapes = [], draft = null, tool = 'fill', preview = false, spun = false, prof = null
 let view = { x: 0, y: 0, s: 1 }, history = [], drag = null, space = false, mouse = null, freeStroke = null
+// the fill: a black-and-white bitmap the size of the photo, painted by the magic wand or the threshold, under the drawn shapes
+let mask = null, mctx = null, pixels = null, maskVer = 0
 const width = () => +$('width').value
 
 function fit(){
@@ -65,7 +71,7 @@ function fit(){
 const toImg = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left - view.x)/view.s, (e.clientY - r.top - view.y)/view.s] }
 const toScreen = p => [p[0]*view.s + view.x, p[1]*view.s + view.y]
 const near = (a, b, px = 9) => Math.hypot(a[0] - b[0], a[1] - b[1])*view.s < px
-const snapshot = () => { history.push(JSON.stringify(shapes)); if (history.length > 200) history.shift() }
+const snapshot = () => { history.push({ shapes: JSON.stringify(shapes), mask: mask ? mctx.getImageData(0, 0, mask.width, mask.height) : null }); if (history.length > 60) history.shift() }
 
 function paint(g, list, s, ox, oy){
   for (const sh of list){
@@ -88,6 +94,7 @@ function draw(){
   if (!preview){ ctx.globalAlpha = $('opacity').value/100; ctx.drawImage(img, view.x, view.y, iw, ih); ctx.globalAlpha = 1 }
   // shapes: solid in preview, translucent over the photo while tracing
   ctx.save(); ctx.beginPath(); ctx.rect(view.x, view.y, iw, ih); ctx.clip()
+  if (mask){ ctx.globalAlpha = preview ? 1 : .55; ctx.drawImage(mask, view.x, view.y, iw, ih); ctx.globalAlpha = 1 }
   if (preview) paint(ctx, shapes, view.s, view.x, view.y)
   else {
     const off = document.createElement('canvas'); off.width = W; off.height = H
@@ -166,6 +173,7 @@ cv.addEventListener('pointerdown', e => {
   const h = hitPoint(p)
   if (h){ snapshot(); drag = { point: h }; return }
   if (tool === 'move'){ const i = hitShape(p); if (i >= 0){ snapshot(); const pts = shapes[i].pts.map(q => [...q]), c = centre(pts); drag = { shape: i, from: p, pts, c, rotate: e.shiftKey, a0: Math.atan2(p[1] - c[1], p[0] - c[0]) } } return }
+  if (tool === 'wand'){ wand(p, e.altKey); return }
   if (tool === 'free'){ freeStroke = [p]; return }
   draft = { kind: tool, w: width(), pts: [p] }; draw()
 })
@@ -208,18 +216,19 @@ addEventListener('keydown', e => {
   else if (e.key === 'b' || e.key === 'B'){ togglePreview() }
   else if (e.key === 's' || e.key === 'S'){ toggleSpun() }
   else if (e.key === 'm' || e.key === 'M'){ document.querySelector('[data-tool=move]').click() }
+  else if (e.key === 'w' || e.key === 'W'){ document.querySelector('[data-tool=wand]').click() }
 })
 addEventListener('keyup', e => { if (e.code === 'Space') space = false })
 
 function undo(){
   if (draft){ draft.pts.pop(); if (!draft.pts.length) draft = null }
-  else if (history.length) shapes = JSON.parse(history.pop())
+  else if (history.length){ const h = history.pop(); shapes = JSON.parse(h.shapes); if (h.mask && mask){ mctx.putImageData(h.mask, 0, 0); maskVer++ } }
   draw()
 }
 // The crown as the generator sees it: the traced shape's half-width at 33 heights from its lowest point to its highest (as a share of that height),
 // lightly smoothed, then mirrored about a centre line and spun round it. Lopsidedness and lean are lost; only width at each height counts
 function profile(){
-  if (!shapes.length) return null
+  if (!shapes.length && !maskVer) return null
   const out = render(), W = out.width, H = out.height, px = out.getContext('2d').getImageData(0, 0, W, H).data, dark = (x, y) => px[(y*W + x)*4] < 128
   let top = -1, bot = -1
   for (let y = 0; y < H && top < 0; y++) for (let x = 0; x < W; x++) if (dark(x, y)){ top = y; break }
@@ -233,7 +242,7 @@ function profile(){
   return sm.map(v => Math.round(v*1000)/1000)
 }
 function drawSpun(W, H){
-  const key = JSON.stringify(shapes); if (key !== drawSpun.key){ drawSpun.key = key; prof = profile() }   // only when the shapes change
+  const key = JSON.stringify(shapes) + maskVer; if (key !== drawSpun.key){ drawSpun.key = key; prof = profile() }   // only when the shapes change
   const bw = Math.min(340, W*.4), bh = bw*.85, x0 = W - bw - 12, y0 = 12
   ctx.fillStyle = 'rgba(255,255,255,.96)'; ctx.fillRect(x0, y0, bw, bh); ctx.strokeStyle = '#3a3f44'; ctx.strokeRect(x0, y0, bw, bh)
   ctx.fillStyle = '#555'; ctx.font = '11px system-ui'; ctx.fillText('Spun crown (side view) - what the tree fits', x0 + 8, y0 + 15)
@@ -268,7 +277,7 @@ function load(file){
   if (!file || !file.type.startsWith('image/')) return
   name = file.name.replace(/\.[^.]+$/, '') || 'trace'
   const url = URL.createObjectURL(file), im = new Image()
-  im.onload = () => { img = im; shapes = []; history = []; draft = null; fit() }
+  im.onload = () => { img = im; shapes = []; history = []; draft = null; newMask(); fit() }
   im.src = url
 }
 $('file').onchange = e => load(e.target.files[0])
@@ -277,18 +286,37 @@ addEventListener('drop', e => { e.preventDefault(); load(e.dataTransfer.files[0]
 addEventListener('paste', e => { const f = [...e.clipboardData.files][0]; if (f) load(f) })
 addEventListener('resize', fit)
 
+function newMask(){ mask = document.createElement('canvas'); mask.width = img.width; mask.height = img.height; mctx = mask.getContext('2d'); maskVer = 0
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d'); g.drawImage(img, 0, 0); pixels = g.getImageData(0, 0, c.width, c.height).data }
+// magic wand: flood-fill the photo region around the click whose colour stays within the tolerance of the clicked pixel (4-connected), into the fill - or out of it with Alt
+function wand(p, remove){ const W = img.width, H = img.height, x0 = Math.floor(p[0]), y0 = Math.floor(p[1]); if (x0 < 0 || y0 < 0 || x0 >= W || y0 >= H) return
+  snapshot(); const tol = +$('tol').value, i0 = (y0*W + x0)*4, r0 = pixels[i0], g0 = pixels[i0 + 1], b0 = pixels[i0 + 2]
+  const seen = new Uint8Array(W*H), stack = [y0*W + x0], md = mctx.getImageData(0, 0, W, H), m = md.data; seen[y0*W + x0] = 1
+  while (stack.length){ const k = stack.pop(), i = k*4, d = Math.abs(pixels[i] - r0) + Math.abs(pixels[i + 1] - g0) + Math.abs(pixels[i + 2] - b0); if (d > tol*3) continue
+    m[i] = m[i + 1] = m[i + 2] = 0; m[i + 3] = remove ? 0 : 255
+    const x = k%W, y = (k - x)/W
+    if (x > 0 && !seen[k - 1]){ seen[k - 1] = 1; stack.push(k - 1) } if (x < W - 1 && !seen[k + 1]){ seen[k + 1] = 1; stack.push(k + 1) }
+    if (y > 0 && !seen[k - W]){ seen[k - W] = 1; stack.push(k - W) } if (y < H - 1 && !seen[k + W]){ seen[k + W] = 1; stack.push(k + W) } }
+  mctx.putImageData(md, 0, 0); maskVer++; draw() }
+$('tol').oninput = () => { $('tolV').textContent = $('tol').value }
+$('thresh').onclick = () => { if (!img) return; snapshot(); const W = img.width, H = img.height, t = +$('threshV').value, md = mctx.getImageData(0, 0, W, H), m = md.data
+  for (let i = 0; i < W*H*4; i += 4){ const lum = .3*pixels[i] + .59*pixels[i + 1] + .11*pixels[i + 2]; m[i] = m[i + 1] = m[i + 2] = 0; m[i + 3] = lum < t && pixels[i + 3] > 128 ? 255 : 0 }
+  mctx.putImageData(md, 0, 0); maskVer++; draw() }
+$('invertMask').onclick = () => { if (!mask) return; snapshot(); const md = mctx.getImageData(0, 0, mask.width, mask.height), m = md.data; for (let i = 3; i < m.length; i += 4) m[i] = 255 - m[i]; mctx.putImageData(md, 0, 0); maskVer++; draw() }
+$('clearMask').onclick = () => { if (!mask) return; snapshot(); mctx.clearRect(0, 0, mask.width, mask.height); maskVer = 0; draw() }
 function render(){
   const out = document.createElement('canvas'); out.width = img.width; out.height = img.height
   const g = out.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, out.width, out.height)
+  if (mask) g.drawImage(mask, 0, 0)
   paint(g, shapes, 1, 0, 0)
   return out
 }
 $('save').onclick = () => {
-  if (!img || !shapes.length) return alert('Trace something first.')
+  if (!img || (!shapes.length && !maskVer)) return alert('Trace something first.')
   render().toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name + '-trace.png'; a.click() })
 }
 $('copy').onclick = async () => {
-  if (!img || !shapes.length) return alert('Trace something first.')
+  if (!img || (!shapes.length && !maskVer)) return alert('Trace something first.')
   render().toBlob(async b => {
     try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); $('copy').textContent = 'Copied'; setTimeout(() => $('copy').textContent = 'Copy', 1200) }
     catch { alert('Copy was blocked by the browser - use Save instead.') }

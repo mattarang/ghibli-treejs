@@ -15,7 +15,7 @@ export const U = {
   uBands: { value: 4 }, uSoft: { value: .1 }, uToonMix: { value: .85 }, uPaletteMix: { value: 1 }, 
   uSss: { value: .55 }, uRim: { value: .3 }, uFleck: { value: .45 }, 
   uSway: { value: 1 }, uFlutter: { value: .035 },
-  uShadowFill: { value: new THREE.Color(0xffb27a) }, uShadowFillK: { value: .05 },
+  uShadowFill: { value: new THREE.Color(0xffb27a) }, uShadowFillK: { value: .05 }, uFlecks: { value: .4 }, uShadeCool: { value: 1 }, uWindDir: { value: new THREE.Vector2(.45, .89).normalize() }, uRockN: { value: 0 }, uSunY: { value: .5 }, uMoonPaint: { value: 1 }, uNightGrade: { value: 0 }, uMoonTop: { value: .68 }, uLobeShade: { value: .8 }, uRimTop: { value: .7 }, uDayRim: { value: 1 }, uLightRel: { value: new THREE.Vector3(1, 1, 1) }, uMoonDark: { value: .62 }, uGrassFar: { value: new THREE.Vector3(0, 0, 1e5) }, uRocks: { value: Array.from({ length: 32 }, () => new THREE.Vector3(1e5, 1e5, 1)) },
   uPigment: { value: 1 }, uLightShape: { value: .34 }, uSelfShade: { value: 1 }, uMass: { value: 1 }, uHueVar: { value: 1 }, uAir: { value: 1 }, uMoss: { value: .6 }, uBarkVar: { value: 1 }, uFurrow: { value: 1 }, uTrees: { value: Array.from({ length: 24 }, () => new THREE.Vector3(1e5, 1e5, 1)) }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uAmbTint: { value: new THREE.Color(1, 1, 1) }, uSunTint: { value: new THREE.Color(1, 1, 1) },
   uLanternPos: { value: new THREE.Vector3(3, 2, 3) }, uLanternColor: { value: new THREE.Color(0xffb35a) }, uLanternI: { value: 0 },
 }
@@ -24,8 +24,48 @@ export const newPalette = hexes => hexes.map(h => ({ value: new THREE.Color(h) }
 export const setPalette = (pal, hexes) => pal.forEach((u, i) => u.value.set(hexes[i]))
 export const paletteUniforms = pal => ({ uPal0: pal[0], uPal1: pal[1], uPal2: pal[2], uPal3: pal[3] })
 
+// Night, one rule for the whole scene. A colour keeps its brightness (or a given one) and is laid on a single saturated blue axis (hue ~210,
+// between Totoro's moonlit foliage at 203 and its sky at 217), with a share of its own chroma on top so greens lean teal and reds lean violet, never grey.
+//  gNightAxis(c, l, k): c's hue moved onto the axis at brightness l, keeping k of its chroma.
+//  gNightGrade(c):      lit colours at night (ground, grass, rocks, bark, sky-lit foliage): brightness x.43, chroma .12.
+//  gNightBand(P):       a palette colour as a moonlit paint tone: brightness .5*l^1.34, no chroma: one hue,
+//                       as Totoro (kept chroma on yellows and oranges cancels the blue and greys them). On a palette ladder it lands on Totoro's
+//                       four foliage tones (camphor: .006/.025/.074/.157 against .007/.025/.073/.176).
+export const GLSL_NIGHT = /* glsl */`
+  vec3 gNightAxis(vec3 c, float l2, float k){ float l = dot(c, vec3(.3, .59, .11)); return max(l2*vec3(.38, 1.05, 2.42) + (c - l)*k, l2*.15); }
+  vec3 gNightGrade(vec3 c){ float l = dot(c, vec3(.3, .59, .11)); return mix(c, gNightAxis(c, l*.43, .12), uNightGrade); }
+  vec3 gNightBand(vec3 p){ float l = dot(p, vec3(.3, .59, .11)); return gNightAxis(p, .5*pow(max(l, 1e-4), 1.34), 0.); }
+`
+// Shadow tiers, one rule for every surface (critique/round11/bands.md): lit P2; shade (sun blocked: cast shadow, a slope turned away, a cloud) P1;
+// deep (sun and sky blocked: contact, a lobe's underside inside the crown) P0; accent (the densest of those) gAccent(P0). Ghibli's daylight
+// frames bottom out at value ~.12-.25, never black, and their darkest accents lose colour toward a cool grey: gAccent is P0 at ~0.55 of its
+// light, 40% toward grey, leaning blue.
+export const GLSL_ACCENT = /* glsl */`
+  // shade keeps its colour: saturation set directly (HSV, value kept) and hue turned about the grey axis (chroma kept). Multiplying a green
+  // by extra blue to cool it cancels its chroma and greys it; night never did that, and day shade shouldn't either.
+  float gSat(vec3 c){ float v = max(max(c.r, c.g), c.b); return v > 0. ? (v - min(min(c.r, c.g), c.b))/v : 0.; }
+  vec3 gSatTo(vec3 c, float s){ float v = max(max(c.r, c.g), c.b), s0 = gSat(c); return s0 > 0. ? v - (v - c)*(s/s0) : c; }
+  vec3 gHueRot(vec3 c, float a){ vec3 k = vec3(.57735); float co = cos(a), si = sin(a); return c*co + cross(k, c)*si + k*dot(k, c)*(1. - co); }   // + turns green toward teal
+  vec3 gAccent(vec3 p0){ float l = dot(p0, vec3(.2126, .7152, .0722)); return mix(p0, vec3(l), .4)*vec3(.5, .55, .68); }
+`
+// cloud shadows, shared by every surface so a passing cloud shades them all: patches of 60-150 m, moving with the wind at ~6 m/s.
+// The edge is a hard toon edge, like a tree's cast shadow. gCloudShade is vertex-safe (a fixed narrow step, for foliage strokes);
+// gCloudShadeAA, fragment-only, is one pixel wide at any distance. Needs tField, uTime, uWindDir and uWind declared before it.
+export const GLSL_CLOUDSHADE = /* glsl */`
+  float gCloudField(vec2 fp){ vec2 cp = fp - uTime*uWindDir*6.;
+    return texture2D(tField, (cp*.0055 + 51.)/16.).r*.7 + texture2D(tField, (cp*.017 + 77.)/16.).r*.3; }
+  float gCloudShade(vec2 fp){ return smoothstep(.62, .625, gCloudField(fp))*uWind; }
+`
+const GLSL_CLOUDSHADE_AA = /* glsl */`
+  float gCloudShadeAA(vec2 fp){ float v = gCloudField(fp), w = max(fwidth(v)*.75, 1e-5); return smoothstep(.6225 - w, .6225 + w, v)*uWind; }
+`
 const PARS = /* glsl */`
-  uniform float uBands, uSoft, uToonMix, uPaletteMix, uShadowFillK, uSunLum, uSunUp, uDay, uLanternI, uPigment;
+  // the sun's light is shaded by passing clouds for every patched surface (flowers, rocks, bark, ground, grass), as for the foliage
+  uniform sampler2D tField; uniform float uTime, uWind; uniform vec2 uWindDir;
+  ${GLSL_CLOUDSHADE} ${GLSL_CLOUDSHADE_AA}
+  uniform float uBands, uSoft, uToonMix, uPaletteMix, uShadowFillK, uSunLum, uSunUp, uSunY, uDay, uLanternI, uPigment;
+  uniform float uNightGrade;
+  ${GLSL_NIGHT} ${GLSL_ACCENT}
   uniform vec3 uShadowFill, uAmbTint, uSunTint, uLanternPos, uLanternColor, uPal0, uPal1, uPal2, uPal3;
   float gMod = 1.; vec3 gTint = vec3(1.);`
 
@@ -42,6 +82,19 @@ const GLSL_NOISE = /* glsl */`
 
 // aWind: xy = root xz (phase of the whole plant), z = sway weight, w = flutter weight (0 on wood, so wood never bobs)
 const GLSL_WIND = /* glsl */`
+  // the wind you can see: ripples ~24 m apart running along the wind at ~8 m/s, fronts bowed and broken, gathered into gusts. One function
+  // for the ground, the grass and the trees, so a ripple crossing the field reaches the crown in step.
+  // where a point sits after the last front passed it (0 at the front, rising to 1 by the next), and how much gust is there
+  vec2 gPhase(vec2 p){ vec2 dir = uWindDir; float a = dot(p, dir), b = dot(p, vec2(-dir.y, dir.x));
+    float ph = a*.14 - uTime*1.3 + sin(b*.045 + a*.02)*2.2 + sin(b*.013 + 1.)*3. + sin(b*.11 + sin(b*.037)*2.)*.35 + sin(b*.27 + 1.7)*.15;   // a gentle, irregular waver along the front              // fronts ~45 m apart at ~9 m/s, bowed and broken
+    float gust = (.5 + .5*sin(a*.05 - uTime*.45 + sin(b*.03)*2.))*(.5 + .5*sin(b*.07 + a*.023 + 2. + uTime*.1));
+    return vec2(fract(-ph/6.2831853), smoothstep(.15, .6, gust)); }                       // only where a gust is: patches that come and go
+  // the bend: snaps over as the front arrives, then springs back with a fading wobble
+  float gWave(vec2 p){ vec2 q = gPhase(p); return smoothstep(0., .03, q.x)*exp(-q.x*13.)*(.75 + .25*cos(q.x*55.))*q.y*uWind; }   // timed with the streak band
+  // a tree answers more slowly than grass: it leans as the front reaches its trunk and eases back over a longer stretch behind it
+  float gWaveTree(vec2 p){ vec2 q = gPhase(p); return smoothstep(0., .35, q.x)*(1. - smoothstep(.35, .97, q.x))*(.45 + .55*q.y)*uWind; }   // a gentle swell: ~1.7 s to lean in after the front, ~3 s to ease back
+  // the pale flash a gust leaves on the field: a thin band right behind the front
+  float gWaveBand(vec2 p){ vec2 q = gPhase(p); return smoothstep(0., .01, q.x)*exp(-q.x*16.)*q.y*uWind; }
   vec3 windOffset(vec3 wp, vec3 clump, vec4 a){
     float t = uTime;
     float gust = .55 + .45*sin(t*.35 + a.x*.05)*sin(t*.23 + a.y*.07);
@@ -49,7 +102,9 @@ const GLSL_WIND = /* glsl */`
     vec3 o = vec3(.55, .0, .35)*sway*gust*a.z*uSway;
     o += vec3(.4, .22, .3)*sin(t*1.9 + clump.x*.7 + clump.y*.4 + clump.z*.6)*gust*a.w*.1*uSway;
     float fl = sin(t*6.3 + wp.x*7.1 + wp.y*4.3 + wp.z*5.7)*(.55 + .45*sin(t*2.9 + wp.z*3.1 + wp.x*1.7));
-    o += vec3(.5, .8, .5)*fl*a.w*uFlutter*(.4 + .6*gust);
+    float wv = gWave(mix(a.xy, wp.xz, step(.01, a.w)));                // leaves meet the front where they are; stems and grass at their root
+    o += vec3(uWindDir.x, 0., uWindDir.y)*gWaveTree(a.xy)*a.z*uSway*4.;           // the plant leans with the gust at its root, as its foliage does
+    o += vec3(.5, .8, .5)*fl*a.w*uFlutter*(.4 + .6*gust)*(1. + 2.5*wv);
     return o*uWind; }`
 
 const GLSL_LIT = /* glsl */`
@@ -61,6 +116,7 @@ const GLSL_LIT = /* glsl */`
   void RE_Direct_Toon(const in IncidentLight dl, const in vec3 gp, const in vec3 gn, const in vec3 gv, const in vec3 gcn, const in PhysicalMaterial m, inout ReflectedLight rl){
     float ndl = saturate(dot(gn, dl.direction));
     float seen = saturate(dot(dl.color, vec3(.2126,.7152,.0722))/max(uSunLum, 1e-3));   // the shadow term, already in dl.color
+    seen *= 1. - gCloudShadeAA(vWPos.xz);   // a cloud is a cast shadow like any other, with the same hard edge
     gLit = max(gLit, ndl*seen); gNdl = max(gNdl, ndl); gSeen = max(gSeen, seen);
     IncidentLight tl = dl;
     #ifdef G_TOON
@@ -77,12 +133,15 @@ export function patch(mat, o){
     Object.assign(sh.uniforms, U, o.uniforms || {})
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
-        uniform float uTime, uWind, uSway, uFlutter; varying vec3 vWPos; ${GLSL_NOISE} ${o.wind ? 'attribute vec4 aWind;' + GLSL_WIND : ''}
+        uniform float uTime, uWind, uSway, uFlutter; uniform vec2 uWindDir; varying vec3 vWPos; ${GLSL_NOISE} ${o.wind ? 'attribute vec4 aWind;' + GLSL_WIND : ''}
         ${o.vertexPars || ''}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         ${o.vertexBegin || ''}`)
       .replace('#include <project_vertex>', `
         vec4 mvPosition = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          mvPosition = instanceMatrix*mvPosition;                        // a forest copy: placed by its instance
+        #endif
         vec4 wPos = modelMatrix*mvPosition;
         ${o.wind ? `wPos.xyz += windOffset(wPos.xyz, ${clump}, aWind);` : ''}
         vWPos = wPos.xyz;
@@ -115,8 +174,9 @@ export function patch(mat, o){
           vec3 pal = palRamp(${o.softRamp ? 'clamp(kk, 0., 1.)' : 'toonRamp(clamp(kk, 0., 1.))'} + (${o.pigment || '0.'})*uPigment*.34);
           ${o.palLine || ''}
           float lit = clamp(kk, 0., 1.);
-          pal = max(pal*(1. + uShadowFill*uShadowFillK*(1. - lit)*1.6)*gMod*gTint, uPal0*.9)*mix(uAmbTint, uSunTint, toonRamp(lit));   // the deepest paint is the palette's shadow colour, never black
+          pal = max(pal*(1. + uShadowFill*uShadowFillK*(1. - lit)*1.6)*gMod*gTint, gAccent(uPal0))*mix(uAmbTint, uSunTint, toonRamp(lit));   // the deepest paint is the palette's shadow colour, never black
           outgoingLight = mix(outgoingLight, pal, uPaletteMix);
+          outgoingLight = gNightGrade(outgoingLight);
           vec3 lv = (viewMatrix*vec4(uLanternPos, 1.)).xyz + vViewPosition; float d2 = dot(lv, lv);
           outgoingLight += uLanternColor*(.3 + .7*saturate(dot(normal, normalize(lv))))*uLanternI/(1. + d2*.18)*(.4 + diffuseColor.rgb); }
         #include <opaque_fragment>`)
