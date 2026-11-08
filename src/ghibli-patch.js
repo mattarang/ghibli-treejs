@@ -59,12 +59,17 @@ export const GLSL_AIR = /* glsl */`
 // The edge is a hard toon edge, like a tree's cast shadow. gCloudShade is vertex-safe (a fixed narrow step, for foliage strokes);
 // gCloudShadeAA, fragment-only, is one pixel wide at any distance. Needs tField, uTime, uWindDir and uWind declared before it.
 export const GLSL_CLOUDSHADE = /* glsl */`
-  float gCloudField(vec2 fp){ vec2 cp = fp - uTime*uWindDir*6.;
-    return texture2D(tField, (cp*.0055 + 51.)/16.).r*.7 + texture2D(tField, (cp*.017 + 77.)/16.).r*.3; }
-  float gCloudShade(vec2 fp){ return smoothstep(.62, .625, gCloudField(fp))*uWind; }
+  // the shadows drift with the wind and also change shape as they go: the large shapes and the edge detail slide at different speeds and
+  // headings, and a slow third layer swells and shrinks the patches, so a shadow morphs the way a real cloud's does
+  float gCloudField(vec2 fp){ vec2 cp = fp - uTime*uWindDir*6., side = vec2(-uWindDir.y, uWindDir.x);
+    vec2 cq = fp - uTime*(uWindDir*4.3 + side*1.1);
+    float big = texture2D(tField, (cp*.0032 + 51.)/16.).r, fine = texture2D(tField, (cq*.017 + 77.)/16.).r;
+    float swell = texture2D(tField, (fp*.0021 + uTime*vec2(.0011, -.0007) + 13.)/16.).r;
+    return big*.62 + fine*.3 + (swell - .5)*.22 + .04; }
+  float gCloudShade(vec2 fp){ return smoothstep(.655, .66, gCloudField(fp))*uWind; }
 `
 const GLSL_CLOUDSHADE_AA = /* glsl */`
-  float gCloudShadeAA(vec2 fp){ float v = gCloudField(fp), w = max(fwidth(v)*.75, 1e-5); return smoothstep(.6225 - w, .6225 + w, v)*uWind; }
+  float gCloudShadeAA(vec2 fp){ float v = gCloudField(fp), w = max(fwidth(v)*.75, 1e-5); return smoothstep(.6575 - w, .6575 + w, v)*uWind; }
 `
 const PARS = /* glsl */`
   // the sun's light is shaded by passing clouds for every patched surface (flowers, rocks, bark, ground, grass), as for the foliage
@@ -123,7 +128,7 @@ const GLSL_LIT = /* glsl */`
   void RE_Direct_Toon(const in IncidentLight dl, const in vec3 gp, const in vec3 gn, const in vec3 gv, const in vec3 gcn, const in PhysicalMaterial m, inout ReflectedLight rl){
     float ndl = saturate(dot(gn, dl.direction));
     float seen = saturate(dot(dl.color, vec3(.2126,.7152,.0722))/max(uSunLum, 1e-3));   // the shadow term, already in dl.color
-    seen *= 1. - gCloudShadeAA(vWPos.xz);   // a cloud is a cast shadow like any other, with the same hard edge
+    seen *= 1. - .5*gCloudShadeAA(vWPos.xz);   // a cloud's shadow is a lighter tier than a cast shadow (half the sun), with the same hard edge
     gLit = max(gLit, ndl*seen); gNdl = max(gNdl, ndl); gSeen = max(gSeen, seen);
     IncidentLight tl = dl;
     #ifdef G_TOON

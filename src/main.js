@@ -55,7 +55,7 @@ const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
   showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 21, flowers: 50, rocks: 12,
   mountains: true, mountainHeight: 1,
-  time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 9, cloudSeed: 4, haze: .1, autoTime: false,
+  time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 18, cloudSeed: 4, haze: .1, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
   windOn: true, wind: 1, autoRotate: false, exposure: 1, forest: +(qs.get('forest') || 0), forestKinds: 4, lodScale: 1,
   forestMix: qs.get('mix') ? qs.get('mix').split(',').filter(n => SPECIES[n]) : [],    // species planted in the forest besides the current one
@@ -110,7 +110,7 @@ const GROUND_SHADE = `{ vec2 fp = gXZ.x > 1e5 ? vWPos.xz : gXZ;               //
   { gCloud = gCloudShade(fp); }   // already in gSeen, via the shared light
   // a slope turned from the sun goes to shade with a hard toon edge, as a cast shadow does: one pixel of anti-aliasing at any distance
   float fc = facing + (wash - .5)*.12, fw = max(fwidth(fc)*.75, 1e-4);
-  float lit = inSun*smoothstep(.85 - fw, .85 + fw, fc);   // (one shade) a slope turned from the sun goes most of the way to shade: the folds of the land carry the light
+  float lit = inSun*mix(.45, 1., smoothstep(.85 - fw, .85 + fw, fc));   // a slope turned from the sun is a lighter tier than a cast shadow   // (one shade) a slope turned from the sun goes most of the way to shade: the folds of the land carry the light
   gLitF = lit; gLitV = lit;   // shade is shade: a cast shadow and a slope turned from the sun take the same value and the same dark under the grass                                            // one light for the ground and every blade on it
   // the stroke frame: down the fall line where the land slopes, along the wind where it is flat
   vec3 dn = normalize(cross(dFdx(vWPos), dFdy(vWPos))), wn = mix(dn, gGroundN, step(.5, length(gGroundN))); if (wn.y < 0.) wn = -wn;   // the ground's own surface, or the terrain under a tuft's root
@@ -821,7 +821,7 @@ lightF.addColor(p, 'sunTint').name('Sun tint').onChange(relight)
 lightF.add(p, 'ambient', 0, 2, .01).name('Ambient').onChange(relight)
 lightF.add(p, 'shadowSoft', 0, 16, .1).name('Shadow softness').onChange(relight)
 const reCloud = () => clouds.build(p.clouds, p.cloudSeed)
-lightF.add(p, 'clouds', 0, 14, 1).name('Clouds').onChange(reCloud)
+lightF.add(p, 'clouds', 0, 30, 1).name('Clouds').onChange(reCloud)
 lightF.add(p, 'cloudSeed', 1, 99, 1).name('Cloud seed').onChange(reCloud)
 lightF.add(p, 'haze', 0, .95, .01).name('Haze').onChange(relight)
 lightF.add(p, 'mountains').name('Distant mountains').onChange(() => mountains.set(p.mountains, p.mountainHeight))

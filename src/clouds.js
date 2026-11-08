@@ -93,7 +93,7 @@ export function makeClouds(){
       const az = c < 2 ? Math.PI*1.25 + (c ? .62 : -.62)*.5 + (r() - .5)*.2 : (c/Math.max(count, 1))*Math.PI*2 + 2.1 + (r() - .5)*.6
       const high = tier === 2 ? .4 + r()*.6 : r()*.3
       const el = (hero ? -.6 + r()*.5 : tier === 1 ? .2 + r()*2 : 1.2 + high*high*16)*Math.PI/180   // big bases sink just below the horizon: the cloud stands on the land
-      const size = hero ? 26 + r()*14 : tier === 1 ? 12 + r()*8 : (3.5 + r()*6)*(1 - .45*high), world = 12
+      const size = hero ? (c < 2 ? 18 + r()*7 : 22 + r()*12) : tier === 1 ? 12 + r()*8 : (3.5 + r()*6)*(1 - .45*high), world = 12   // the two in the opening view a little smaller, so they frame rather than fill it
       // masses, as a crown has: each tower is one shelf with its own clumps, large low down and small along the top, on one flat base
       const shelves = Array.from({ length: 2 + Math.floor(r()*3) }, (_, i) => { const at = (i ? (r() - .5)*1.7 : (r() - .5)*.4)*size, rx = size*(i ? .3 + r()*.2 : .55), h = size*(i ? .32 + r()*.3 : .62)
         return { cx: at, cz: 0, rx, h, bottom: 0, phase: r()*7 } })

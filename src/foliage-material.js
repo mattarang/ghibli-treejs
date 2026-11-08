@@ -76,14 +76,14 @@ const vertexShader = /* glsl */`
       int id = int(aPatch.z);
       vec3 place = texelFetch(tSun, ivec2(id%256, id/256), 0).rgb; hueOf = place.g - .5;
       int form = int(place.b*255. + .5); if (form > 0){ int o = (form - 1)*4; P0 = uPalV[o]; P1 = uPalV[o + 1]; P2 = uPalV[o + 2]; P3 = uPalV[o + 3]; }   // each tree's own colour form
-      score = place.r*4. - 2. + dot(n, uSunDir)*.6 + aPatch.x*uLightShape*.9 - gCloudShade(wPos.xz)*4.;   // a cloud passing over shades the crown with the ground
+      score = place.r*4. - 2. + dot(n, uSunDir)*.6 + aPatch.x*uLightShape*.9 - gCloudShade(wPos.xz)*1.6;   // a cloud passing over shades the crown with the ground
       // the underside of every lobe turns from the light: a crescent of shade under each one is what sets the lobes apart
       score += min(lobeH + .3 + (aLeaf.z - .5)*.25, 0.)*uLobeShade*2.4;
       float along = score + (aLeaf.z - .5)*.16;                                 // across the terminator, dabs decide one by one
       F = mix(.05, .34 + .5*smoothstep(0., .85, score)*smoothstep(0., .85, score) + aPatch.y*.05, smoothstep(-.015, .015, along));   // the more it faces the sun, the brighter
       closed = (aDab > .5 && !small && score < -.16 && aLeaf.z > .4) || (small && abs(score) > .13 && rimV < .4);   // detail lives on the terminator and the rim
     } else {
-      F = (max(dot(n, uSunDir), 0.)*(.72 + .28*aLeaf.x) + (aLeaf.x - .5)*.2 + (aLeaf.z - .5)*.02 + aPatch.x*uLightShape*1.8)*.95*(1. - gCloudShade(wPos.xz));
+      F = (max(dot(n, uSunDir), 0.)*(.72 + .28*aLeaf.x) + (aLeaf.x - .5)*.2 + (aLeaf.z - .5)*.02 + aPatch.x*uLightShape*1.8)*.95*(1. - .5*gCloudShade(wPos.xz));
       bool band = F > .13 && F < .62;
       closed = (aDab > .5 && !small && F < .16 && aLeaf.z > .4) || (small && !band && rimV < .4 && (F < .62 || aLeaf.z > .22));
     }
