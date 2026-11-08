@@ -310,20 +310,20 @@ const makeWoodMat = (barkPal, inkPal, color) => patch(new THREE.MeshStandardMate
   // foliage and goes in, and never shows as a loose piece floating in front of a clump's body. Its shadow doesn't move.
   afterClip: 'if (vLeafA.y > 0.){ vec4 sunk = projectionMatrix*vec4(mvPosition.xy, mvPosition.z - uSink*vLeafA.y, 1.); gl_Position.z = sunk.z/sunk.w*gl_Position.w; }',
   vertexPars: 'varying float vCrack; uniform float uSink, uCrownDark, uPxAngle; attribute vec3 aLeaf; attribute vec3 clusterCenter; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH;',
-  vertexBegin: 'vCrack = smoothstep(.45, .85, abs(aLeaf.z)); vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); { float round = abs(aLeaf.z)*clusterCenter.x/.5; vB = vec3(cos(uv.x*6.28318)*round, sin(uv.x*6.28318)*round, uv.y); }   /* the way round the wood, in real distance: clusterCenter.x carries the girth */ vWN = normal; vH = position.y - clusterCenter.y;' +
+  vertexBegin: 'vCrack = smoothstep(.45, .85, abs(aLeaf.z)); vLeafA = vec3(aLeaf.xy, smoothstep(.1, .5, abs(aLeaf.z))); { float round = clusterCenter.x/.5; vB = vec3(cos(uv.x*6.28318)*round, sin(uv.x*6.28318)*round, uv.y); }   /* the way round the wood, in real distance: clusterCenter.x carries the girth */ vWN = normal; vH = position.y - clusterCenter.y;' +
     // wood is never drawn thinner than about a pixel and a half: far twigs stay visible lines instead of fading out and leaving the crown's leaves floating
     ' { vec3 wq = (modelMatrix*vec4(transformed, 1.)).xyz; float need = .8*uPxAngle*distance(wq, cameraPosition); if (clusterCenter.x > 0. && clusterCenter.x < need) transformed += normal*(need - clusterCenter.x); }',
   fragmentPars: `varying float vCrack; varying vec3 vLeafA; varying vec3 vB; varying vec3 vWN; varying float vH; uniform vec3 uInk, uFootColor, uSunDir; uniform float uMoss, uBarkVar, uFurrow, uCrownDark;
     uniform float uBarkScale, uBarkStretch, uBarkPlates, uBarkBands; vec3 gB = vec3(0.); float gSun = 1., gRidge = 0., gMoss = 0., gLichen = 0., gCrack = 0., gHue = 0.;`,
-  color: `{ gB = vec3(vB.xy*uBarkScale, vB.z*uBarkScale/uBarkStretch); vec2 ring = gB.xy; float thick = vLeafA.x;
-    float big = fbm3(vec3(ring*1.7, gB.z*.2) + 3.), fine = fbm3(vec3(ring*5.5, gB.z*.7));
+  color: `{ gB = vec3(vB.xy*uBarkScale, vB.z*1.45*uBarkScale/uBarkStretch); vec2 ring = gB.xy; float thick = vLeafA.x;
+    float big = fbm3(vec3(ring*1.7, gB.z*.5) + 3.), fine = fbm3(vec3(ring*5.5, gB.z*1.6));
     gRidge = ((big - .5)*1.1 + (fine - .5)*.4)*(.25 + .75*vLeafA.z);
-    float flow = fbm3(vec3(ring*3.4, gB.z*.14) + 11.);
+    float flow = fbm3(vec3(ring*3.4, gB.z*.55) + 11.);
     gCrack = (1. - smoothstep(.0, max(.05, fwidth(flow)*1.5), abs(flow - .5)))*thick*uFurrow*vCrack;   // cracks stay out of forks, where the pattern's coordinates bunch up
     float plates = 1. - smoothstep(.0, .05, abs(fbm3(vec3(ring*3.4, gB.z*1.1) + 51.) - .5));   // cross cracks, for bark that breaks into plates
     gCrack = max(gCrack, plates*uBarkPlates*thick*vCrack*smoothstep(.35, .65, fbm3(vec3(ring*1.2, gB.z*.3) + 7.)));
     gCrack = max(gCrack, smoothstep(.57, .72, fbm3(vec3(ring*1.4, gB.z*7.) + 61.))*uBarkBands*.6*thick*vCrack);   // lenticels: the short bands across cherry bark
-    float zone = fbm3(vec3(ring*.9, gB.z*.08) + 21.);
+    float zone = fbm3(vec3(ring*.9, gB.z*.3) + 21.);
     gHue = mix(.5, smoothstep(.38, .62, zone), vLeafA.z);     // joints stay neutral, so a limb and its parent paint as one form
     gLichen = smoothstep(.6, .63, fbm3(vec3(ring*3.2, gB.z*.8) + 31.))*smoothstep(.45, .6, zone)*thick*.75*uBarkVar*vCrack;
     float up = normalize(vWN).y*.5 + .5, low = 1. - smoothstep(.1, 3.2, vH);
@@ -333,10 +333,10 @@ const makeWoodMat = (barkPal, inkPal, color) => patch(new THREE.MeshStandardMate
   // bark is painted in three values: a deep side away from the sun, a middle, and mottled dabs of light on the sun side. Noise along the
   // grain breaks the borders between them into brush marks. Under a canopy the lit dabs thin out to the patches the sun reaches.
   shade: `{ vec2 rg = gB.xy; float thick = vLeafA.x, f = dot(normalize(vWN), uSunDir)*.5 + .5;
-    float broad = fbm3(vec3(rg*3., gB.z*.6) + 41.) - .5, small = fbm3(vec3(rg*5., gB.z*1.1) + 5.) - .5;     // short dabs along the grain, not long rails
+    float broad = fbm3(vec3(rg*3., gB.z*1.2) + 41.) - .5, small = fbm3(vec3(rg*5., gB.z*2.2) + 5.) - .5;     // short dabs along the grain, not long rails
     float v = f + (broad*.3 + small*.08)*(.3 + .7*vLeafA.z);          // the form decides the value; noise only breaks its edge
     float seen = gSeen;   // the shadow map decides everywhere: letting the form decide near the terminator left a band down every trunk that no shadow could reach. The noise below hides the stair-steps a grazing shadow makes
-    float sun = smoothstep(.25, .75, seen + (fbm3(vec3(rg*2.2, gB.z*.5) + gRidge*.5 + 17.) - .5)*.6);   // the real shadow decides where sun lands; noise only breaks its edge into dabs
+    float sun = smoothstep(.25, .75, seen + (fbm3(vec3(rg*2.2, gB.z*1.) + gRidge*.5 + 17.) - .5)*.6);   // the real shadow decides where sun lands; noise only breaks its edge into dabs
     // out of the sun the wood is still a cylinder: a lighter face toward the light, a dark core where the form turns, a thin bounce on the far edge
     kk = .07 + .13*smoothstep(.5, .64, v) + .1*smoothstep(.74, .9, v) + .06*smoothstep(.34, .2, v);
     kk = mix(kk, .76, smoothstep(.58, .7, v)*sun*smoothstep(.15, .6, thick));
