@@ -11,12 +11,20 @@ const DIST = 1000
 const SP = { height: 3, strokeAngle: 90, strokeJitter: 40, cardSize: 2.7, brushWidth: 1, coverage: .85, plates: 3.6, plateSize: 1.25, strays: 0, core: false, crownBlend: .55, massBlend: .5, squash: .82 }
 
 export function makeClouds(){
-  const palette = newPalette(['#b0c2cc', '#d2dce0', '#f8f3e8', '#fffcf4'])   // a soft blue-grey shade, lighter than the sky behind it, and cream light
+  // the same four bands as foliage (critique/round11/bands.md), sampled from a Wind Rises cloud: P0 the deep blue of the shade side
+  // (#09628a, picked by the user), P1 a lighter blue, P2 the cream-white body, P3 the bright rim each puff takes on its crest toward the sun
+  const palette = newPalette(['#09628a', '#5891b0', '#e6ebe6', '#fffcf2'])
   const unused = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1)
   const mat = makeFoliageMaterial(makeSmoothAtlas(11), unused, palette, { value: new THREE.Color('#fff4dc') }, { value: new THREE.Color('#fff4dc') })
   Object.assign(mat, { transparent: true, depthWrite: false, alphaToCoverage: false, fog: false })
   mat.defines = { ...(mat.defines || {}), CLOUD: 1 }
-  Object.assign(mat.uniforms, { uAir: { value: 0 }, uHueVar: { value: .12 }, uSelfShade: { value: 0 }, uMass: { value: 0 }, uWind: { value: 0 }, uShadowFillK: { value: 0 }, uLanternI: { value: 0 }, uShadeCool: { value: 0 }, uMoonPaint: { value: 0 }, uLobeShade: { value: 0 }, uDayRim: { value: 0 }, uPigment: { value: .35 }, uLightShape: { value: .1 }, uFleck: { value: 0 } })   // the palette carries the cloud's shade colour; the sky tint foliage takes would turn it lavender
+  // every puff is a lobe: its own table of centres and sizes (in the cloud's world place), so each one is modelled top to underside and
+  // takes the rim on its crest, as a tree's lobes do
+  const lobes = new THREE.DataTexture(new Float32Array(256*64*4), 256, 64, THREE.RGBAFormat, THREE.FloatType)
+  lobes.magFilter = lobes.minFilter = THREE.NearestFilter
+  mat.uniforms.tLobe = { value: lobes }
+  Object.assign(mat.uniforms, { uLobeShade: { value: 1 }, uDayRim: { value: 1 }, uRimTop: { value: .66 } })
+  Object.assign(mat.uniforms, { uAir: { value: 0 }, uHueVar: { value: .12 }, uSelfShade: { value: 0 }, uMass: { value: 0 }, uWind: { value: 0 }, uShadowFillK: { value: 0 }, uLanternI: { value: 0 }, uShadeCool: { value: 0 }, uMoonPaint: { value: 0 }, uPigment: { value: .35 }, uLightShape: { value: .1 }, uFleck: { value: 0 } })   // the palette carries the cloud's shade colour; the sky tint foliage takes would turn it lavender
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat)
   mesh.frustumCulled = false
   // Clouds are drawn as impostors, the way distant trees are. The camera always sits at the centre of the cloud dome, so each cloud is always
@@ -95,7 +103,7 @@ export function makeClouds(){
           clumps.push({ c: q, r: rad, shelf: v, rim: 0, mass: [v.cx, v.h*.4, 0] })
         }
       }
-      const fromV = b.pos.length/3, fromI = b.idx.length
+      const fromV = b.pos.length/3, fromI = b.idx.length, fromH = b.held?.length ?? 0
       emitFoliage(SP, r, clumps, [0, 0, 0], 1, b)
       // into place: cloud space is x across, y up, z toward the viewer
       const out = new THREE.Vector3(Math.cos(az)*Math.cos(el), Math.sin(el), Math.sin(az)*Math.cos(el)), right = new THREE.Vector3(-Math.sin(az), 0, Math.cos(az))
@@ -112,6 +120,10 @@ export function makeClouds(){
         // calmer paint than a tree: strokes in a cloud differ far less from their neighbours, so light reads as big shapes
         b.leaf[v*3] = lerp(.62, b.leaf[v*3], .3); b.leaf[v*3 + 2] = lerp(.5, b.leaf[v*3 + 2], .25); b.leaf[v*3 + 1] = lerp(.5, b.leaf[v*3 + 1], .4)
       }
+      // each puff's centre and size, placed as its strokes were
+      for (let k = fromH; k < b.held.length && k < 256*64; k++){ const h = b.held[k], q = turn(h.c[0], h.c[1], h.c[2])
+        lobes.image.data.set([out.x*DIST + q[0]*world, out.y*DIST + q[1]*world, out.z*DIST + q[2]*world, h.r*world], k*4) }
+      lobes.needsUpdate = true
       cards.push({ out: out.clone(), right: right.clone(), up: up.clone(), fromI, toI: b.idx.length, fromV, toV: b.pos.length/3, order: hero ? 0 : tier })
     }
     // far to near within each cloud, each cloud's strokes kept together so it can be baked on its own

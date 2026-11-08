@@ -48,6 +48,13 @@ export const GLSL_ACCENT = /* glsl */`
   vec3 gHueRot(vec3 c, float a){ vec3 k = vec3(.57735); float co = cos(a), si = sin(a); return c*co + cross(k, c)*si + k*dot(k, c)*(1. - co); }   // + turns green toward teal
   vec3 gAccent(vec3 p0){ float l = dot(p0, vec3(.2126, .7152, .0722)); return mix(p0, vec3(l), .4)*vec3(.5, .55, .68); }
 `
+// Aerial perspective, one rule for every surface (foliage, ground, grass, flowers, rocks, bark, forest impostors): past 220 m the colour
+// drifts toward the fog colour, shade faster than light (lit = 0 shade, 1 full light). Before this, only foliage took it and a far
+// tree washed out pale against a ground that stayed full green.
+export const GLSL_AIR = /* glsl */`
+  uniform float uAir;
+  float gAir(float d, float lit){ return (1. - exp(-max(d - 500., 0.)*.0012))*(1. - .55*clamp(lit, 0., 1.))*uAir; }   // Ghibli's clear-day frames keep near-full colour out to the far hills: only the far distance cools
+`
 // cloud shadows, shared by every surface so a passing cloud shades them all: patches of 60-150 m, moving with the wind at ~6 m/s.
 // The edge is a hard toon edge, like a tree's cast shadow. gCloudShade is vertex-safe (a fixed narrow step, for foliage strokes);
 // gCloudShadeAA, fragment-only, is one pixel wide at any distance. Needs tField, uTime, uWindDir and uWind declared before it.
@@ -62,7 +69,7 @@ const GLSL_CLOUDSHADE_AA = /* glsl */`
 const PARS = /* glsl */`
   // the sun's light is shaded by passing clouds for every patched surface (flowers, rocks, bark, ground, grass), as for the foliage
   uniform sampler2D tField; uniform float uTime, uWind; uniform vec2 uWindDir;
-  ${GLSL_CLOUDSHADE} ${GLSL_CLOUDSHADE_AA}
+  ${GLSL_CLOUDSHADE} ${GLSL_CLOUDSHADE_AA} ${GLSL_AIR}
   uniform float uBands, uSoft, uToonMix, uPaletteMix, uShadowFillK, uSunLum, uSunUp, uSunY, uDay, uLanternI, uPigment;
   uniform float uNightGrade;
   ${GLSL_NIGHT} ${GLSL_ACCENT}
@@ -176,6 +183,9 @@ export function patch(mat, o){
           float lit = clamp(kk, 0., 1.);
           pal = max(pal*(1. + uShadowFill*uShadowFillK*(1. - lit)*1.6)*gMod*gTint, gAccent(uPal0))*mix(uAmbTint, uSunTint, toonRamp(lit));   // the deepest paint is the palette's shadow colour, never black
           outgoingLight = mix(outgoingLight, pal, uPaletteMix);
+          #ifdef USE_FOG
+            outgoingLight = mix(outgoingLight, fogColor, gAir(length(vViewPosition), smoothstep(.27, .6, lit)));   // the ground's two bands sit at .27 and .6: shade 0, full light 1
+          #endif
           outgoingLight = gNightGrade(outgoingLight);
           vec3 lv = (viewMatrix*vec4(uLanternPos, 1.)).xyz + vViewPosition; float d2 = dot(lv, lv);
           outgoingLight += uLanternColor*(.3 + .7*saturate(dot(normal, normalize(lv))))*uLanternI/(1. + d2*.18)*(.4 + diffuseColor.rgb); }

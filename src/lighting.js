@@ -62,5 +62,5 @@ export function applyLighting(p, L){
   // Distance turns land toward the sky's blue, not toward the pale horizon: far hills stay a step darker than the sky behind them, so they read as
   // blue shapes against it instead of washing out. The fog colour is a third of the way from the horizon to the top of the sky.
   L.scene.fog.color.copy(horizon).lerp(top, .32)
-  L.scene.fog.near = 260; L.scene.fog.far = 320 + 900*(1 - p.haze)   // haze belongs to the far landscape: trees at any viewing distance keep their true colour
+  L.scene.fog.near = 500; L.scene.fog.far = 700 + 2200*(1 - p.haze)   // a clear day: only the horizon itself softens   // haze belongs to the far landscape: trees at any viewing distance keep their true colour
 }

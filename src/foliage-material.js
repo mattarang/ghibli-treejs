@@ -1,16 +1,17 @@
 // Foliage's own shader. A stroke is one flat colour, so all of its lighting happens once, per vertex, and the fragment shader only reads
 // the brush. Strokes overlap heavily, so this is where the frame rate lives. Cores share it, as strokes that happen to have no fan.
 import * as THREE from 'three'
-import { U, GLSL_NIGHT, GLSL_ACCENT, GLSL_CLOUDSHADE } from './ghibli-patch.js'
+import { U, GLSL_NIGHT, GLSL_ACCENT, GLSL_CLOUDSHADE, GLSL_AIR } from './ghibli-patch.js'
 
 const vertexShader = /* glsl */`
   attribute vec2 aCorner; attribute vec3 aPatch, aStroke, aLeaf, clusterCenter; attribute vec4 aWind; attribute float aDab;
-  uniform sampler2D tSun, tLobe; uniform float uSelfShade, uHueVar, uAir, uMass; uniform vec3 fogColor;
+  uniform sampler2D tSun, tLobe; uniform float uSelfShade, uHueVar, uMass; uniform vec3 fogColor;
   uniform vec2 uWindDir; uniform vec3 uLightRel; uniform float uShadeCool, uMoonPaint, uNightGrade, uMoonTop, uLobeShade, uRimTop, uDayRim, uMoonDark;
   ${GLSL_NIGHT} ${GLSL_ACCENT}
   uniform float uTime, uWind, uSway, uFlutter, uLightShape, uBands, uSoft, uToonMix, uPigment, uSss, uRim, uFleck, uShadowFillK, uDay, uLanternI;
   uniform sampler2D tField;
   ${GLSL_CLOUDSHADE}
+  ${GLSL_AIR}
   uniform vec3 uPalV[12]; vec3 P0, P1, P2, P3;
   uniform vec3 uSunDir, uPal0, uPal1, uPal2, uPal3, uSssColor, uRimColor, uShadowFill, uAmbTint, uSunTint, uLanternPos, uLanternColor;
   varying vec2 vUv; varying vec3 vColA, vColB; varying float vCalm;
@@ -112,6 +113,11 @@ const vertexShader = /* glsl */`
     float mod0 = mix(1., 1. + (aLeaf.y - .5)*.2, calm), toSun = toonRamp(lit);
     vec3 scale = (1. + uShadowFill*uShadowFillK*(1. - lit)*1.6)*mod0*tint*mix(1., .8, (1. - calm)*uShadeCool),   // a crown's shade is a step darker than the grass shadow under it, as in every Ghibli frame measured
          wash = mix(uAmbTint, mix(vec3(dot(uSunTint, vec3(.333))), uSunTint, .5), toSun);   // leaves take half the sun's warmth: full warmth turns every lit green yellow
+    #ifdef CLOUD
+      // a cloud's shade is the palette's own blue: the ambient tint (lavender, and purple toward evening) only sets how bright it is,
+      // otherwise it pulls the blue shade grey-violet
+      wash = mix(vec3(dot(uAmbTint, vec3(.333))), mix(vec3(dot(uSunTint, vec3(.333))), uSunTint, .5), toSun);
+    #endif
     float back = pow(clamp(dot(-V, uSunDir), 0., 1.), 3.)*uSss*F;
     float rimF = pow(1. - clamp(dot(n, V), 0., 1.), 3.)*uRim*(.3 + .7*clamp(dot(n, uSunDir) + .3, 0., 1.));
     vec3 glow = (back*uSssColor*(.35 + base) + uRimColor*rimF*(.4 + base))*uSunTint*uDay*calm;
@@ -120,7 +126,7 @@ const vertexShader = /* glsl */`
     // hue is a second axis of paint that light doesn't touch: whole lobes lean teal or olive, and strokes only a little
     float turn = (massed ? hueOf*.3 + (fract(aPatch.z*.618) - .5)*.1 + (aLeaf.z - .5)*.1 : (aLeaf.z - .5)*.42 + (aLeaf.y - .5)*(1. - calm)*.45)*uHueVar;
     // air: distance lifts shadow toward the sky long before it touches the lights
-    float air = (1. - exp(-max(length(mvPosition.xyz) - 220., 0.)*.0045))*(1. - .55*calm)*uAir;
+    float air = gAir(length(mvPosition.xyz), calm);
     // the sky fills the shade: greens turn toward teal, warm colours toward mauve, by a hue turn that keeps their colour (multiplying in blue
     // greyed them). Ghibli's crown shade sits 10-40 deg bluer than the grass shade below it.
     vec3 cA = max(palRamp(x - spread)*scale, P0*.9), cB = max(palRamp(x + spread)*scale, P0*.9);

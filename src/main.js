@@ -52,7 +52,7 @@ const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('s
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
   showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, grass: 21, flowers: 50, rocks: 12,
-  time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 9, cloudSeed: 4, haze: .25, autoTime: false,
+  time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 9, cloudSeed: 4, haze: .1, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
   windOn: true, wind: 1, autoRotate: false, exposure: 1, forest: +(qs.get('forest') || 0), forestKinds: 4, lodScale: 1,
   forestMix: qs.get('mix') ? qs.get('mix').split(',').filter(n => SPECIES[n]) : [],    // species planted in the forest besides the current one
@@ -158,9 +158,9 @@ const GROUND_SHADE = `{ vec2 fp = gXZ.x > 1e5 ? vWPos.xz : gXZ;               //
   vec3 clump = vec3(fld(fp*.29 + 61.), 0., fld(fp*.29 + 83.));   // (perf) one lookup, where a 9-cell Voronoi search cost ~0.6 ms on grass                                              // clumps of 2-5 m share a hue, ground and grass alike (as Ghost of Tsushima's)
   gHA = clamp(hueA + (clump.z - .5)*.1, 0., 1.); gHB = clamp(hueB + (clump.x - .5)*.08, 0., 1.); gLitP = lit;
   gMod *= 1. + (drift - .5)*.06;
-  // distance: hills a few hundred metres off cool toward teal and flatten, the light and shade drawing closer together
-  { float far = smoothstep(45., 260., distance(fp, cameraPosition.xz));
-    gTint = mix(gTint, mix(vec3(.85, 1., 1.12), vec3(.95, 1., 1.04), lit), far*.85); kk = mix(kk, .36 + lit*.2, far*.5); gFar = far; }
+  // distance: on a clear day the far hills only cool a little toward teal and keep their light and shade (no haze flattening them)
+  { float far = smoothstep(120., 600., distance(fp, cameraPosition.xz));
+    gTint = mix(gTint, mix(vec3(.85, 1., 1.12), vec3(.95, 1., 1.04), lit), far*.45); kk = mix(kk, .36 + lit*.2, far*.12); gFar = far; }
   float near = 1e3, aoT = 0., nT = fld(fp*2.1) - .5;
   for (int i = 0; i < uTreeN; i++){ if (uContactBox.w > .5 && max(abs(uTrees[i].x - uContactBox.x), abs(uTrees[i].y - uContactBox.y)) < uContactBox.z) continue;   /* baked: its own wood gives its contact */ float r = uTrees[i].z, d = length(fp - uTrees[i].xy); near = min(near, d/r); aoT = max(aoT, 1. - smoothstep(r*.9, r*2.6, d + nT*r*.5)); }   // one pass: the bare foot and the contact shade
   near += (fld(fp*1.3) - .5)*.8;
