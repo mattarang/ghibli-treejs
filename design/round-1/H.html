@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>H</title>
+<style>
+@font-face { font-family: "Mz"; src: url("https://cdn.jsdelivr.net/gh/collletttivo/mazius-display@main/fonts/MaziusDisplay-Regular.woff2") format("woff2"); font-weight: 400; }
+@font-face { font-family: "Mz"; src: url("https://cdn.jsdelivr.net/gh/collletttivo/mazius-display@main/fonts/MaziusDisplay-Bold.woff2") format("woff2"); font-weight: 700; }
+@font-face { font-family: "Q"; src: url("https://cdn.jsdelivr.net/gh/iaolo/iA-Fonts@master/iA%20Writer%20Quattro/Webfonts/iAWriterQuattroS-Regular.woff2") format("woff2"); font-weight: 400; }
+@font-face { font-family: "Q"; src: url("https://cdn.jsdelivr.net/gh/iaolo/iA-Fonts@master/iA%20Writer%20Quattro/Webfonts/iAWriterQuattroS-Bold.woff2") format("woff2"); font-weight: 700; }
+html, body { margin: 0; height: 100%; }
+/* snow settles on the tops of the boughs: every name of a thing is a heavy bough in grey, and its value lies right on top of it, small and
+   white, touching it. The boughs step out to either side down the page as a conifer's tiers do */
+body { background: #2e3b45; color: #93a7b6; font-family: "Mz", serif; }
+.page { box-sizing: border-box; min-height: 100%; padding: 7vh 6vw 6vh; display: flex; flex-direction: column; align-items: center; }
+.top { margin: 0 0 6vh; text-align: center; }
+.top .snow { display: block; color: #f4f7fb; font-family: "Q", sans-serif; font-size: clamp(13px, 1.2vw, 17px); letter-spacing: .01em; margin-bottom: .1em; }
+.top .snow span + span { margin-left: 1.2em; }
+.top .bough { display: block; color: #f4f7fb; font-weight: 700; font-size: clamp(46px, 8vw, 128px); line-height: .9; letter-spacing: -.01em; }
+.tier { margin: 0; display: flex; flex-direction: column; line-height: 1; }
+.tier .snow { color: #f4f7fb; font-family: "Q", sans-serif; font-weight: 700; font-size: clamp(14px, 1.35vw, 20px); margin-bottom: -.05em; }
+.tier .bough { font-size: clamp(32px, 4.6vw, 74px); line-height: .92; }
+.t1 { align-self: flex-start; margin-left: 12%; } .t2 { align-self: flex-end; margin-right: 10%; text-align: right; } .t3 { align-self: flex-start; margin-left: 22%; } .t4 { align-self: flex-end; margin-right: 20%; text-align: right; }
+.t1, .t2, .t3, .t4 { margin-top: 3.2vh; }
+.foot { margin: auto 0 0; padding-top: 7vh; align-self: stretch; display: flex; flex-wrap: wrap; justify-content: space-between; gap: .6em 2em; font-family: "Q", sans-serif; font-size: clamp(13px, 1.15vw, 16px); }
+.foot p { margin: 0; }
+.foot .w { color: #f4f7fb; }
+.foot span + span { margin-left: 1.4em; }
+@media (max-width: 640px) { .t1 { margin-left: 0; } .t2 { margin-right: 0; } .t3 { margin-left: 8%; } .t4 { margin-right: 8%; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="top"><span class="snow"><span>Summer</span><span>Mid July</span><span>10:30</span></span><span class="bough">Camphor tree</span></p>
+  <p class="tier t1"><span class="snow">12.5 m</span><span class="bough">Height</span></p>
+  <p class="tier t2"><span class="snow">1.9 m</span><span class="bough">Trunk height</span></p>
+  <p class="tier t3"><span class="snow">7</span><span class="bough">Main limbs</span></p>
+  <p class="tier t4"><span class="snow">40°</span><span class="bough">Branch angle</span></p>
+  <div class="foot"><p class="w"><span>Show leaves</span><span>Reset</span><span>Done</span></p><p><span>Growing the tree</span><span>Ghibli Foliage</span></p></div>
+</div>
+</body>
+</html>

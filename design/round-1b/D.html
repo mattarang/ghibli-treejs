@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D</title>
+<style>
+@font-face { font-family: "Ms"; src: url("https://cdn.jsdelivr.net/gh/collletttivo/messapia@main/fonts/Messapia-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "Ms"; src: url("https://cdn.jsdelivr.net/gh/collletttivo/messapia@main/fonts/Messapia-Bold.woff2") format("woff2"); font-weight: 700; font-style: normal; }
+html, body { margin: 0; min-height: 100%; }
+body { background: #e8edf2; font-family: "Ms", sans-serif; }
+.year { box-sizing: border-box; min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.q { box-sizing: border-box; padding: 6vh 5vw; display: flex; flex-direction: column; }
+.spring { color: #a3365e; justify-content: flex-start; } .summer { color: #2d6638; align-items: flex-end; text-align: right; }
+.autumn { color: #9a4a12; align-items: flex-end; justify-content: flex-end; text-align: right; } .winter { color: #34507a; justify-content: flex-end; }
+h2 { margin: 0 0 .5em; font-weight: 700; font-size: clamp(30px, 4.2vw, 64px); line-height: .95; letter-spacing: -.02em; }
+.r { margin: 0; font-size: 16px; line-height: 1.55; } .r .v { font-weight: 700; font-feature-settings: "tnum" 1; }
+.spring .name { margin: 0; font-weight: 700; font-size: clamp(36px, 5.4vw, 84px); line-height: .95; letter-spacing: -.02em; }
+.spring .when { margin: .6em 0 0; font-size: 16px; } .spring .when span + span { margin-left: 1em; }
+.spring .acts { margin: auto 0 0; font-weight: 700; font-size: 16px; } .spring .acts span + span { margin-left: 1.4em; }
+.spring .step { margin: .4em 0 0; font-size: 14px; } .spring .step span + span { margin-left: 1.4em; }
+@media (max-width: 640px) { .year { grid-template-columns: 1fr; grid-template-rows: none; } .q { align-items: flex-start !important; text-align: left !important; padding: 5vh 6vw; } .spring .acts { margin-top: 2em; } }
+</style>
+</head>
+<body>
+<main class="year">
+<section class="q spring"><p class="name">Camphor tree</p><p class="when"><span>Summer</span><span>Mid July</span><span>10:30</span></p><p class="acts"><span>Show leaves</span><span>Reset</span><span>Done</span></p><p class="step"><span>Growing the tree</span><span>Ghibli Foliage</span></p></section>
+<section class="q summer"><h2>Crown</h2><p class=r><span class=k>Crown width</span> <span class=v>78%</span></p><p class=r><span class=k>Windswept</span> <span class=v>None</span></p><p class=r><span class=k>Leaf clumps</span> <span class=v>0.8 m</span></p></section>
+<section class="q autumn"><h2>Branches</h2><p class=r><span class=k>Main limbs</span> <span class=v>7</span></p><p class=r><span class=k>Branch angle</span> <span class=v>40°</span></p><p class=r><span class=k>Branch length</span> <span class=v>100%</span></p><p class=r><span class=k>Droop</span> <span class=v>0%</span></p><p class=r><span class=k>Crookedness</span> <span class=v>20%</span></p></section>
+<section class="q winter"><h2>Trunk</h2><p class=r><span class=k>Height</span> <span class=v>12.5 m</span></p><p class=r><span class=k>Trunk height</span> <span class=v>1.9 m</span></p><p class=r><span class=k>Trunk thickness</span> <span class=v>144 cm</span></p><p class=r><span class=k>Stems</span> <span class=v>1.2</span></p><p class=r><span class=k>Trunk bends</span> <span class=v>23%</span></p><p class=r><span class=k>Lean</span> <span class=v>None</span></p></section>
+</main>
+</body>
+</html>

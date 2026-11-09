@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E</title>
+<style>
+@font-face { font-family: "O"; src: url("https://cdn.jsdelivr.net/gh/theleagueof/ostrich-sans@master/webfonts/ostrich-sans-black.woff") format("woff"); font-weight: 900; }
+@font-face { font-family: "O"; src: url("https://cdn.jsdelivr.net/gh/theleagueof/ostrich-sans@master/webfonts/ostrich-sans-bold.woff") format("woff"); font-weight: 700; }
+@font-face { font-family: "O"; src: url("https://cdn.jsdelivr.net/gh/theleagueof/ostrich-sans@master/webfonts/ostrich-sans-regular.woff") format("woff"); font-weight: 400; }
+@font-face { font-family: "O"; src: url("https://cdn.jsdelivr.net/gh/theleagueof/ostrich-sans@master/webfonts/ostrich-sans-light.woff") format("woff"); font-weight: 300; }
+html, body { margin: 0; height: 100%; }
+/* type set at real size: one metre is one unit of type, so the tree's height and its trunk's stand on the same ground at their true
+   proportion, and everything else is small beside them, as a person is beside a tree */
+body { --u: min(5.2vh, 3.4vw); background: #9fc7d9; color: #0d2230; font-family: "O", sans-serif; }
+.page { box-sizing: border-box; height: 100%; min-height: 520px; padding: 5vh 5vw 0; display: flex; flex-direction: column; }
+.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 1.2em 3em; font-size: clamp(17px, 1.6vw, 24px); letter-spacing: .06em; }
+.top p { margin: 0; }
+.name { font-weight: 700; font-size: 1.9em; letter-spacing: .03em; }
+.light { font-weight: 300; }
+.top span + span { margin-left: 1.4em; }
+.ground { margin-top: auto; display: flex; align-items: flex-end; gap: calc(var(--u) * .9); }
+.stand { display: flex; flex-direction: column; }
+.stand .k { font-weight: 400; font-size: clamp(15px, 1.4vw, 21px); letter-spacing: .08em; margin: 0 0 .2em .1em; }
+.tall { font-weight: 900; font-size: calc(var(--u) * 12.5); line-height: .74; letter-spacing: -.01em; margin: 0; }
+.short { font-weight: 900; font-size: calc(var(--u) * 1.9); line-height: .74; margin: 0; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="top">
+    <p><span class="name">Camphor tree</span></p>
+    <p><span>Main limbs 7</span><span>Branch angle 40°</span></p>
+    <p><span>Summer</span><span class="light">Mid July</span><span>10:30</span></p>
+    <p class="light"><span>Show leaves</span><span>Reset</span><span>Done</span></p>
+    <p class="light"><span>Ghibli Foliage</span><span>Growing the tree</span></p>
+  </div>
+  <div class="ground">
+    <div class="stand"><p class="k">Height</p><p class="tall">12.5 m</p></div>
+    <div class="stand"><p class="k">Trunk height</p><p class="short">1.9 m</p></div>
+  </div>
+</div>
+</body>
+</html>

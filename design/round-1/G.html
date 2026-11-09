@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G</title>
+<style>
+@font-face { font-family: "X"; src: url("https://cdn.jsdelivr.net/gh/githubnext/monaspace@main/fonts/Web%20Fonts/Variable%20Web%20Fonts/Monaspace%20Xenon/Monaspace%20Xenon%20Var.woff2") format("woff2"); font-weight: 200 800; font-stretch: 100% 125%; }
+html, body { margin: 0; height: 100%; }
+/* at half past ten the sun stands up to the left of noon: the words nearest it are lit full, heavy and wide; each line further from it
+   is lighter and narrower, falling away down the page to the right, as the far side of a crown goes into shade */
+body { background: #f2cf6e; color: #4a2f05; font-family: "X", monospace; }
+.page { box-sizing: border-box; min-height: 100%; padding: 6vh 6vw; display: flex; flex-direction: column; gap: .2em; }
+.sun { margin: 0; color: #b5300b; font-weight: 800; font-stretch: 125%; font-size: clamp(60px, 13vw, 210px); line-height: .82; letter-spacing: -.04em; }
+.l { margin: 0; white-space: nowrap; line-height: 1.3; }
+.l .k { color: #7b500e; }
+.l1 { font-weight: 800; font-stretch: 125%; font-size: clamp(26px, 4.6vw, 72px); margin-top: .35em; }
+.l2 { font-weight: 650; font-stretch: 118%; font-size: clamp(21px, 3.5vw, 54px); padding-left: 7vw; }
+.l3 { font-weight: 520; font-stretch: 112%; font-size: clamp(18px, 2.8vw, 42px); padding-left: 15vw; }
+.l4 { font-weight: 420; font-stretch: 106%; font-size: clamp(16px, 2.2vw, 33px); padding-left: 24vw; }
+.l5 { font-weight: 330; font-stretch: 100%; font-size: clamp(15px, 1.8vw, 26px); padding-left: 34vw; }
+.l6 { font-weight: 260; font-stretch: 100%; font-size: clamp(14px, 1.4vw, 20px); padding-left: 44vw; }
+.l7 { font-weight: 200; font-stretch: 100%; font-size: clamp(13px, 1.1vw, 16px); padding-left: 54vw; margin-top: auto; padding-top: 4vh; }
+.l7 span + span, .l6 span + span { margin-left: 1.6em; }
+.when { color: #b5300b; }
+@media (max-width: 640px) { .l2 { padding-left: 3vw; } .l3 { padding-left: 7vw; white-space: normal; } .l4 { padding-left: 11vw; white-space: normal; } .l5 { padding-left: 15vw; } .l6 { padding-left: 19vw; white-space: normal; } .l7 { padding-left: 23vw; white-space: normal; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="sun">10:30</p>
+  <p class="l l1">Camphor tree</p>
+  <p class="l l2"><span class="when">Summer</span> <span class="k">Mid July</span></p>
+  <p class="l l3"><span class="k">Height</span> 12.5 m <span class="k">Trunk height</span> 1.9 m</p>
+  <p class="l l4"><span class="k">Main limbs</span> 7 <span class="k">Branch angle</span> 40°</p>
+  <p class="l l5">Growing the tree</p>
+  <p class="l l6"><span>Show leaves</span><span>Reset</span><span>Done</span></p>
+  <p class="l l7"><span>Ghibli Foliage</span></p>
+</div>
+</body>
+</html>

@@ -158,7 +158,9 @@ export function makeClouds(){
     put('position', b.pos, 3); put('normal', b.nor, 3); put('uv', b.uv, 2); put('aCorner', b.corner, 2); put('aStroke', b.stroke, 3)
     put('aLeaf', b.leaf, 3); put('aDab', b.dab, 1); put('aPatch', b.patch, 3); put('aWind', b.wind, 4); put('clusterCenter', b.center, 3)
     g.setIndex(new THREE.BufferAttribute(idx, 1))
-    mesh.geometry = g
+    g.computeBoundingSphere(); mesh.geometry = g                         // (the sphere now: the renderer asks for it after the arrays are gone)
+    // (memory) once on the GPU nothing reads the strokes back (a re-bake draws the GPU's copy), so the page's own copy is let go
+    for (const a of [...Object.values(g.attributes), g.index]) a.onUpload(letGo)
     dirty = true
   }
   // sun and wash arrive through the foliage shader; night only has to take the paint itself down
@@ -169,7 +171,9 @@ export function makeClouds(){
   const paint = () => { if (!lastS) return; palette.forEach((c, i) => c.value.copy(base[i]).lerp(greys[i], cool*.6).multiplyScalar(1 - .8*lastS.night)); fade.value = 1 - .6*lastS.night; dirty = true }
   group.light = s => { lastS = s; paint() }
   group.setCool = k => { cool = k; paint() }
-  group.material = mat
+  group.material = mat; group.mesh = mesh
   return group
 }
 const lerp = (a, b, t) => a + (b - a)*t
+// (memory) after upload: drop the page's copy of a buffer (module level, so it holds no build's arrays alive)
+function letGo(){ this.array = null }

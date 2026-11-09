@@ -11,16 +11,20 @@
          text-shadow: 0 1px 3px #0009; pointer-events: none; opacity: .9; }
   #hud b { font-size: 15px; font-weight: 600; display: block; }
 </style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700;6..12,800&display=swap">
 <link rel="stylesheet" href="/src/boot.css">
 </head>
 <body>
 <div id="boot" role="status" aria-live="polite">
-  <div class="cloud a"></div><div class="cloud b"></div>
-  <div class="boot-card">
-    <h1>Ghibli Foliage</h1>
-    <p class="boot-sub">A painted meadow through the seasons</p>
-    <div class="boot-bar"><i></i></div>
-    <div class="boot-step">Loading</div>
+  <div class="boot-label">
+    <div class="boot-dial" aria-hidden="true"><svg viewBox="-50 -50 100 100"><ellipse cx="3" cy="5" rx="41" ry="41" fill="#2b2823" opacity=".16"/><g class="boot-disc"><path fill="#e2728d" d="M0 0L-28.28 -28.28A40 40 0 0 1 28.28 -28.28Z"/><path fill="#2f6d50" d="M0 0L28.28 -28.28A40 40 0 0 1 28.28 28.28Z"/><path fill="#e9c35b" d="M0 0L28.28 28.28A40 40 0 0 1 -28.28 28.28Z"/><path fill="#5b6273" d="M0 0L-28.28 28.28A40 40 0 0 1 -28.28 -28.28Z"/></g><circle r="4.5" fill="rgba(12,14,16,.75)"/><path class="boot-hook" d="M-1.6 -38 V-49 C-1.6 -56 7.5 -56 7.5 -49 V-46" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><path d="M-6 -42 L0 -33 L6 -42Z" fill="#fff"/></svg></div>
+    <div class="boot-text">
+      <h1 class="boot-name">Ghibli Foliage</h1>
+      <p class="boot-step">Loading</p>
+      <p class="boot-pct">0%</p>
+    </div>
   </div>
 </div>
 <div id="hud"><b>Ghibli Foliage</b><span id="stats"></span><br>Drag: orbit · Shift+drag: move the sun · Scroll: zoom</div>

@@ -74,9 +74,9 @@ const reflRT = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, ge
 const reflCam = new THREE.PerspectiveCamera(), reflM = { value: new THREE.Matrix4() }
 let POND_BOX = POND.r*POND.sx*1.6
 const pondMat = new THREE.ShaderMaterial({
-  uniforms: { uPondA: U.uPondA, uPondB: U.uPondB, uIce: { value: 0 }, uProj: { value: camera.projectionMatrix }, tRefl: { value: reflRT.texture }, uReflM: reflM, uRocks: U.uRocks, uRockN: U.uRockN, uTop: sky.material.uniforms.uTop, uHorizon: sky.material.uniforms.uHorizon, uSunTint: U.uSunTint, uAmbTint: U.uAmbTint, uNightGrade: U.uNightGrade, uTime: U.uTime, uDay: U.uDay, uWindDir: U.uWindDir },
+  uniforms: { uPondA: U.uPondA, uPondB: U.uPondB, uIce: { value: 0 }, uProj: { value: camera.projectionMatrix }, tRefl: { value: reflRT.texture }, uReflOn: { value: 1 }, uReflM: reflM, uRocks: U.uRocks, uRockN: U.uRockN, uTop: sky.material.uniforms.uTop, uHorizon: sky.material.uniforms.uHorizon, uSunTint: U.uSunTint, uAmbTint: U.uAmbTint, uNightGrade: U.uNightGrade, uTime: U.uTime, uDay: U.uDay, uWindDir: U.uWindDir },
   vertexShader: 'uniform mat4 uReflM; varying vec3 vW; varying vec4 vR; void main(){ vec4 w = modelMatrix*vec4(position, 1.); vW = w.xyz; vR = uReflM*w; gl_Position = projectionMatrix*viewMatrix*w; }',
-  fragmentShader: `uniform vec3 uTop, uHorizon, uSunTint, uAmbTint; uniform float uNightGrade, uTime, uDay; uniform vec2 uWindDir; uniform mat4 uProj; uniform float uIce; uniform sampler2D tRefl; uniform vec3 uRocks[32]; uniform int uRockN; varying vec3 vW; varying vec4 vR;
+  fragmentShader: `uniform vec3 uTop, uHorizon, uSunTint, uAmbTint; uniform float uNightGrade, uTime, uDay; uniform vec2 uWindDir; uniform mat4 uProj; uniform float uIce; uniform sampler2D tRefl; uniform float uReflOn; uniform vec3 uRocks[32]; uniform int uRockN; varying vec3 vW; varying vec4 vR;
     ${GLSL_NIGHT}
     ${POND_GLSL}
     float h1(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x*p.y); }
@@ -112,6 +112,8 @@ const pondMat = new THREE.ShaderMaterial({
       vec2 ruv = vR.xy/vR.w + vec2(rip*.012 + rip2*.006, rip*.004)*mix(1., .4, smoothstep(10., 60., dist)) + rn*.01/max(dist*.15, 1.);
       // smeared down the screen (a reflection stretches toward the viewer and loses its detail), from a blurred level
       vec3 r = vec3(0.); for (int k = 0; k < 6; k++) r += textureLod(tRefl, ruv + vec2(0., (float(k) - 1.5)*.006), 1.5).rgb; r /= 6.;
+      // no reflection drawn (phones): the sky it would have shown, deeper toward the far bank, rippled
+      if (uReflOn < .5) r = mix(uHorizon, uTop, clamp(.45 + (ruv.y - .5)*.8 + rip*.25, 0., 1.))*.92;
       // painted, not mirrored: in display values, pulled toward the middle (darks lighter, lights darker) and gathered into a few bands
       vec3 rd = pow(max(r, 0.), vec3(1./2.2)); float l = dot(rd, vec3(.3, .59, .11));
       float lc = mix(l, .42, .22), K = 4., lq = (floor(lc*K) + smoothstep(.35, .65, fract(lc*K)))/K;
@@ -149,7 +151,7 @@ pond.position.set(POND.x, pondLevel, POND.z); pond.renderOrder = 1; scene.add(po
 // falling leaves (src/leaves.js): they land on the ground, or float on the pond
 const leafFall = makeLeafFall((x, z) => pondDist(x, z) < -.0125 ? { y: pondLevel, water: true } : { y: groundHeight(x, z), water: false })
 scene.add(leafFall.mesh)
-const mountains = makeMountains(scene.fog.color); scene.add(mountains)   // painted hills and mountains round the horizon
+const mountains = makeMountains(scene.fog.color, { thin: MOBILE ? 2.5 : 1 }); scene.add(mountains)   // painted hills and mountains round the horizon
 const L = { sun, hemi, sky, clouds, mountains, scene, reach: 80 }
 
 // ---- parameters ----
@@ -1297,7 +1299,16 @@ if (DEMO) gui.hide()
 // first, so the screen can say what is happening; shaders are compiled before the scene is shown, and the screen lifts once the field
 // round the camera has grown and the first frames have drawn (see the loop)
 const bootEl = document.getElementById('boot')
-const boot = (step, at) => { if (!bootEl) return; bootEl.querySelector('.boot-step').textContent = step; bootEl.style.setProperty('--at', at) }
+// the boot dial turns as a spring-loaded selector does: pushed a few degrees against its catch, then it gives and snaps over to the
+// next quarter, overshoots a little and settles
+let bootN = 0, bootDisc = bootEl?.querySelector('.boot-disc')
+const boot = (step, at) => { if (!bootEl) return; bootEl.querySelector('.boot-step').textContent = step; bootEl.style.setProperty('--at', at)
+  const pct = bootEl.querySelector('.boot-pct'); if (pct) pct.textContent = `${Math.round(at*100)}%`
+  const a0 = -90*bootN, a1 = a0 - (bootN ? 90 : 0); bootN++
+  if (!bootDisc || a1 === a0 || matchMedia('(prefers-reduced-motion: reduce)').matches){ if (bootDisc) bootDisc.style.transform = `rotate(${a1}deg)`; return }
+  bootDisc.animate([{ transform: `rotate(${a0}deg)` }, { transform: `rotate(${a0 - 11}deg)`, offset: .42, easing: 'cubic-bezier(.6, 0, .9, .6)' },
+    { transform: `rotate(${a1 - 8}deg)`, offset: .7, easing: 'ease-out' }, { transform: `rotate(${a1 + 3}deg)`, offset: .86, easing: 'ease-in-out' }, { transform: `rotate(${a1}deg)` }],
+    { duration: 760, fill: 'forwards' }) }
 const breathe = () => new Promise(r => requestAnimationFrame(() => setTimeout(r)))
 boot('Preparing the sky', .08); await breathe()
 applyLook(); reCloud()
@@ -1363,6 +1374,7 @@ function renderPondReflection(){
   const cp = camera.position
   _fr.setFromProjectionMatrix(_m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
   if (cp.y < pondLevel + .05 || !_fr.intersectsSphere(pondSphere)){ pond.visible = false; return }
+  pond.material.uniforms.uReflOn.value = view.reflection === false ? 0 : 1
   if (view.reflection === false){ pond.visible = true; return }
   pond.visible = true
   const moved = !matNear(_lastCam, camera.matrixWorld, 2e-4) || !matNear(_lastProj, camera.projectionMatrix, 1e-6) || reflSize !== renderer.getDrawingBufferSize(_sz).x

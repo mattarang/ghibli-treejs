@@ -9,10 +9,10 @@ import { makeSmoothAtlas } from './atlas.js'
 import { makeFoliageMaterial } from './foliage-material.js'
 import { newPalette, U, GLSL_NIGHT, setPalette } from './ghibli-patch.js'
 
-const UNIT = 6.5                      // metres per local unit: clumps of 1-1.4 units are 7-9 m stands of trees, a few pixels each at 900 m
+const UNIT0 = 6.5                     // metres per local unit: clumps of 1-1.4 units are 7-9 m stands of trees, a few pixels each at 900 m
 const FOOT = -8                       // the plain in front of the mountains sits at the meadow's edge (-6 to +11 m): forested, it is the tree line
 const R_IN = 640, R_OUT = 1260, R_MID = 1000   // from just behind the meadow's edge (620 m): no gap to see past
-const STEP = 11                        // metres between clumps over the surface
+const STEP0 = 11                       // metres between clumps over the surface
 const SPAN = 24                       // degrees of ring per card
 const SP = { height: 3, strokeAngle: 90, strokeJitter: 50, cardSize: .8, brushWidth: 1, coverage: .3, plates: 1.4, plateSize: 1.2, strays: 0, core: true, crownBlend: 0, massBlend: .45, squash: .8 }
 // P0 deep, P1 shade, P2 lit, P3 the crest rim: sampled from the Spirited Away meadow shot (near hills #397653, peaks #4a8472, far #548084)
@@ -48,7 +48,9 @@ function makeLand(seed, scale){
   return height
 }
 
-export function makeMountains(fogColor){
+export function makeMountains(fogColor, { thin = 1 } = {}){
+  // thin (phones): clumps this many times larger and farther apart, the same cover in a 1/thin² share of the strokes (coarser brushwork, far less memory)
+  const UNIT = UNIT0*thin, STEP = STEP0*thin
   const group = new THREE.Group(), bakeCam = new THREE.PerspectiveCamera(30, 1, 10, 3000)
   const palette = newPalette(PALETTE)
   const unused = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1)
@@ -190,7 +192,9 @@ export function makeMountains(fogColor){
     put('position', b.pos, 3); put('normal', b.nor, 3); put('uv', b.uv, 2); put('aCorner', b.corner, 2); put('aStroke', b.stroke, 3)
     put('aLeaf', b.leaf, 3); put('aDab', b.dab, 1); put('aPatch', b.patch, 3); put('aWind', b.wind, 4); put('clusterCenter', b.center, 3)
     g.setIndex(new THREE.BufferAttribute(idx, 1))
-    mesh.geometry = g
+    g.computeBoundingSphere(); mesh.geometry = g                         // (the sphere now: the renderer asks for it after the arrays are gone)
+    // (memory) once on the GPU nothing reads the strokes back (a re-bake draws the GPU's copy), so the page's own copy is let go
+    for (const a of [...Object.values(g.attributes), g.index]) a.onUpload(letGo)
     const ug = new THREE.BufferGeometry(); ug.setAttribute('position', new THREE.Float32BufferAttribute(uPos, 3)); ug.setIndex(uIdx); under.geometry = ug
     // the mist ring: one strip round the whole skyline, from 10 m under the crest to 65 m above it
     for (let k = 0, steps = 1440; k <= steps; k++){
@@ -234,3 +238,5 @@ export function makeMountains(fogColor){
   return group
 }
 const lerp = (a, b, t) => a + (b - a)*t
+// (memory) after upload: drop the page's copy of a buffer (module level, so it holds no build's arrays alive)
+function letGo(){ this.array = null }

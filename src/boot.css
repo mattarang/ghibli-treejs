@@ -1,21 +1,17 @@
-/* The boot screen: a painted sky over a band of meadow while the scene is made, its step and a thin bar of progress (--at, 0..1, set by
-   main.js), lifting in a fade once the first frames are drawn. Everything here animates on the compositor, so it keeps moving even while
-   the page is busy growing the tree. */
-#boot { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; overflow: hidden; --at: 0;
-  background: linear-gradient(#5fb6db 0%, #9fd6ea 46%, #d9efe8 62%, #7cc35a 62.2%, #5fa648 100%);
-  font: 15px/1.4 ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; color: #fff;
+/* The boot screen, in the locked herbarium-sheet language (design/ROUND-2-CONTEXT.md): the empty paper sheet, left for the specimen that
+   is about to arrive, and one small label in its corner - the spring-loaded season selector (main.js turns it), the name, the step and
+   how far along it is, in the same paper and type as the controls. It lifts in a fade once the first frames are drawn. */
+#boot { position: fixed; inset: 0; z-index: 3000; overflow: hidden; --at: 0;
+  background: #e6e9e1; color: #2b2b28; font: 400 13px/1.45 "Nunito Sans", ui-sans-serif, system-ui, sans-serif;
   transition: opacity .9s ease, visibility 0s linear .9s; }
 #boot.done { opacity: 0; visibility: hidden; }
-#boot .boot-card { position: relative; z-index: 2; text-align: center; padding: 0 24px; transform: translateY(-6vh); }
-#boot h1 { margin: 0; font-weight: 600; font-size: clamp(30px, 6vw, 52px); letter-spacing: .01em; text-shadow: 0 2px 18px rgba(30, 70, 90, .35); }
-#boot .boot-sub { margin: 6px 0 26px; font-size: clamp(13px, 2.2vw, 16px); opacity: .92; text-shadow: 0 1px 8px rgba(30, 70, 90, .35); }
-#boot .boot-bar { width: min(260px, 64vw); height: 4px; margin: 0 auto; border-radius: 2px; background: rgba(255, 255, 255, .35); overflow: hidden; }
-#boot .boot-bar i { display: block; height: 100%; width: 100%; border-radius: 2px; background: #fff; transform-origin: left; transform: scaleX(var(--at)); transition: transform .5s ease; }
-#boot .boot-step { margin-top: 10px; font: 12.5px/1.4 ui-sans-serif, system-ui, -apple-system, sans-serif; letter-spacing: .02em; opacity: .9; text-shadow: 0 1px 6px rgba(30, 70, 90, .4); }
-/* two painted clouds, drifting */
-#boot .cloud { position: absolute; z-index: 1; width: 240px; height: 80px; border-radius: 60px; background: #fff; opacity: .9; filter: blur(.3px);
-  box-shadow: 60px -26px 0 6px #fff, 120px -8px 0 -4px #fff, 30px 14px 0 -8px #eef6f8, 150px 16px 0 -14px #e3eff4; animation: boot-drift 38s linear infinite; }
-#boot .cloud.a { top: 16%; left: -260px; }
-#boot .cloud.b { top: 34%; left: -260px; transform: scale(.7); animation-duration: 52s; animation-delay: -24s; opacity: .8; }
-@keyframes boot-drift { to { translate: calc(100vw + 520px) 0; } }
-@media (prefers-reduced-motion: reduce) { #boot .cloud { animation: none; left: 12%; } #boot .cloud.b { left: 62%; } }
+#boot .boot-label { position: absolute; right: max(5vw, 20px); bottom: max(5vh, 20px); width: 250px; display: grid; grid-template-columns: 56px 1fr; column-gap: 16px; align-items: start; }
+#boot .boot-dial { width: 56px; aspect-ratio: 1; margin-top: 4px; }
+#boot .boot-dial svg { width: 100%; height: 100%; overflow: visible; }
+#boot .boot-dial svg > ellipse { display: none; }
+#boot .boot-disc { transform-box: fill-box; transform-origin: center; }
+#boot .boot-hook { stroke: #2b2b28; }
+#boot .boot-dial svg > path:last-child { fill: #2b2b28; }
+#boot .boot-name { margin: 0; font-weight: 800; font-size: 18px; line-height: 1.2; }
+#boot .boot-step, #boot .boot-pct { margin: .2em 0 0; color: #5c6456; font-weight: 600; }
+#boot .boot-pct { margin: 0; font-feature-settings: "tnum" 1; }

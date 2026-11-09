@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D</title>
+<style>
+@font-face { font-family: "F"; src: url("https://cdn.jsdelivr.net/gh/theleagueof/fanwood@master/webfonts/fanwood_text-webfont.woff") format("woff"); font-style: normal; }
+@font-face { font-family: "F"; src: url("https://cdn.jsdelivr.net/gh/theleagueof/fanwood@master/webfonts/fanwood_text_italic-webfont.woff") format("woff"); font-style: italic; }
+html, body { margin: 0; height: 100%; }
+/* words leave the crown, swing from side to side as a falling leaf does, and come to rest in a pile at the foot, fading as litter does */
+body { background: #f0c9a0; color: #7d3315; font-family: "F", serif; font-feature-settings: "onum" 1, "liga" 1; }
+.page { box-sizing: border-box; min-height: 100%; padding: 6vh 8vw 5vh; display: flex; flex-direction: column; }
+.crown { margin: 0; font-style: italic; font-size: clamp(44px, 8.4vw, 132px); line-height: .9; letter-spacing: -.012em; }
+.fall { margin: 0; font-size: clamp(17px, 2vw, 28px); line-height: 1.2; white-space: nowrap; }
+.fall .k { color: #7e4c14; font-style: italic; }
+.fall .v { margin-left: .35em; }
+.f1 { margin: 5vh 0 0 18%; } .f2 { margin: 3.5vh 0 0 46%; } .f3 { margin: 4.5vh 0 0 27%; } .f4 { margin: 5.5vh 0 0 58%; }
+.f5 { margin: 6.5vh 0 0 38%; font-size: clamp(15px, 1.6vw, 22px); }
+.litter { margin: auto 0 0 auto; padding-top: 5vh; max-width: 21em; text-align: justify; text-align-last: right; color: #705137; font-size: clamp(14px, 1.3vw, 18px); line-height: 1.12; hyphens: none; }
+.litter i { color: #7e4c14; }
+.litter span, .litter i { white-space: nowrap; }
+@media (max-width: 640px) { .f1 { margin-left: 4%; } .f2 { margin-left: 30%; } .f3 { margin-left: 12%; } .f4 { margin-left: 34%; } .f5 { margin-left: 20%; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="crown">Camphor tree</p>
+  <p class="fall f1"><span class="k">Height</span><span class="v">12.5 m</span></p>
+  <p class="fall f2"><span class="k">Trunk height</span><span class="v">1.9 m</span></p>
+  <p class="fall f3"><span class="k">Main limbs</span><span class="v">7</span></p>
+  <p class="fall f4"><span class="k">Branch angle</span><span class="v">40°</span></p>
+  <p class="fall f5"><span class="k">Summer</span><span class="v">Mid July</span><span class="v">10:30</span></p>
+  <p class="litter"><span>Show leaves</span> <span>Reset</span> <span>Done</span> <i>Growing the tree</i> <span>Ghibli Foliage</span></p>
+</div>
+</body>
+</html>

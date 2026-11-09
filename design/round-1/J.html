@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J</title>
+<style>
+@font-face { font-family: "Rb"; src: url("https://cdn.jsdelivr.net/gh/Collletttivo/Ribes@main/fonts/Ribes-Black.woff2") format("woff2"); font-weight: 900; }
+@font-face { font-family: "CM"; src: url("https://cdn.jsdelivr.net/gh/eigilnikolajsen/commit-mono@main/src/fonts/fontlab/CommitMonoV143-VF.woff2") format("woff2"); font-weight: 200 700; }
+html, body { margin: 0; height: 100%; }
+/* the meadow is grown nearest first and thins with distance: the nearest thing is the largest and runs past the foot of the page; each
+   step further away is smaller, lighter and fainter, toward a far edge where the smallest words sit */
+body { background: #23401c; font-family: "CM", monospace; }
+.page { box-sizing: border-box; height: 100%; min-height: 560px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; text-align: center; padding-top: 6vh; }
+.far { margin: 0 0 auto; color: #94ac6f; font-weight: 300; font-size: clamp(12px, .95vw, 14px); letter-spacing: .02em; }
+.far span + span { margin-left: 2em; }
+.mid2 { margin: 0; color: #94ac6f; font-weight: 400; font-size: clamp(14px, 1.5vw, 22px); line-height: 1.5; }
+.mid2 span + span, .mid1 span + span { margin-left: 1.4em; }
+.mid1 { margin: 1.2vh 0 0; color: #a9c46a; font-weight: 500; font-size: clamp(16px, 2.3vw, 34px); line-height: 1.4; }
+.mid1 b { color: #e2efb0; font-weight: 700; }
+.near0 { margin: 2.4vh 0 0; color: #a9c46a; font-weight: 600; font-size: clamp(20px, 3.6vw, 56px); line-height: 1.2; }
+.near0 b { color: #e2efb0; font-weight: 700; }
+.near0 span + span { margin-left: .8em; }
+.near { margin: 2vh 0 0; color: #e2efb0; font-family: "Rb", sans-serif; font-weight: 900; font-size: clamp(60px, 13vw, 220px); line-height: .78; letter-spacing: -.02em; white-space: nowrap; margin-bottom: -.2em; }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="far"><span>Ghibli Foliage</span><span>Growing the tree</span><span>Show leaves</span><span>Reset</span><span>Done</span></p>
+  <p class="mid2"><span>Summer</span><span>Mid July</span><span>10:30</span></p>
+  <p class="mid1"><span>Main limbs <b>7</b></span><span>Branch angle <b>40°</b></span></p>
+  <p class="near0"><span>Height <b>12.5 m</b></span><span>Trunk height <b>1.9 m</b></span></p>
+  <p class="near">Camphor tree</p>
+</div>
+</body>
+</html>

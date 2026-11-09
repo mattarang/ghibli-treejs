@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C</title>
+<style>
+@font-face { font-family: "OG"; src: url("https://cdn.jsdelivr.net/gh/RandomMaerks/Overused-Grotesk@main/fonts/variable/OverusedGrotesk-VF.woff2") format("woff2"); font-weight: 300 900; }
+html, body { margin: 0; height: 100%; }
+/* a crown painted in four tones, set as one dense mass: lines touch as dabs do. The rim tone (the brightest, where the light catches)
+   takes the one thing you look at; the light tone the numbers; the middle tone the names of things; the shade what waits underneath */
+body { background: #0e2f3a; font-family: "OG", sans-serif; font-feature-settings: "tnum" 1; }
+.mass { box-sizing: border-box; min-height: 100%; padding: 5vh 4vw 4vh; display: flex; flex-direction: column; }
+.rim { color: #ece6a4; font-weight: 900; font-size: clamp(54px, 13.5vw, 230px); line-height: .78; letter-spacing: -.045em; margin: 0; text-align: right; }
+.row { margin: 0; font-size: clamp(30px, 7.4vw, 124px); line-height: .84; letter-spacing: -.035em; }
+.row .k { color: #4f8f4f; font-weight: 300; }
+.row .v { color: #9cc95e; font-weight: 850; }
+.r1 { text-align: right; } .r2 { padding-left: 6vw; } .r3 { text-align: right; padding-right: 9vw; } .r4 { padding-left: 14vw; }
+.when { margin: .18em 0 0; color: #9cc95e; font-weight: 850; font-size: clamp(30px, 7.4vw, 124px); line-height: .84; letter-spacing: -.035em; }
+.when .k { color: #4f8f4f; font-weight: 300; }
+.shade { margin: auto 0 0; padding-top: 4vh; color: #729c8f; font-weight: 500; font-size: clamp(14px, 1.4vw, 20px); letter-spacing: -.005em; display: flex; flex-wrap: wrap; gap: .4em 2.2em; }
+.shade .app { margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="mass">
+  <p class="rim">Camphor tree</p>
+  <p class="row r1"><span class="k">Height </span><span class="v">12.5 m</span></p>
+  <p class="row r2"><span class="k">Trunk height </span><span class="v">1.9 m</span></p>
+  <p class="row r3"><span class="k">Main limbs </span><span class="v">7</span></p>
+  <p class="row r4"><span class="k">Branch angle </span><span class="v">40°</span></p>
+  <p class="when">Summer <span class="k">Mid July</span> 10:30</p>
+  <p class="shade"><span>Show leaves</span><span>Reset</span><span>Done</span><span>Growing the tree</span><span class="app">Ghibli Foliage</span></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C</title>
+<style>
+@font-face { font-family: "Or"; src: url("https://cdn.jsdelivr.net/gh/collletttivo/ortica@main/fonts/OrticaLinear-Light.woff2") format("woff2"); font-weight: 300; font-style: normal; }
+@font-face { font-family: "Or"; src: url("https://cdn.jsdelivr.net/gh/collletttivo/ortica@main/fonts/OrticaLinear-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "OA"; src: url("https://cdn.jsdelivr.net/gh/collletttivo/ortica@main/fonts/OrticaAngular-Bold.woff2") format("woff2"); font-weight: 700; font-style: normal; }
+html, body { margin: 0; min-height: 100%; }
+body { background: #d6e6a8; color: #22331a; font-family: "Or", serif; font-weight: 400; }
+.sun { box-sizing: border-box; min-height: 100vh; padding: 7vh 7vw; }
+.name { position: relative; margin: 0; font-family: "OA", serif; font-weight: 700; font-size: clamp(48px, 9vw, 140px); line-height: .95; letter-spacing: -.01em; }
+.name .sh, .v .sh { position: absolute; left: .06em; top: .07em; z-index: -1; color: #9fbb6c; }
+.name, .v { position: relative; z-index: 0; isolation: isolate; }
+.when { margin: 1.2em 0 0; font-weight: 300; font-size: 18px; } .when span + span { margin-left: 1.2em; }
+.grid { margin-top: 8vh; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5vh 5vw; }
+h2 { margin: 0 0 .6em; font-weight: 300; font-size: 18px; }
+.c { margin: 0 0 .5em; display: flex; flex-direction: column; }
+.c .k { font-weight: 300; font-size: 14px; } .c .v { font-family: "OA", serif; font-weight: 700; font-size: 30px; line-height: 1.05; width: max-content; }
+.end { margin-top: 8vh; display: flex; justify-content: space-between; flex-wrap: wrap; gap: .6em 2em; font-size: 16px; }
+.end p { margin: 0; } .end span + span { margin-left: 1.4em; } .end .q { font-weight: 300; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<main class="sun">
+<p class="name">Camphor tree<span class="sh" aria-hidden="true">Camphor tree</span></p>
+<p class="when"><span>Summer</span><span>Mid July</span><span>10:30</span></p>
+<div class="grid"><section><h2>Trunk</h2><p class=c><span class=k>Height</span><span class=v data-s>12.5 m<span class=sh aria-hidden=true>12.5 m</span></span></p><p class=c><span class=k>Trunk height</span><span class=v data-s>1.9 m<span class=sh aria-hidden=true>1.9 m</span></span></p><p class=c><span class=k>Trunk thickness</span><span class=v data-s>144 cm<span class=sh aria-hidden=true>144 cm</span></span></p><p class=c><span class=k>Stems</span><span class=v data-s>1.2<span class=sh aria-hidden=true>1.2</span></span></p><p class=c><span class=k>Trunk bends</span><span class=v data-s>23%<span class=sh aria-hidden=true>23%</span></span></p><p class=c><span class=k>Lean</span><span class=v data-s>None<span class=sh aria-hidden=true>None</span></span></p></section><section><h2>Branches</h2><p class=c><span class=k>Main limbs</span><span class=v data-s>7<span class=sh aria-hidden=true>7</span></span></p><p class=c><span class=k>Branch angle</span><span class=v data-s>40°<span class=sh aria-hidden=true>40°</span></span></p><p class=c><span class=k>Branch length</span><span class=v data-s>100%<span class=sh aria-hidden=true>100%</span></span></p><p class=c><span class=k>Droop</span><span class=v data-s>0%<span class=sh aria-hidden=true>0%</span></span></p><p class=c><span class=k>Crookedness</span><span class=v data-s>20%<span class=sh aria-hidden=true>20%</span></span></p></section><section><h2>Crown</h2><p class=c><span class=k>Crown width</span><span class=v data-s>78%<span class=sh aria-hidden=true>78%</span></span></p><p class=c><span class=k>Windswept</span><span class=v data-s>None<span class=sh aria-hidden=true>None</span></span></p><p class=c><span class=k>Leaf clumps</span><span class=v data-s>0.8 m<span class=sh aria-hidden=true>0.8 m</span></span></p></section></div>
+<div class="end"><p><span>Show leaves</span><span>Reset</span><span>Done</span></p><p class="q"><span>Growing the tree</span><span>Ghibli Foliage</span></p></div>
+</main>
+</body>
+</html>

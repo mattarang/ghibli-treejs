@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A</title>
+<style>
+@font-face { font-family: "J"; src: url("https://cdn.jsdelivr.net/gh/theleagueof/junction@master/webfonts/junction-light.woff") format("woff"); font-weight: 300; }
+@font-face { font-family: "J"; src: url("https://cdn.jsdelivr.net/gh/theleagueof/junction@master/webfonts/junction-regular.woff") format("woff"); font-weight: 400; }
+@font-face { font-family: "J"; src: url("https://cdn.jsdelivr.net/gh/theleagueof/junction@master/webfonts/junction-bold.woff") format("woff"); font-weight: 700; }
+html, body { margin: 0; height: 100%; }
+body { background: #0f1a14; color: #cfe3c2; font-family: "J", sans-serif; font-weight: 400; font-kerning: normal; }
+.page { position: relative; height: 100%; min-height: 560px; }
+.c { position: absolute; }
+.nw { left: 6vw; top: 6vh; }
+.ne { right: 6vw; top: 6vh; text-align: right; }
+.sw { left: 6vw; bottom: 6vh; }
+.se { right: 6vw; bottom: 6vh; text-align: right; }
+.s { left: 50%; bottom: 6vh; transform: translateX(-50%); white-space: nowrap; }
+.name { margin: 0; font-weight: 700; font-size: clamp(30px, 5.6vw, 76px); line-height: .95; letter-spacing: -.015em; }
+.app { margin: .9em 0 0; font-size: clamp(12px, 1vw, 14px); letter-spacing: .02em; }
+.m { margin: 0; font-size: clamp(13px, 1.15vw, 16px); line-height: 1.75; }
+.m b { font-weight: 700; margin-left: .55em; }
+.time { margin: 0; font-weight: 300; font-size: clamp(54px, 11vw, 160px); line-height: .8; letter-spacing: -.03em; }
+.season { margin: 0; font-weight: 700; font-size: clamp(30px, 5.6vw, 76px); line-height: .95; letter-spacing: -.015em; }
+.month { margin: .45em 0 0; font-size: clamp(13px, 1.15vw, 16px); }
+.acts { margin: 0; font-size: clamp(12px, 1vw, 14px); }
+.acts span + span { margin-left: 2.6em; }
+.step { margin: 0 0 .9em; font-size: clamp(12px, 1vw, 14px); font-weight: 300; text-align: center; }
+@media (max-width: 640px) { .ne { top: 22vh; } .s { bottom: 24vh; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="c nw"><p class="name">Camphor tree</p><p class="app">Ghibli Foliage</p></div>
+  <div class="c ne">
+    <p class="m">Height<b>12.5 m</b></p>
+    <p class="m">Trunk height<b>1.9 m</b></p>
+    <p class="m">Main limbs<b>7</b></p>
+    <p class="m">Branch angle<b>40°</b></p>
+  </div>
+  <div class="c s"><p class="step">Growing the tree</p><p class="acts"><span>Show leaves</span><span>Reset</span><span>Done</span></p></div>
+  <div class="c sw"><p class="time">10:30</p></div>
+  <div class="c se"><p class="season">Summer</p><p class="month">Mid July</p></div>
+</div>
+</body>
+</html>
