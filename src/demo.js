@@ -5,6 +5,7 @@
 //   here does exactly what the same change does there.
 window.__DEMO = true
 await import('./main.js')
+const { makeSculpt, designFromTree, blankDesign } = await import('./sculpt.js')
 const G = window.__foliage, p = G.p, $ = id => document.getElementById(id)
 const ctl = prop => G.gui.controllersRecursive().find(c => c.property === prop)
 const set = (prop, v) => ctl(prop)?.setValue(v)
@@ -39,20 +40,33 @@ const PROPS = SHAPE.filter(r => r[1]).map(r => r[0])
 
 // ---- undo: every change to the tree (a new tree, another kind, a slider, a reset) can be taken back. A snapshot is the kind, the seed and
 // every shape value; the species' own values are kept too, so the panel can say what has changed from them ----
-const snap = () => ({ species: p.species, seed: p.seed, v: Object.fromEntries(PROPS.map(k => [k, p[k]])) })
+let sculpt = null, showMode = () => {}, saveDesign = () => {}, mine = [], active = null, renderMine = () => {}, afterRestore = () => {}
+const future = []                                                    // undone steps, for redo (cleared by any new change)
+const snap = () => ({ species: p.species, seed: p.seed, v: Object.fromEntries(PROPS.map(k => [k, p[k]])), design: p.design ? JSON.stringify(p.design) : null, vary: JSON.stringify(p.designVary ?? null), grove: p.grove, active, mine: JSON.stringify(mine) })
 let defaults = snap().v
 const history = []
 const undoBtn = $('undo')
-function remember(){ history.push(snap()); if (history.length > 40) history.shift(); undoBtn.hidden = false }
+function pushHistory(s){ history.push(s); if (history.length > 40) history.shift(); future.length = 0; undoBtn.hidden = false }
+function remember(){ pushHistory(snap()) }
 function setSpecies(name){ if (p.species !== name) set('species', name); defaults = snap().v }
 function restore(s){
   if (s.species !== p.species) setSpecies(s.species)
   if (s.seed !== p.seed) set('seed', s.seed)
   for (const k of PROPS) if (p[k] !== s.v[k]) set(k, s.v[k])
+  // the drawing as it was (and whether the tree was drawn at all)
+  const d = s.design ? JSON.parse(s.design) : null, was = JSON.stringify(p.design ?? null)
+  if ((s.design ?? 'null') !== was || JSON.stringify(p.designVary ?? null) !== s.vary){ p.design = d; p.designVary = JSON.parse(s.vary); G.later(); saveDesign() }
+  if (s.grove !== p.grove) set('grove', s.grove)
+  if (s.mine !== undefined && s.mine !== JSON.stringify(mine)){ mine = JSON.parse(s.mine); renderMine() }
+  active = s.active ?? null
+  sculpt?.set(p.design); afterRestore(); showMode()
 }
-function undo(){ const s = history.pop(); if (s) restore(s); undoBtn.hidden = !history.length; sync() }
+function undo(){ const s = history.pop(); if (s){ future.push(snap()); restore(s) } undoBtn.hidden = !history.length; sync() }
+function redo(){ const s = future.pop(); if (s){ history.push(snap()); restore(s); undoBtn.hidden = false } sync() }
 undoBtn.addEventListener('click', undo)
-addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName ?? '')){ undo(); e.preventDefault() } })
+const typing = () => { const a = document.activeElement; return /SELECT|TEXTAREA/.test(a?.tagName ?? '') || (a?.tagName === 'INPUT' && a.type === 'text') }
+addEventListener('keydown', e => { if (!(e.metaKey || e.ctrlKey) || typing()) return
+  if (e.key.toLowerCase() === 'z' && !e.shiftKey){ undo(); e.preventDefault() } else if ((e.key.toLowerCase() === 'z' && e.shiftKey) || e.key.toLowerCase() === 'y'){ redo(); e.preventDefault() } })
 // changed from the species' own: Trunk height is compared in metres, as it is shown (a new Height keeps the trunk's metres)
 const changed = k => k === 'trunkFrac' ? Math.abs(p.trunkFrac*p.height - defaults.trunkFrac*defaults.height) > .05 : Math.abs((p[k] ?? 0) - (defaults[k] ?? 0)) > 1e-6
 
@@ -60,25 +74,25 @@ const changed = k => k === 'trunkFrac' ? Math.abs(p.trunkFrac*p.height - default
 const names = Object.keys(G.SPECIES).filter(n => !/test/i.test(n)).sort(), nameBtn = $('name'), sheet = $('speciesSheet'), list = $('speciesList')
 // every kind on one sheet: the one growing now is marked; choosing one grows it and closes the sheet
 for (const n of names){ const b = document.createElement('button'); Object.assign(b, { type: 'button', className: 'species', textContent: n }); b.dataset.name = n
-  b.addEventListener('click', () => { if (n !== p.species){ remember(); setSpecies(n) } openSheet(false); nameBtn.focus() }); list.append(b) }
+  b.addEventListener('click', () => { if (n !== p.species || active){ remember(); leaveTree(); setSpecies(n) } openSheet(false); nameBtn.focus() }); list.append(b) }
 function openSheet(on){ sheet.hidden = !on; nameBtn.setAttribute('aria-expanded', on)
   if (on){ openShape(false); list.querySelector(`[data-name="${CSS.escape(p.species)}"]`)?.focus() } }
 nameBtn.addEventListener('click', () => openSheet(sheet.hidden))
 addEventListener('pointerdown', e => { if (!sheet.hidden && !sheet.contains(e.target) && !nameBtn.contains(e.target)) openSheet(false) })
-const step = d => { const i = names.indexOf(p.species); remember(); setSpecies(names[(i + d + names.length)%names.length]) }
+const step = d => { const i = names.indexOf(p.species); remember(); leaveTree(); setSpecies(names[(i + d + names.length)%names.length]) }
 $('prev').addEventListener('click', () => step(-1)); $('next').addEventListener('click', () => step(1))
 $('dice').addEventListener('click', () => { remember(); set('seed', 1 + Math.floor(Math.random()*9998)) })
-const shape = $('shape'), shapeBtn = $('shapeBtn')
+const shape = $('shape'), shapeBtn = $('shapeBtn'), editor = $('editor')
 // the panel stays open while the scene is turned and zoomed (that is the point of it): Done, the Shape button again, or Escape close it
-function openShape(on){ shape.hidden = !on; shapeBtn.setAttribute('aria-expanded', on); document.body.classList.toggle('shaping', on); if (on) openSheet(false) }
-shapeBtn.addEventListener('click', () => openShape(shape.hidden))
+function openShape(on){ shape.hidden = !on; shapeBtn.setAttribute('aria-expanded', on); document.body.classList.toggle('shaping', on); if (on){ openSheet(false); openEditor(false) } }
+shapeBtn.addEventListener('click', () => active ? openEditor(editor.hidden) : openShape(shape.hidden))
 $('closeShape').addEventListener('click', () => openShape(false)); $('done').addEventListener('click', () => openShape(false))
-addEventListener('keydown', e => { if (e.key !== 'Escape') return; if (!sheet.hidden){ openSheet(false); nameBtn.focus() } else if (!shape.hidden){ openShape(false); shapeBtn.focus() } })
+addEventListener('keydown', e => { if (e.key !== 'Escape' || typing()) return; if (!sheet.hidden){ openSheet(false); nameBtn.focus() } else if (!editor.hidden){ if (sculpt.selected >= 0){ sculpt.select(-1); showSel() } else { openEditor(false); shapeBtn.focus() } } else if (!shape.hidden){ openShape(false); shapeBtn.focus() } })
 // the view moves out from under the panel: the picture's centre slides into the uncovered part of the screen (a side panel: across; a
 // bottom panel: up, and a little wider, so the whole tree fits the smaller space), eased so the tree glides over rather than jumps
 const view = { x: 0, y: 0, z: 1 }
 function frameAround(){
-  const W = innerWidth, H = innerHeight, open = !shape.hidden && !document.body.classList.contains('walking'), r = shape.getBoundingClientRect()
+  const panelEl = editor.hidden ? shape : editor, W = innerWidth, H = innerHeight, open = !panelEl.hidden && !document.body.classList.contains('walking'), r = panelEl.getBoundingClientRect()
   let tx = 0, ty = 0, tz = 1
   if (open){ const bottom = r.width > W*.7
     if (bottom){ const free = r.top; ty = (H - free)/2; tz = Math.min(1, Math.max(.6, free/H*1.15)) } else tx = r.left > W/2 ? (W - r.left)/2 : -(r.right)/2 }
@@ -127,6 +141,135 @@ for (const [el, prop, out, fmt, , unit, label] of sliders){
 }
 $('leaves').addEventListener('change', e => set('showFoliage', e.target.checked))
 $('reset').addEventListener('click', () => { remember(); ctl('species')._onChange?.(p.species); defaults = snap().v; sync() })   // the species' own change: its whole shape back
+
+// ---- your own trees (src/sculpt.js): + adds one, drawn from the tree in view - its trunk and main limbs drawn by hand, the canopy they grow
+// into shaped, its leaves and bark taken from a kind of tree, a reference picture behind it to draw over. They are listed in the tree sheet
+// and kept in this browser; choosing a kind of tree leaves them ----
+const TREES = 'ghibli-foliage-trees-v1', REF = id => 'ghibli-foliage-ref-' + id
+try { mine = JSON.parse(localStorage.getItem(TREES) ?? '[]') } catch {}
+// (the one drawing of the last version becomes your first tree)
+try { const old = JSON.parse(localStorage.getItem('ghibli-foliage-design-v1') ?? 'null'); if (old?.design?.strokes && !mine.length) mine.push({ id: 't' + Date.now().toString(36), name: 'My tree 1', species: p.species, design: old.design, vary: old.vary }); localStorage.removeItem('ghibli-foliage-design-v1') } catch {}
+const store = () => { try { localStorage.setItem(TREES, JSON.stringify(mine)) } catch {} }
+const current = () => mine.find(t => t.id === active)
+saveDesign = () => { const t = current(); if (t){ t.design = p.design; t.vary = p.designVary; t.species = p.species } store(); renderMine() }
+const myList = $('myList')
+renderMine = () => { myList.replaceChildren(...mine.map(t => { const b = document.createElement('button'); Object.assign(b, { type: 'button', className: 'species', textContent: t.name || 'My tree' })
+  b.setAttribute('aria-current', t.id === active); b.addEventListener('click', () => { if (t.id !== active){ remember(); useTree(t.id) } openSheet(false); nameBtn.focus() }); return b }))
+  myList.hidden = !mine.length; myList.previousElementSibling.hidden = !mine.length }
+const HINTS = { wood: 'Drag up from the base to draw the trunk. Point at any wood and a + appears: drag it out to grow a branch from there. Drag a dot to move it; tap it to pick it and set its thickness. A picked limb shows faint dots: tap one to add a node, or drag the one past the tip to lengthen it.',
+  canopy: 'Drag the side handles to widen or narrow the canopy at that height, the green ones to bulge it out or pull it in, the top and bottom ones to raise or lower it.',
+  ref: 'Choose a picture (or drop one onto the page) to stand behind the tree and draw over. Turn the camera to the view you want, then press Face the camera.' }
+const orderOf = (d, si) => { let n = 0; for (let s = si; s > 0 && d.strokes[s]?.from; s = d.strokes[s].from.s) n++; return n }
+const lerpN = (a, b, t) => a + (b - a)*t
+const guessRadius = (si, i, d) => { const R = p.trunkRadius*p.size, st = d.strokes[si], along = i/Math.max(st.pts.length - 1, 1)
+  return R*[1, .45, .25, .15][Math.min(orderOf(d, si), 3)]*lerpN(si ? .9 : 1, .55, along) }
+// a node's thickness on the slider: metres of radius on a log scale, 1.5 cm to 3 m
+const R_LO = .015, R_HI = 3, toSlider = r => Math.log(r/R_LO)/Math.log(R_HI/R_LO), fromSlider = v => R_LO*(R_HI/R_LO)**v
+// what is picked, said in words, with what can be done to it
+function showSel(){ const si = sculpt.selected, i = sculpt.selNode, d = sculpt.design, on = !!p.design && si >= 0 && !!d?.strokes[si]; $('selBox').hidden = !on; if (!on) return
+  const st = d.strokes[si], nodes = st.pts.length - 1, isNode = i >= 1
+  $('selTitle').textContent = (si === 0 ? 'The trunk' : `Limb ${si}`) + (isNode ? `, node ${i} of ${nodes}` : '')
+  $('nodeTools').hidden = !isNode
+  if (isNode){ const r = sculpt.radius(si, i), el = $('nodeR'); el.value = toSlider(r ?? guessRadius(si, i, d)); fill(el)
+    $('nodeAuto').textContent = r == null ? 'Auto' : `${Math.round(r*200)} cm`; $('nodeAuto').disabled = r == null
+    $('nodeAuto').title = r == null ? 'The growth decides this thickness' : 'Back to the growth\'s own thickness' }
+  // Delete takes the node - or, from a limb down to its last two nodes (or with no node picked), the whole limb
+  const nodeGoes = isNode && st.pts.length > 2
+  $('delSel').innerHTML = nodeGoes ? 'Delete node <kbd>Del</kbd>' : si > 0 ? 'Delete limb <kbd>Del</kbd>' : 'Delete node <kbd>Del</kbd>'
+  $('delSel').disabled = !nodeGoes && si === 0; $('delLimb').hidden = !(si > 0 && nodeGoes) }
+const commitDesign = before => { pushHistory({ ...snap(), design: JSON.stringify(before) }); p.design = JSON.parse(JSON.stringify(sculpt.design)); saveDesign(); G.later(); showMode(); sync() }
+sculpt = makeSculpt(G, { guessRadius,
+  onEdit(d, before){ pushHistory({ ...snap(), design: JSON.stringify(before) }); p.design = JSON.parse(JSON.stringify(d)); saveDesign(); G.later(); sync(); showSel() },
+  onPreview(d){ p.design = JSON.parse(JSON.stringify(d)); G.preview() },
+  onSelect(){ showSel() },
+})
+function deleteSel(){ const si = sculpt.selected, i = sculpt.selNode, st = sculpt.design?.strokes[si]; if (!st) return
+  const before = i >= 1 && st.pts.length > 2 ? sculpt.removeNode(si, i) : si > 0 ? sculpt.remove(si) : null
+  if (before) commitDesign(before); showSel() }
+// the Character sliders (trunk bends, lean, crookedness, windswept) shape the growth that fills a drawing: the editor borrows them
+const charGroup = () => groups[groups.length - 1]
+function openEditor(on){ if (on && !active) return
+  editor.hidden = !on; shapeBtn.setAttribute('aria-expanded', on); document.body.classList.toggle('shaping', on)
+  if (on){ openShape(false); openSheet(false); $('editChar').append(charGroup()); charGroup().hidden = false } else if (charGroup().parentElement !== panel){ panel.append(charGroup()); showTab(0) }
+  sculpt.show(on && !!p.design, G.treeInfo().root); showMode() }
+$('closeEditor').addEventListener('click', () => openEditor(false)); $('doneEditor').addEventListener('click', () => openEditor(false))
+function useTree(id, { open = false } = {}){ const t = mine.find(x => x.id === id); if (!t) return
+  active = id; setSpecies(t.species); p.design = JSON.parse(JSON.stringify(t.design)); p.designVary = t.vary ?? { amount: .35, seed: 0 }
+  sculpt.set(p.design); loadRef(); G.later(); renderMine(); showMode(); sync(); if (open) openEditor(true) }
+function leaveTree(){ if (!active) return; active = null; p.design = null; sculpt.set(null); openEditor(false); loadRef(); G.later(); renderMine(); showMode(); sync() }
+afterRestore = () => { if (!active){ openEditor(false); p.design = null } loadRef(); renderMine() }
+function addTree(){ remember(); let n = mine.length + 1; while (mine.some(t => t.name === `My tree ${n}`)) n++
+  const t = { id: 't' + Date.now().toString(36), name: `My tree ${n}`, species: p.species, design: blankDesign(p), vary: { amount: .35, seed: 0 } }   // a blank canvas: a base node to draw up from
+  mine.push(t); store(); useTree(t.id, { open: true }) }
+$('addTree').addEventListener('click', addTree); $('sheetAdd').addEventListener('click', () => { openSheet(false); addTree() })
+$('treeName').addEventListener('input', e => { const t = current(); if (t){ t.name = e.target.value; store(); renderMine(); $('nameText').textContent = t.name || 'My tree' } })
+$('treeName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur() })
+for (const n of names) $('treeBase').add(new Option(n, n))
+$('treeBase').addEventListener('change', e => { remember(); const d = p.design, v = p.designVary; setSpecies(e.target.value); p.design = d; p.designVary = v; saveDesign(); G.later(); sync() })
+$('deleteTree').addEventListener('click', () => { const t = current(); if (!t) return; remember(); mine = mine.filter(x => x !== t); store(); try { localStorage.removeItem(REF(t.id)) } catch {} leaveTree() })
+showMode = () => { const t = current()
+  $('shapeLabel').textContent = active ? 'Edit' : 'Shape'; shapeBtn.setAttribute('aria-controls', active ? 'editor' : 'shape')
+  if (!t) return
+  if (document.activeElement !== $('treeName')) $('treeName').value = t.name
+  $('treeBase').value = p.species; $('drawHint').textContent = HINTS[tool]
+  $('grove').setAttribute('aria-pressed', p.grove > 1)
+  const v = p.designVary?.amount ?? .35; $('varyAmt').value = v; $('varyOut').textContent = `${Math.round(v*100)}%`; fill($('varyAmt'))
+  $('refBox').hidden = tool !== 'ref'; $('refFace').disabled = $('refRemove').disabled = !sculpt.reference.on
+  showSel() }
+let tool = 'wood'
+function setTool(t){ tool = t; sculpt.setTool(t === 'ref' ? 'none' : t); for (const [id, k] of [['toolWood', 'wood'], ['toolCanopy', 'canopy'], ['toolRef', 'ref']]) $(id).setAttribute('aria-checked', k === t); showMode() }
+$('toolWood').addEventListener('click', () => setTool('wood')); $('toolCanopy').addEventListener('click', () => setTool('canopy')); $('toolRef').addEventListener('click', () => setTool('ref'))
+$('delSel').addEventListener('click', deleteSel)
+$('delLimb').addEventListener('click', () => { const before = sculpt.remove(sculpt.selected); if (before) commitDesign(before); showSel() })
+// Clear: back to a base node (the canopy kept); Trace: a drawing of the tree in view - grown from the kind of tree, not from this drawing
+const replaceDesign = d => { remember(); p.design = d; sculpt.set(d); sculpt.select(-1); saveDesign(); G.later(); showMode(); sync() }
+$('clearDraw').addEventListener('click', () => { const b = blankDesign(p); if (p.design) b.canopy = JSON.parse(JSON.stringify(p.design.canopy)); replaceDesign(b) })
+$('traceTree').addEventListener('click', async () => { const d = p.design; p.design = null; await G.rebuild(); const traced = designFromTree(G.treeInfo(), p); p.design = d; replaceDesign(traced) })
+// the picked node's thickness: a light preview while dragging, the full tree on release; Auto gives it back to the growth
+let nodeBefore = null
+$('nodeR').addEventListener('pointerdown', () => { nodeBefore = JSON.parse(JSON.stringify(sculpt.design)) })
+$('nodeR').addEventListener('input', e => { nodeBefore ??= JSON.parse(JSON.stringify(sculpt.design)); const r = fromSlider(+e.target.value)
+  sculpt.setRadius(sculpt.selected, sculpt.selNode, r); fill(e.target); $('nodeAuto').textContent = `${Math.round(r*200)} cm`; $('nodeAuto').disabled = false
+  p.design = JSON.parse(JSON.stringify(sculpt.design)); G.preview() })
+$('nodeR').addEventListener('change', () => { if (nodeBefore) commitDesign(nodeBefore); nodeBefore = null })
+$('nodeAuto').addEventListener('click', () => { const before = JSON.parse(JSON.stringify(sculpt.design)); sculpt.setRadius(sculpt.selected, sculpt.selNode, null); commitDesign(before) })
+// thicker or thinner from the keyboard ([ and ]), as the wheel does: let go of the keys and the full tree grows
+let keyBefore = null, keyT = 0
+function nudgeRadius(k){ const si = sculpt.selected, i = sculpt.selNode; if (si < 0 || i < 1) return
+  keyBefore ??= JSON.parse(JSON.stringify(sculpt.design)); const r = (sculpt.radius(si, i) ?? guessRadius(si, i, sculpt.design))*k
+  sculpt.setRadius(si, i, Math.min(Math.max(r, R_LO), R_HI)); p.design = JSON.parse(JSON.stringify(sculpt.design)); G.preview(); showSel()
+  clearTimeout(keyT); keyT = setTimeout(() => { commitDesign(keyBefore); keyBefore = null }, 450) }
+// neighbours: the same drawing, a little different each time; the drawing itself is always one tap away
+$('varyAmt').addEventListener('input', e => { p.designVary = { ...(p.designVary ?? { seed: 0 }), amount: +e.target.value }; $('varyOut').textContent = `${Math.round(e.target.value*100)}%`; fill(e.target); if (p.designVary.seed || p.grove > 1) G.preview() })
+$('varyAmt').addEventListener('change', () => { saveDesign(); G.later() })
+const neighbour = () => { remember(); p.designVary = { amount: Math.max(+$('varyAmt').value, .1), seed: 1 + Math.floor(Math.random()*99999) }; saveDesign(); G.later(); sync() }
+$('neighbour').addEventListener('click', neighbour)
+$('original').addEventListener('click', () => { if (!p.designVary?.seed) return; remember(); p.designVary = { ...p.designVary, seed: 0 }; saveDesign(); G.later(); sync() })
+$('grove').addEventListener('click', () => { remember(); set('grove', p.grove > 1 ? 1 : 5); showMode() })
+// ---- the reference picture: shrunk to at most 1024 pixels (so it can be kept with the tree), stood behind the tree ----
+async function readImage(file){ const url = URL.createObjectURL(file); try { const img = new Image(); img.src = url; await img.decode()
+  const k = Math.min(1, 1024/Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth*k); c.height = Math.round(img.naturalHeight*k)
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); return c } finally { URL.revokeObjectURL(url) } }
+function saveRef(c, o){ const t = current(); if (!t) return; t.ref = o; store(); if (c) try { localStorage.setItem(REF(t.id), c.toDataURL('image/jpeg', .85)) } catch { /* too big to keep: shown this visit only */ } }
+async function useImage(file){ if (!file?.type.startsWith('image/') || !active) return; const c = await readImage(file); const o = sculpt.reference.set(c); saveRef(c, o); setTool('ref') }
+function loadRef(){ const t = current(); sculpt.reference.set(null); if (!t) return; let data = null; try { data = localStorage.getItem(REF(t.id)) } catch {}; if (!data) return
+  const img = new Image(); img.onload = () => { if (current() === t){ sculpt.reference.set(img, t.ref ?? {}); showMode() } }; img.src = data }
+$('refFile').addEventListener('change', e => { useImage(e.target.files[0]); e.target.value = '' })
+$('refFace').addEventListener('click', () => { const t = current(); if (t){ t.ref = sculpt.reference.face(); store() } })
+$('refRemove').addEventListener('click', () => { const t = current(); sculpt.reference.set(null); if (t){ delete t.ref; store(); try { localStorage.removeItem(REF(t.id)) } catch {} } showMode() })
+for (const [id, k] of [['refOpacity', 'opacity'], ['refSize', 'size'], ['refRaise', 'raise']]) $(id).addEventListener('input', e => { fill(e.target); const o = sculpt.reference.update({ [k]: +e.target.value }); const t = current(); if (t && o){ t.ref = o; store() } })
+addEventListener('dragover', e => { if (!editor.hidden) e.preventDefault() })
+addEventListener('drop', e => { if (editor.hidden) return; e.preventDefault(); useImage([...(e.dataTransfer?.files ?? [])].find(f => f.type.startsWith('image/'))) })
+// ---- the editor's keys: Delete removes what is picked, 1 2 3 the tools, [ and ] thickness, N a new neighbour (Escape and undo above) ----
+addEventListener('keydown', e => { if (editor.hidden || typing() || e.metaKey || e.ctrlKey || e.altKey) return
+  if (e.key === 'Delete' || e.key === 'Backspace'){ deleteSel(); e.preventDefault() }
+  else if (e.key === '1') setTool('wood'); else if (e.key === '2') setTool('canopy'); else if (e.key === '3') setTool('ref')
+  else if (e.key === '[') nudgeRadius(1/1.15); else if (e.key === ']') nudgeRadius(1.15)
+  else if (e.key.toLowerCase() === 'n') neighbour() })
+// the tree shown last time, if it was one of yours
+try { const last = localStorage.getItem('ghibli-foliage-active'); if (last && mine.some(t => t.id === last)) useTree(last) } catch {}
+addEventListener('pagehide', () => { try { if (active) localStorage.setItem('ghibli-foliage-active', active); else localStorage.removeItem('ghibli-foliage-active') } catch {} })
+renderMine(); showMode()
 
 // ---- a dial: drag round it (pointer angle from its centre, clockwise from the top) ----
 function dial(el, onAngle, onTap, onEnd, hubR = .55){
@@ -222,8 +365,8 @@ function drawSeason(){
 
 // ---- keep everything in step with the scene (the full panel can change it too) ----
 function sync(){
-  $('nameText').textContent = p.species
-  list.querySelectorAll('.species').forEach(b => b.setAttribute('aria-current', b.dataset.name === p.species))
+  $('nameText').textContent = active ? (current()?.name || 'My tree') : p.species
+  list.querySelectorAll('.species').forEach(b => b.setAttribute('aria-current', !active && b.dataset.name === p.species))
   let n = 0
   for (const [el, prop, out, fmt, wrap, unit, label] of sliders){
     if (unit === 'metres'){ const c = ctl(prop); el.min = (c._min*p.height).toFixed(2); el.max = (c._max*p.height).toFixed(2) }
@@ -233,7 +376,7 @@ function sync(){
     out.title = ch ? `Back to this tree's own ${label.toLowerCase()}` : ''; out.setAttribute('aria-label', ch ? `${fmt(+el.value)}, changed. Reset ${label}` : fmt(+el.value))
   }
   for (const g of groups) g.tab.classList.toggle('changed', g.props.some(changed))
-  $('shapeStatus').textContent = `Seed ${p.seed}` + (n ? `, ${n} changed` : '')
+  $('shapeStatus').textContent = p.design ? `Drawn, ${p.design.strokes.length - 1} limb${p.design.strokes.length === 2 ? '' : 's'}` + (p.designVary?.seed ? ', a neighbour' : '') + (p.grove > 1 ? `, grove of ${p.grove}` : '') : `Seed ${p.seed}` + (n ? `, ${n} changed` : '')
   $('leaves').checked = p.showFoliage !== false
 }
 sync(); setInterval(sync, 250)
@@ -251,7 +394,7 @@ $('recenter').addEventListener('click', () => { if (G.walk.on){ G.walk.stop(); s
 const walkbar = $('walkbar'), pad = $('pad'), knob = pad.querySelector('.knob'), touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window
 function showWalk(on){
   document.body.classList.toggle('walking', on); walkbar.hidden = !on; pad.hidden = !on || !touch; $('walk').setAttribute('aria-pressed', on)
-  if (on){ openShape(false); openSheet(false) }
+  if (on){ openShape(false); openSheet(false); openEditor(false) }
 }
 $('walk').addEventListener('click', () => { G.walk.toggle(); showWalk(G.walk.on) })
 $('stopWalk').addEventListener('click', () => { G.walk.stop(); showWalk(false) })

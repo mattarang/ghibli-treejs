@@ -41,7 +41,7 @@ function placeBush(bush, q, woodB, leafB, held){
 
 // a preview: the same trees with a third of the leaf strokes and a coarser bark skin - the shape reads while the slider moves, and the full
 // tree follows on release
-const PREVIEW = { coverage: .3, strays: 0, skinCoarse: 2 }
+const PREVIEW = { coverage: .3, strays: 0, skinCoarse: 2, skinBudget: 1e6 }
 
 // the bushes of the last scene grown: their clumps (which come first in the clump table, so their numbers never shift) and the key of the
 // layout they were grown for. A tree's sliders never move a bush, so while the key holds they are not grown, copied or sent again
@@ -49,7 +49,7 @@ let bushKey = '', bushHeld = []
 
 export function growScene(p, { preview = false, debug = false } = {}){
   setPond(p.seed)                                                         // the ground under the plants: the pond moves with the seed
-  const sp = preview ? { ...p, coverage: (p.coverage ?? 1)*PREVIEW.coverage, strays: PREVIEW.strays, skinCoarse: PREVIEW.skinCoarse } : p
+  const sp = preview ? { ...p, coverage: (p.coverage ?? 1)*PREVIEW.coverage, strays: PREVIEW.strays, skinCoarse: PREVIEW.skinCoarse, skinBudget: Math.min(p.skinBudget ?? 1e9, PREVIEW.skinBudget) } : p
   const woodB = newBuffer(), leafB = newBuffer(), ivyB = newBuffer()
   const { plants, bushes } = layoutScene({ ...p, height: p.height*p.size, groveRadius: p.groveRadius*Math.max(1, p.size) })
   let clumps = 0

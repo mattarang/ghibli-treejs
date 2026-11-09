@@ -13,9 +13,10 @@ function nearest(q, a, b){
 }
 
 // the size of the skin's cells for wood spanning this box: fine where the tree is small, coarser where it would run out of budget
-export function skinCell(lo, hi, finest){ return Math.max(finest, Math.cbrt((hi[0] - lo[0] + 3)*(hi[1] - lo[1] + 3)*(hi[2] - lo[2] + 3)/MAX_CELLS)) }
+export function skinCell(lo, hi, finest, budget = MAX_CELLS){ return Math.max(finest, Math.cbrt((hi[0] - lo[0] + 3)*(hi[1] - lo[1] + 3)*(hi[2] - lo[2] + 3)/budget)) }
 
-export function skinWood(axes, wood, sway, root, finest){
+// (budget) the most cells the skin may use: a drawn tree's thick limbs span a big box, and every cell of it is visited, so it gets fewer
+export function skinWood(axes, wood, sway, root, finest, budget = MAX_CELLS){
   if (!axes.length) return
   const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]
   for (const x of axes){
@@ -23,7 +24,7 @@ export function skinWood(axes, wood, sway, root, finest){
     for (const e of x.rings) for (let a = 0; a < 3; a++){ x.lo[a] = Math.min(x.lo[a], e.p[a] - e.r*REACH); x.hi[a] = Math.max(x.hi[a], e.p[a] + e.r*REACH) }
     for (let a = 0; a < 3; a++){ lo[a] = Math.min(lo[a], x.lo[a]); hi[a] = Math.max(hi[a], x.hi[a]) }
   }
-  const room = (hi[0] - lo[0])*(hi[1] - lo[1])*(hi[2] - lo[2]), h = Math.max(finest, Math.cbrt(room/MAX_CELLS))
+  const room = (hi[0] - lo[0])*(hi[1] - lo[1])*(hi[2] - lo[2]), h = Math.max(finest, Math.cbrt(room/budget))
   const nx = Math.ceil((hi[0] - lo[0])/h) + 3, ny = Math.ceil((hi[1] - lo[1])/h) + 3, nz = Math.ceil((hi[2] - lo[2])/h) + 3, cells = nx*ny*nz, row = nx*ny
   const x0 = lo[0] - h, y0 = lo[1] - h, z0 = lo[2] - h
   if (S.length < cells){ S = new Float32Array(cells); peak = new Float32Array(cells); owner = new Uint16Array(cells) } else { S.fill(0, 0, cells); owner.fill(0, 0, cells) }

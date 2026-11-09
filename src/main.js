@@ -729,7 +729,7 @@ if (grower){
     growWaiting = growWaiting.filter(w => w.id > r.id || (w.ok(), false)) }
   grower.onerror = e => { console.warn('grow worker failed; growing on the page', e.message); growFallback = true; growWaiting.forEach(w => w.ok()); growWaiting = [] }
 }
-let growFallback = !grower
+let growFallback = !grower, lastTreePlant = 0
 function rebuild(opts = {}){
   if (setPond(p.seed)) applyPond()
   if (p.forest > 0){ buildForest(); return Promise.resolve() }
@@ -765,7 +765,7 @@ function applyGrown(r){
   renderer.shadowMap.needsUpdate = true
   wood.geometry.dispose(); wood.geometry = toGeometry(r.wood)
   // the trunk's contact shadow: a preview keeps the last one (it barely moves while a slider is dragged)
-  if (r.preview){} else if (plants.length) bakeContact(renderer, wood.geometry, [plants[0].x, plants[0].z], groundHeight); else U.uContactBox.value.w = 0
+  if (r.preview){} else if (plants.length && r.wood.pos.length) bakeContact(renderer, wood.geometry, [plants[0].x, plants[0].z], groundHeight); else U.uContactBox.value.w = 0
   if (atlas.key !== brushKey()){
     const old = atlas.tex; atlas.tex = makeBrushAtlas(p.leaf, p.edge); atlas.key = brushKey()
     foliageMat.uniforms.tBrush.value = foliageDepth.alphaMap = caster.material.alphaMap = atlas.tex; old.dispose()
@@ -775,6 +775,7 @@ function applyGrown(r){
   sc.left = sc.bottom = -reach; sc.right = sc.top = reach; sc.near = 1; sc.far = 420; sc.updateProjectionMatrix()
   L.reach = 100
   applyLighting(p, L); bakeSun(r.bushLeaf ? -Infinity : r.treePlant)   // the bushes' light is where it was unless they were regrown
+  lastTreePlant = r.treePlant
   const first = heldClumps.filter(c => c.plant === r.treePlant), top = Math.max(0, ...first.map(c => c.c[1] + c.r*c.squash)), far = Math.max(0, ...first.map(c => Math.hypot(c.c[0], c.c[2]) + c.r))
   size = `${top.toFixed(1)} m tall · ${(far*2).toFixed(1)} m across`; placePerson?.(); drawEnvelope?.(); drawBranches?.()
   setStats(r.ms, r.clumps)
@@ -1310,7 +1311,9 @@ function bootTick(){
   booted = true; boot('Ready', 1); bootEl.classList.add('done'); setTimeout(() => bootEl.remove(), 1200)
 }
 if (qs.has('close')) gui.close()
-window.__foliage = { later, preview, layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
+// the main tree for the drawing editor (src/sculpt.js): where it stands, and its leaf clumps, to start a drawing from the tree as grown
+const treeInfo = () => ({ root: [0, groundHeight(0, 0) - .08, 0], clumps: heldClumps.filter(c => c.plant === lastTreePlant), scale: p.size })
+window.__foliage = { treeInfo, later, preview, layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
 // profiling: frame rate and frame time, then draw calls and triangles per frame (these include the shadow pass)
 const statsBar = document.createElement('div')
 statsBar.style.cssText = 'position:fixed;left:8px;top:8px;display:flex;gap:4px;z-index:20;pointer-events:none'

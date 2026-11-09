@@ -32,10 +32,14 @@
   <button id="next" class="chip-btn" type="button" aria-label="Next tree">&#x203A;</button>
   <button id="undo" class="chip-btn icon" type="button" aria-label="Undo" title="Undo (Ctrl+Z)" hidden><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 7H5V3M5.5 7.5A8 8 0 1 1 4 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   <button id="dice" class="chip-btn icon" type="button" aria-label="New tree of this kind" title="New tree of this kind"><svg viewBox="0 0 24 24" width="18" height="18"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="9" r="1.5" fill="currentColor"/><circle cx="15" cy="15" r="1.5" fill="currentColor"/><circle cx="15" cy="9" r="1.5" fill="currentColor"/><circle cx="9" cy="15" r="1.5" fill="currentColor"/></svg></button>
-  <button id="shapeBtn" class="chip-btn shape-btn" type="button" aria-expanded="false" aria-controls="shape"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 8h10M18 8h2M4 16h2M10 16h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="16" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Shape</span></button>
+  <button id="addTree" class="chip-btn icon" type="button" aria-label="Add your own tree" title="Add your own tree, drawn by hand"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg></button>
+  <button id="shapeBtn" class="chip-btn shape-btn" type="button" aria-expanded="false" aria-controls="shape"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 8h10M18 8h2M4 16h2M10 16h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="16" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span id="shapeLabel">Shape</span></button>
 </div>
 <div id="speciesSheet" class="sheet" role="dialog" aria-label="Choose a tree" hidden>
-  <p class="sheet-title">Choose a tree</p>
+  <p class="sheet-title">Your trees</p>
+  <div id="myList" class="species-list"></div>
+  <button id="sheetAdd" type="button" class="species add"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg><span>Add a tree</span></button>
+  <p class="sheet-title">Kinds of tree</p>
   <div id="speciesList" class="species-list"></div>
 </div>
 <div id="shape" class="pop" hidden role="region" aria-label="Tree shape">
@@ -48,6 +52,46 @@
   <div class="pop-foot">
     <label class="toggle"><span class="switch"><input id="leaves" type="checkbox" role="switch" checked><i></i></span>Show leaves</label>
     <span class="pop-actions"><button id="reset" type="button" class="btn ghost" title="Every slider back to this kind of tree's own shape">Reset all</button><button id="done" type="button" class="btn primary">Done</button></span>
+  </div>
+</div>
+
+<!-- the tree editor: your own tree, drawn by hand - its trunk and main limbs, the canopy they grow into, a reference picture behind it -->
+<div id="editor" class="pop editor" hidden role="region" aria-label="Tree editor">
+  <div class="pop-head">
+    <div class="grow"><input id="treeName" class="name-input" type="text" aria-label="Tree name" maxlength="40"><p class="pop-when" id="editStatus"></p></div>
+    <button id="closeEditor" class="icon-btn" type="button" aria-label="Close" title="Close (Esc)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg></button>
+  </div>
+  <div class="ed-body">
+    <label class="base"><span>Leaves and bark like</span><select id="treeBase"></select></label>
+    <div class="tabs three" role="radiogroup" aria-label="What to edit">
+      <button id="toolWood" type="button" class="tab" role="radio" aria-checked="true">Wood <kbd>1</kbd></button>
+      <button id="toolCanopy" type="button" class="tab" role="radio" aria-checked="false">Canopy <kbd>2</kbd></button>
+      <button id="toolRef" type="button" class="tab" role="radio" aria-checked="false">Reference <kbd>3</kbd></button>
+    </div>
+    <p id="drawHint" class="hint"></p>
+    <div id="selBox" class="node" hidden>
+      <p id="selTitle" class="sel-title"></p>
+      <div id="nodeTools">
+        <div class="row"><div class="row-head"><label for="nodeR">Thickness here</label><button id="nodeAuto" type="button" class="val" title="Let the growth decide this node's thickness">Auto</button></div><input id="nodeR" type="range" min="0" max="1" step=".001"></div>
+      </div>
+      <div class="draw-row"><button id="delSel" type="button" class="btn ghost small">Delete node <kbd>Del</kbd></button><button id="delLimb" type="button" class="btn ghost small">Delete limb</button></div>
+    </div>
+    <div id="refBox" class="node" hidden>
+      <div class="draw-row"><label class="btn ghost small file">Choose an image<input id="refFile" type="file" accept="image/*"></label><button id="refFace" type="button" class="btn ghost small">Face the camera</button><button id="refRemove" type="button" class="btn ghost small">Remove</button></div>
+      <div class="row"><div class="row-head"><label for="refOpacity">Opacity</label></div><input id="refOpacity" type="range" min=".1" max="1" step=".01" value=".7"></div>
+      <div class="row"><div class="row-head"><label for="refSize">Size</label></div><input id="refSize" type="range" min=".3" max="3" step=".01" value="1"></div>
+      <div class="row"><div class="row-head"><label for="refRaise">Raise</label></div><input id="refRaise" type="range" min="-.5" max=".5" step=".005" value="0"></div>
+    </div>
+    <div class="draw-row"><button id="clearDraw" type="button" class="btn ghost small" title="Back to a bare base node">Clear</button><button id="traceTree" type="button" class="btn ghost small" title="Start from the shape of the tree in view">Trace the tree in view</button></div>
+    <h3 class="draw-head">Neighbours</h3>
+    <div class="row"><div class="row-head"><label for="varyAmt">Variation</label><span id="varyOut" class="val" aria-hidden="true"></span></div><input id="varyAmt" type="range" min="0" max="1" step=".01" value=".35"></div>
+    <div class="draw-row"><button id="neighbour" type="button" class="btn ghost small">New neighbour <kbd>N</kbd></button><button id="original" type="button" class="btn ghost small">The drawing</button><button id="grove" type="button" class="btn ghost small" aria-pressed="false">Grove</button></div>
+    <h3 class="draw-head">Character</h3>
+    <div id="editChar"></div>
+  </div>
+  <div class="pop-foot">
+    <p class="keys"><span><kbd>⌘Z</kbd> undo</span><span><kbd>⇧⌘Z</kbd> redo</span><span><kbd>Del</kbd> delete</span></p>
+    <span class="pop-actions"><button id="deleteTree" type="button" class="btn ghost">Delete tree</button><button id="doneEditor" type="button" class="btn primary">Done</button></span>
   </div>
 </div>
 
