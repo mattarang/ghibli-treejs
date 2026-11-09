@@ -2,3 +2,8 @@ node_modules
 dist
 .DS_Store
 critique
+# reference photos stay local (public/refs/SOURCES.md lists where they come from)
+public/refs/*.jpg
+public/refs/*.jpeg
+public/refs/*.png
+public/refs/*.webp

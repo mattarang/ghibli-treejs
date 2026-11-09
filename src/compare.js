@@ -17,7 +17,7 @@ export function makeCompare(onLayout){
   const hud = document.getElementById('hud'); if (hud) hud.style.zIndex = 2   // (the demo page has no hud)
   const state = { on: false, species: '', studio: 0 }
   const show = () => {
-    const mine = recall(state.species), photo = `/refs/${slug(state.species)}.jpg`, studio = STUDIO[state.studio%STUDIO.length]
+    const mine = recall(state.species), photo = `${import.meta.env.BASE_URL}refs/${slug(state.species)}.jpg`, studio = STUDIO[state.studio%STUDIO.length]
     note.textContent = mine ? `Your picture for ${state.species}` : 'Drop a photo here to keep it for this species'
     img.onerror = () => { if (img.src.endsWith(photo)){ note.textContent = 'Studio reference. Drop a photo here to keep it for this species'; img.src = studio } }
     img.src = mine || photo
