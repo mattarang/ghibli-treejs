@@ -11,8 +11,18 @@
          text-shadow: 0 1px 3px #0009; pointer-events: none; opacity: .9; }
   #hud b { font-size: 15px; font-weight: 600; display: block; }
 </style>
+<link rel="stylesheet" href="/src/boot.css">
 </head>
 <body>
+<div id="boot" role="status" aria-live="polite">
+  <div class="cloud a"></div><div class="cloud b"></div>
+  <div class="boot-card">
+    <h1>Ghibli Foliage</h1>
+    <p class="boot-sub">A painted meadow through the seasons</p>
+    <div class="boot-bar"><i></i></div>
+    <div class="boot-step">Loading</div>
+  </div>
+</div>
 <div id="hud"><b>Ghibli Foliage</b><span id="stats"></span><br>Drag: orbit · Shift+drag: move the sun · Scroll: zoom</div>
 <script type="module" src="/src/main.js"></script>
 </body>

@@ -20,14 +20,17 @@ import { addRecipeGui, loadSavedRecipes } from './recipe-gui.js'
 import { makeForest } from './forest.js'
 
 const qs = new URLSearchParams(location.search)
-const DEMO = !!window.__DEMO   // the demo page (demo.html): its own simple panel; the full panel, stats and hints stay hidden until asked for
+const DEMO = !!window.__DEMO
+// phones and tablets (a touch screen, or a device saying it has 4 GB or less): a lighter scene that fits a mobile browser's memory - a
+// sparser, shorter grass field, fewer bushes, a smaller shadow map, no pond reflection, 1x resolution. ?mobile or ?desktop force either.
+const MOBILE = qs.has('mobile') || (!qs.has('desktop') && (matchMedia('(pointer: coarse)').matches || (navigator.deviceMemory ?? 8) <= 4))   // the demo page (demo.html): its own simple panel; the full panel, stats and hints stay hidden until asked for
 let reCloudT = 0, seasonReady = false   // the season's sky waits for the scene to exist
 U.uSnow = { value: 0 }   // the season's snow, 0..1: on evergreens' lobes, the hills, the ground (src/seasons.js)
 // An opaque context of our own: three turns alpha back on for any context it creates, and alpha-to-coverage would then leave partial alpha in the
 // canvas, which reads back as a dark outline round every lit stroke
 const canvas = document.createElement('canvas')
 const renderer = new THREE.WebGLRenderer({ canvas, context: canvas.getContext('webgl2', { alpha: false, antialias: true, stencil: false, preserveDrawingBuffer: false }) })
-const view = { resolution: Math.min(devicePixelRatio, 1.5), hold60: true }     // 1.5x with MSAA holds a stroke's edge; the extra pixels of 2x cost a third of the frame
+const view = { resolution: MOBILE ? 1 : Math.min(devicePixelRatio, 1.5), hold60: true, cap60: true, reflection: MOBILE ? false : undefined, mobile: MOBILE }   // cap60: draw at most 60 frames a second, for even frame times on fast displays     // 1.5x with MSAA holds a stroke's edge; the extra pixels of 2x cost a third of the frame
 renderer.setPixelRatio(view.resolution)
 renderer.setSize(innerWidth, innerHeight)
 renderer.shadowMap.enabled = true
@@ -43,7 +46,7 @@ const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true; controls.maxPolarAngle = Math.PI*.495; controls.minDistance = 2; controls.maxDistance = 320
 
 const sun = new THREE.DirectionalLight(0xffffff, 3)
-sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -.0006; sun.shadow.normalBias = .05
+sun.castShadow = true; sun.shadow.mapSize.setScalar(MOBILE ? 1024 : 2048); sun.shadow.bias = -.0006; sun.shadow.normalBias = .05
 scene.add(sun, sun.target)
 const hemi = new THREE.HemisphereLight(0xd9e6ff, 0x7d6a36, .55)
 scene.add(hemi)
@@ -154,7 +157,7 @@ loadSavedRecipes(SPECIES)                                                // spec
 const firstSpecies = qs.get('species') && SPECIES[qs.get('species')] ? qs.get('species') : 'Camphor tree'
 const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
-  showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, farBushes: 30, farRocks: 1, grass: 21, flowers: 16, rocks: 2,
+  showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: MOBILE ? 4 : 8, farBushes: MOBILE ? 10 : 30, farRocks: 1, grass: MOBILE ? 8 : 21, flowers: MOBILE ? 8 : 16, rocks: 2,
   mountains: true, mountainHeight: 1, seasonOn: qs.has('season'), season: +(qs.get('season') || .25),
   time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 18, cloudSeed: +(qs.get('cloudSeed') || 1 + Math.floor(Math.random()*99)),   /* a new sky each time the scene opens (?cloudSeed=N for a particular one) */ haze: .1, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
@@ -689,7 +692,7 @@ const trees = []
 const bushCache = new Map()
 function placeBush(bush, q, woodB, leafB, held){
   const key = q.seed + ':' + q.scale
-  if (!bushCache.has(key)){ const wood = newBuffer(), leaf = newBuffer(), n = generatePlant(bush, q.seed, [0, 0, 0], q.scale, wood, leaf); bushCache.set(key, { wood, leaf, n }) }
+  if (!bushCache.has(key)){ const wood = newBuffer(), leaf = newBuffer(), n = generatePlant(bush, q.seed, [0, 0, 0], q.scale, wood, leaf); if (MOBILE) bushCache.clear(); bushCache.set(key, { wood, leaf, n }) }   // (a phone keeps one bush's arrays, not every bush's)
   const { wood, leaf, n } = bushCache.get(key), y = groundHeight(q.x, q.z) - .05, plant = held.length ? held[held.length - 1].plant + 1 : 0, ids = held.length
   const copy = (src, dst) => {
     const base = dst.pos.length/3
@@ -791,13 +794,16 @@ function rebuild(){
 // The reach follows the framing: it runs well past whatever the camera is looking at, so a framed tree stands in a full field. Squares
 // beyond the near ring grow a quarter of the tufts (the first quarter of the same ones), and the shader stands those far tufts a little
 // larger so the field reads as dense; at the edge of the reach tufts shrink to nothing and the ground's own dabs carry on.
-const GRASS_CELL = 8, GRASS_NEAR = 48, GRASS_CLOSE = 16
+const GRASS_CELL = 8, GRASS_NEAR = 48, GRASS_CLOSE = 16, DENSE = MOBILE ? 1.8 : 3   // DENSE: how much thicker the ring round the camera grows
 const field = (() => {
   const group = new THREE.Group(); group.name = 'field'; scene.add(group)
   const cells = new Map(); let around = [], key = ''
   const keyNow = () => `${p.seed}:${p.grass}:${p.flowers}:${p.rocks}`
   const dropCell = c => { for (const m of [c.grass, c.flowers, c.rocks]) if (m){ group.remove(m); m.geometry.dispose() } }
-  const mesh = (geo, mat, cast) => { geo.computeBoundingSphere(); if (geo.boundingSphere) geo.boundingSphere.radius += 1.5
+  // (memory) once a square's grass, flowers or stones are on the GPU nothing reads them back, so the browser's own copy is let go (it was
+  // most of the page's memory: hundreds of MB across the field)
+  const freeOnUpload = geo => { for (const a of [...Object.values(geo.attributes), geo.index]) a?.onUpload(function(){ this.array = null }) }
+  const mesh = (geo, mat, cast) => { geo.computeBoundingSphere(); freeOnUpload(geo); if (geo.boundingSphere) geo.boundingSphere.radius += 1.5
     const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; m.castShadow = cast; group.add(m); return m }
   return {
     reset(list){ around = list; for (const c of cells.values()) dropCell(c); cells.clear(); key = keyNow() },
@@ -817,7 +823,7 @@ const field = (() => {
       if (key !== keyNow()) this.reset(around)
       const cx = cam.position.x, cz = cam.position.z, lift = Math.max(0, cam.position.y - groundHeight(cx, cz))
       const look = walk.on ? 30 : cam.position.distanceTo(controls.target)
-      const reach = Math.min(Math.max(look + 45, 55), 135) + Math.min(lift, 20)
+      const reach = Math.min(Math.max(look + 45, 55), MOBILE ? 70 : 135) + Math.min(lift, MOBILE ? 8 : 20)
       U.uGrassFar.value.set(cx, cz, reach)
       // the distances where the cell levels change, for the shader's smooth density: dense inside r2, a third of that inside r0, then sparse
       U.uGrassLod.value.set(cx, cz, Math.max(GRASS_CLOSE, look*.55), Math.max(GRASS_NEAR, look + 20))
@@ -833,13 +839,15 @@ const field = (() => {
       }
       want.sort((a, b) => a[0] - b[0])
       const t0 = performance.now()
+      let grown = 0
       for (const [d, i, j, level] of want){
-        if (performance.now() - t0 > 5) break                            // a few milliseconds a frame: the field fills in over a few frames, never in one hitch
+        if (performance.now() - t0 > 5) break
+        grown++                            // a few milliseconds a frame: the field fills in over a few frames, never in one hitch
         const k = i + ',' + j, old = cells.get(k)
         const c = old || { level, flowers: null, rocks: null }
         if (old?.grass){ group.remove(old.grass); old.grass.geometry.dispose() }
         c.level = level
-        if (p.grass > 0){ const b = generateGrassCell(i, j, GRASS_CELL, p.grass*(level === 2 ? 3 : level ? .15 : 1), p.seed, around, p.rocks, level === 2, p.grass*3)
+        if (p.grass > 0){ const b = generateGrassCell(i, j, GRASS_CELL, p.grass*(level === 2 ? DENSE : level ? .15 : 1), p.seed, around, p.rocks, level === 2, p.grass*DENSE)
           c.grass = mesh(toGeometry(b), grassMat, false); c.lod = b.lod; c.i = i; c.j = j } else c.grass = null
         if (!old){
           if (p.flowers > 0){ const b = generateFlowerCell(i, j, GRASS_CELL, p.flowers, p.seed, around); if (b.pos.length) c.flowers = mesh(toGeometry(b), flowerMat, false) }
@@ -849,6 +857,7 @@ const field = (() => {
         }
         cells.set(k, c)
       }
+      this.backlog = want.length - grown                                // squares still to grow (the boot screen waits for none)
       // (perf) draw only the tufts a cell can show: the shader shrinks each tuft whose rank is above the share wanted where it stands (want,
       // below, the same formula), and want only falls with distance, so the cell's nearest point gives the most it can need. The rest are
       // never sent: same image, a third to most of the grass's vertex work saved.
@@ -1225,6 +1234,7 @@ function uni2(u, n, a, b){ windF.add(u, 'value', a, b, .001).name(n) }
 const outF = gui.addFolder('Output').close()
 const resCtl = outF.add(view, 'resolution', .75, 2, .125).name('Resolution').onChange(v => renderer.setPixelRatio(v))
 outF.add(view, 'hold60').name('Hold 60 fps')
+outF.add(view, 'cap60').name('Cap at 60 fps')
 outF.add({ show: true }, 'show').name('Profiling stats').onChange(v => { statsBar.style.display = v ? 'flex' : 'none' })
 outF.add(p, 'autoRotate').name('Turntable').onChange(v => { controls.autoRotate = v })
 outF.add({ frame }, 'frame').name('Frame the plant')
@@ -1281,12 +1291,36 @@ function layout(){ const w = innerWidth - compare.width - (compare.width && !gui
 addEventListener('resize', layout)
 
 // ---- go ----
-applyLook(); reCloud(); rebuild(); rebuildGrass(); lamp(); frame(); seasonReady = true
+// the demo page shows its own panel: the profiling stats and the full panel stay out of the way (from before the boot screen lifts)
+if (DEMO) gui.hide()
+// ---- boot: a screen over the page while the scene is made (index.html and demo.html carry it as #boot). Each heavy step lets the page draw
+// first, so the screen can say what is happening; shaders are compiled before the scene is shown, and the screen lifts once the field
+// round the camera has grown and the first frames have drawn (see the loop)
+const bootEl = document.getElementById('boot')
+const boot = (step, at) => { if (!bootEl) return; bootEl.querySelector('.boot-step').textContent = step; bootEl.style.setProperty('--at', at) }
+const breathe = () => new Promise(r => requestAnimationFrame(() => setTimeout(r)))
+boot('Preparing the sky', .08); await breathe()
+applyLook(); reCloud()
+boot('Growing the tree', .2); await breathe()
+rebuild()
+boot('Sowing the meadow', .55); await breathe()
+rebuildGrass(); lamp(); frame(); seasonReady = true
+boot('Mixing the paints', .7); await breathe()
+field.update(camera)
+try { await renderer.compileAsync(scene, camera) } catch {}
+boot('Painting the clouds', .85); await breathe()
+let booted = !bootEl, bootFrames = 0
+function bootTick(){
+  if (booted) return
+  if (field.backlog || ++bootFrames < 12) return
+  booted = true; boot('Ready', 1); bootEl.classList.add('done'); setTimeout(() => bootEl.remove(), 1200)
+}
 if (qs.has('close')) gui.close()
 window.__foliage = { layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
 // profiling: frame rate and frame time, then draw calls and triangles per frame (these include the shadow pass)
 const statsBar = document.createElement('div')
 statsBar.style.cssText = 'position:fixed;left:8px;top:8px;display:flex;gap:4px;z-index:20;pointer-events:none'
+if (DEMO) statsBar.style.display = 'none'
 document.body.append(statsBar)
 const statsPanel = (panel, custom) => { const st = new Stats(); st.dom.style.position = 'static'
   const added = custom ? st.addPanel(custom) : null; st.showPanel(custom ? 3 : panel); statsBar.append(st.dom); return { st, added } }
@@ -1365,8 +1399,11 @@ function renderPondReflection(){
   for (let i = 0; i < hide.length; i++) hide[i].visible = _was[i]
   wood.geometry = wg
 }
-let last = performance.now()
+let last = performance.now(), dueAt = 0
 renderer.setAnimationLoop(now => {
+  // (cap60) on a display faster than 60 Hz, draw on the first refresh at or past each 1/60 s mark of a running schedule (every other refresh
+  // at 120 Hz), so frames come at an even 60 instead of hopping between rates; a slow frame puts the schedule back in step with now
+  if (view.cap60){ if (now < dueAt - 2) return; dueAt = now - dueAt > 1000/60 ? now + 1000/60 : dueAt + 1000/60 }
   fps.st.begin(); ms.st.begin()
   const dt = Math.min((now - last)/1000, .1); last = now
   U.uTime.value += dt; sky.tick(U.uTime.value)
@@ -1389,6 +1426,5 @@ renderer.setAnimationLoop(now => {
   const info = renderer.info.render, t = info.triangles/1000
   peakCalls = Math.max(peakCalls, info.calls); peakTris = Math.max(peakTris, t)
   calls.added.update(info.calls, peakCalls); tris.added.update(t, peakTris)
+  bootTick()
 })
-// the demo page shows its own panel: the profiling stats and the full panel stay out of the way until asked for
-if (DEMO){ statsBar.style.display = 'none'; gui.hide() }
