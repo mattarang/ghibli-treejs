@@ -396,7 +396,7 @@ for (const [name, k] of Object.entries(GIRTH)) if (SPECIES[name].rings) SPECIES[
 for (const sp of Object.values(SPECIES)) if (sp.rings){
   Object.assign(sp, sp.rings.as); if (sp.rings.varK) sp.variety *= sp.rings.varK
   sp.lean = 0                                                           // trees stand upright on their centre line unless the Lean slider says otherwise
-  sp.rings.base = { crownWidth: sp.crownWidth, trunkFrac: sp.trunkFrac, sinuous: sp.sinuous, gnarl: sp.gnarl, childAngle: sp.childAngle, lengthRatio: sp.lengthRatio, children: sp.children, upward: sp.upward, droop: sp.droop }
+  sp.rings.base = { stems: sp.stems, crownWidth: sp.crownWidth, trunkFrac: sp.trunkFrac, sinuous: sp.sinuous, gnarl: sp.gnarl, childAngle: sp.childAngle, lengthRatio: sp.lengthRatio, children: sp.children, upward: sp.upward, droop: sp.droop }
 }
 
 // Leaves from light and age (generator lightLeaves), per species: shade tolerance 0-1 from the species' usual silvics class (very intolerant .1,

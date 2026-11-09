@@ -14,7 +14,7 @@ export function makeCompare(onLayout){
   img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;border-radius:4px'
   note.style.cssText = 'position:absolute;left:12px;right:12px;top:82px;text-align:center;opacity:.75'
   box.append(img, note); document.body.append(box)
-  document.getElementById('hud').style.zIndex = 2
+  const hud = document.getElementById('hud'); if (hud) hud.style.zIndex = 2   // (the demo page has no hud)
   const state = { on: false, species: '', studio: 0 }
   const show = () => {
     const mine = recall(state.species), photo = `/refs/${slug(state.species)}.jpg`, studio = STUDIO[state.studio%STUDIO.length]

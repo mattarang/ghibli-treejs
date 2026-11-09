@@ -19,6 +19,7 @@ import { addRecipeGui, loadSavedRecipes } from './recipe-gui.js'
 import { makeForest } from './forest.js'
 
 const qs = new URLSearchParams(location.search)
+const DEMO = !!window.__DEMO   // the demo page (demo.html): its own simple panel; the full panel, stats and hints stay hidden until asked for
 let reCloudT = 0, seasonReady = false   // the season's sky waits for the scene to exist
 U.uSnow = { value: 0 }   // the season's snow, 0..1: on evergreens' lobes, the hills, the ground (src/seasons.js)
 // An opaque context of our own: three turns alpha back on for any context it creates, and alpha-to-coverage would then leave partial alpha in the
@@ -777,6 +778,17 @@ const field = (() => {
     const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; m.castShadow = cast; group.add(m); return m }
   return {
     reset(list){ around = list; for (const c of cells.values()) dropCell(c); cells.clear(); key = keyNow() },
+    // only the squares near a trunk or bush that moved, appeared, went or changed width are regrown (their clearings, collars and stones);
+    // the rest of the field stays as it is
+    refresh(list){
+      const tag = t => `${Math.round(t.x*20)},${Math.round(t.z*20)},${Math.round(t.r*20)}`, was = new Set(around.map(tag)), now = new Set(list.map(tag))
+      const changed = [...around.filter(t => !now.has(tag(t))), ...list.filter(t => !was.has(tag(t)))]
+      around = list
+      if (!changed.length) return
+      for (const [k, c] of cells){ const x0 = c.i*GRASS_CELL, z0 = c.j*GRASS_CELL
+        const hit = changed.some(t => { const reach = t.r*2.6 + 2, dx = Math.max(x0 - t.x, 0, t.x - x0 - GRASS_CELL), dz = Math.max(z0 - t.z, 0, t.z - z0 - GRASS_CELL); return Math.hypot(dx, dz) < reach })
+        if (hit){ dropCell(c); cells.delete(k) } }
+    },
     update(cam){
       if (p.forest > 0){ group.visible = false; return } group.visible = true
       if (key !== keyNow()) this.reset(around)
@@ -877,7 +889,17 @@ function rebuildFarRocks(){
   standStones.geometry.dispose(); standStones.geometry = stand.length ? rockGeometry(stand) : new THREE.BufferGeometry()
   farRocks.userData.stones = stones   // for framing and inspection
 }
-function rebuildGrass(){
+// (perf) the grass only depends on where trunks and bushes stand and how wide their feet are (clearings, collars), and on the field's own
+// settings: a change to a tree's crown, branches or height regrew the whole field and stuttered for no visible reason. Regrown only when
+// that footprint (or the seed and field settings) changes; rebuildGrass(true) forces it.
+let grassKey = '', grassFoot = ''
+function rebuildGrass(force){
+  const key = JSON.stringify([p.seed, p.grass, p.flowers, p.rocks, p.farRocks]), foot = JSON.stringify(trees.map(t => [Math.round(t.x*20), Math.round(t.z*20), Math.round(t.r*20)]))
+  if (!force && key === grassKey){
+    // the same field: only the squares round trunks and bushes that changed are regrown
+    if (foot !== grassFoot){ grassFoot = foot; grass.geometry.dispose(); grass.geometry = p.grass > 0 ? toGeometry(generateGrassCollars(p.seed, trees)) : new THREE.BufferGeometry(); field.refresh(trees); renderer.shadowMap.needsUpdate = true }
+    return }
+  grassKey = key; grassFoot = foot
   rebuildFarRocks()
   // the field (grass, flowers, rocks) follows the camera; only the collars where trunks meet the ground stay put
   grass.geometry.dispose()
@@ -1002,7 +1024,7 @@ treeF.add({ dice(){ p.seed = 1 + Math.floor(Math.random()*9998); rebuild(); rebu
 treeF.add(p, 'height', 1.5, 26, .1).name('Height').onChange(later)
 treeF.add(p, 'size', .3, 4, .01).name('Mature size').onChange(() => { later(); frame() })
 treeF.add(p, 'trunkRadius', .06, 1.4, .01).name('Trunk radius').onChange(later)
-treeF.add(p, 'trunkFrac', .02, .85, .01).name('Bare trunk').onChange(later)
+treeF.add(p, 'trunkFrac', .02, .85, .01).name('Trunk height').onChange(later)
 treeF.add(p, 'stems', 1, 5, .1).name('Stems (average)').onChange(later)
 treeF.add(p, 'stemVar', 0, 3, .1).name('Stem count variation').onChange(later)
 treeF.add(p, 'stemSpread', 0, 50, 1).name('Stem spread').onChange(later)
@@ -1166,7 +1188,7 @@ outF.add({ copy(){ navigator.clipboard?.writeText(JSON.stringify(p, null, 1)) } 
 
 // ---- walking: first person at a person's eye height (1.6 m), to stand under the trees and look up ----
 // click to look with the mouse (Esc frees it), WASD or arrows to walk, Shift to run, G or the button to go back to orbiting
-const walk = { on: false, yaw: 0, pitch: 0, keys: new Set(), fov: camera.fov, eye: 1.6,
+const walk = { on: false, yaw: 0, pitch: 0, keys: new Set(), fov: camera.fov, eye: 1.6, pad: { f: 0, turn: 0, run: false },   // pad: the touch joystick (tank controls: forward/back, turn)
   hint: Object.assign(document.createElement('div'), { textContent: 'Walking - click to look around · WASD / arrows to move · Shift to run · Esc frees the mouse · G to stop walking' }),
   toggle(){ this.on ? this.stop() : this.start() },
   start(){ this.on = true; controls.enabled = false; this.keys.clear()
@@ -1174,11 +1196,12 @@ const walk = { on: false, yaw: 0, pitch: 0, keys: new Set(), fov: camera.fov, ey
     const reach = Math.max(4, (p.height*p.size)*(p.crownWidth || .5)*2.2), a = Math.atan2(camera.position.x, camera.position.z)
     camera.position.set(Math.sin(a)*reach, 0, Math.cos(a)*reach); camera.position.y = groundHeight(camera.position.x, camera.position.z) + this.eye
     this.yaw = Math.atan2(camera.position.x, camera.position.z); this.pitch = .12
-    camera.fov = 62; camera.updateProjectionMatrix(); this.hint.style.display = 'block' },
+    camera.fov = 62; camera.updateProjectionMatrix(); this.hint.style.display = DEMO ? 'none' : 'block' },
   stop(){ this.on = false; document.pointerLockElement && document.exitPointerLock(); camera.fov = this.fov; camera.updateProjectionMatrix()
     const ahead = new THREE.Vector3(0, 0, -6).applyEuler(camera.rotation); controls.target.copy(camera.position).add(ahead); controls.enabled = true; controls.update(); this.hint.style.display = 'none' },
-  step(dt){ const k = this.keys, f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0), r = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0)
-    const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? 4.5 : 1.5)*dt, len = Math.hypot(f, r) || 1, sy = Math.sin(this.yaw), cy = Math.cos(this.yaw)
+  step(dt){ let k = this.keys, f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0), r = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0)
+    this.yaw -= this.pad.turn*1.7*dt; f += this.pad.f   // the pad: turn on the spot, walk forward or back
+    const speed = (k.has('ShiftLeft') || k.has('ShiftRight') || this.pad.run ? 4.5 : 1.5)*dt, len = Math.max(1, Math.hypot(f, r)), sy = Math.sin(this.yaw), cy = Math.cos(this.yaw)
     camera.position.x += (-sy*f + cy*r)/len*speed; camera.position.z += (-cy*f - sy*r)/len*speed
     camera.position.y = groundHeight(camera.position.x, camera.position.z) + this.eye
     camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ') } }
@@ -1214,7 +1237,7 @@ addEventListener('resize', layout)
 // ---- go ----
 applyLook(); reCloud(); rebuild(); rebuildGrass(); lamp(); frame(); seasonReady = true
 if (qs.has('close')) gui.close()
-window.__foliage = { clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
+window.__foliage = { layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
 // profiling: frame rate and frame time, then draw calls and triangles per frame (these include the shadow pass)
 const statsBar = document.createElement('div')
 statsBar.style.cssText = 'position:fixed;left:8px;top:8px;display:flex;gap:4px;z-index:20;pointer-events:none'
@@ -1320,3 +1343,5 @@ renderer.setAnimationLoop(now => {
   peakCalls = Math.max(peakCalls, info.calls); peakTris = Math.max(peakTris, t)
   calls.added.update(info.calls, peakCalls); tris.added.update(t, peakTris)
 })
+// the demo page shows its own panel: the profiling stats and the full panel stay out of the way until asked for
+if (DEMO){ statsBar.style.display = 'none'; gui.hide() }

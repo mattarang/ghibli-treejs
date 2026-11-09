@@ -421,6 +421,24 @@ function growColonise(sp, r, root, size){
   // it grows and how long; their direction is the bud's own, bent toward the open space it saw and by tropism. Side buds turn round the stem by the golden
   // angle and stand off it at the branch angle. Leaders, stems and their spacing all emerge; there are no direction rules.
   else if (c.selfOrg){ const S = { ...c.selfOrg }
+    // The shared tree settings, so every species answers every slider the same way. Each is an offset from the species' own value, so at its
+    // defaults nothing changes (not even the random stream: nothing new draws on r() unless a slider has moved).
+    //   Branch angle (childAngle)  scales the angle side buds leave at          Crookedness (gnarl)  adds a random turn at every step
+    //   Droop (droop)              pulls branches (not the trunk) down           Branch length (lengthRatio)  stronger apical control: shoots run on before they fork
+    //   Main limbs (children)      more or fewer trunk buds break into limbs     Stems (stems)  the trunk ends in a crown of that many stems
+    const set = sp.asSet ?? sp, B = k => base[k] ?? 0, rel = k => base[k] ? (set[k] ?? base[k])/base[k] : 1   // the user's settings against the species' own: a seed's variety stays inert, as it always was
+    const kA = rel('childAngle'), kL = rel('lengthRatio'), kC = rel('children'), dG = (set.gnarl ?? 0) - B('gnarl'), dD = (set.droop ?? 0) - B('droop')
+    const perGen = (v, f, n = 4) => Array.from({ length: n }, (_, g) => f(Array.isArray(v) ? v[Math.min(g, v.length - 1)] : v ?? 0, g))
+    if (kA !== 1) S.branch = perGen(S.branch, x => Math.min(95, Math.max(5, x*kA)))
+    if (dG) S.wiggle = perGen(S.wiggle, (x, g) => Math.max(0, x + dG*(g ? .9 : .25)))
+    if (dD) S.tropism = perGen(S.tropism, (x, g) => g ? x - dD*1.6 : x)
+    // longer branches: a shoot's own tip takes more of the growth, so it runs on before it forks
+    if (kL !== 1) S.lambda = perGen(S.lambda, (x, g) => g ? clamp(x + (kL - 1)*.2, .3, .88) : x)   // the branches only: the trunk climbs as it always does
+    if (kC > 1){ const l0 = Array.isArray(S.lambda) ? S.lambda : [S.lambda]; S.lambda = [clamp(l0[0]*kC**-.3, .3, .9), ...(l0.length > 1 ? l0.slice(1) : [l0[0]])] }   // more limbs: the trunk gives more to its side buds (fewer: some stay dormant, below)
+    const extraStems = S.multiStem ? 0 : Math.round(Math.max(0, (set.stems ?? 1) - B('stems')))   // a species grown as one trunk: Stems above its own value divides it
+    if (extraStems > 0) S.multiStem = true
+    const stemCount = extraStems > 0 ? 1 + extraStems : stems
+    const pruneLimb = n => { const h = Math.sin(n*12.9898 + 4.1)*43758.5453; return kC < 1 && h - Math.floor(h) > kC }   // fewer limbs: some trunk buds stay dormant (a hash, not r())
     if (g.shape){ const f = g.shape.fine ?? 0; S.maxOrder = 0; S.years = Math.max(S.years, 60) }   // a shaped crown: no depth limit, and growth runs until the shape is full
     // (split, the Split low slider) apical control lifted just above the bare trunk, and a V left open above it: 0 keeps one trunk, 1 divides it into strong stems
     if (sp.split > 0 && !S.whorl){ S.lowLambda = lerp(Array.isArray(S.lambda) ? S.lambda[0] : S.lambda, .3, sp.split); S.lowTo = (tip.p[1] - root[1])/H + (S.splitSpan ?? .15); S.vase = 12 + 25*sp.split } else { delete S.lowLambda; delete S.vase }   // (a tree that grows rings of limbs keeps one leader: the low split doesn't apply)
@@ -459,8 +477,8 @@ function growColonise(sp, r, root, size){
     const flat = v => shp?.kind === 'slab' ? norm([v[0], v[1], v[2]*.15]) : v
     const latOf = (d, phy, gen) => { const b = byGen(S.branch, gen)*Math.PI/180, p = rotateAbout(perpTo(d), d, phy); return flat(norm(add([d[0]*Math.cos(b), d[1]*Math.cos(b), d[2]*Math.cos(b)], p, Math.sin(b)))) }
     // (multiStem) the trunk ends in a crown of stems: side buds round its top, each set out at the species' stem spread, so the tree divides at once (with Split low, as equals)
-    if (S.multiStem && stems > 1){ let prev = start; start.stub = false; start.latDir = latOfAngle([0, 1, 0], start.phy, sp.stemSpread)
-      for (let w = 1; w < stems; w++){ const wn = add0(add(prev.n.p, [0, 1, 0], L0*.03), prev.n, 1), wp = start.phy + w*tau/stems*(1 + (r() - .5)*.3)
+    if (S.multiStem && stemCount > 1){ let prev = start; start.stub = false; start.latDir = latOfAngle([0, 1, 0], start.phy, sp.stemSpread)
+      for (let w = 1; w < stemCount; w++){ const wn = add0(add(prev.n.p, [0, 1, 0], L0*.03), prev.n, 1), wp = start.phy + w*tau/stemCount*(1 + (r() - .5)*.3)
         const wm = { n: wn, dir: [0, 1, 0], main: null, lat: null, phy: wp, latDir: latOfAngle([0, 1, 0], wp, sp.stemSpread*lerp(.8, 1.2, r())), gen: 0, k: 0, stub: false }
         prev.main = wm; mets.push(wm); prev = wm }
       prev.noTip = true }                                                // and the trunk ends there: a vase has no leader running on up the middle
@@ -584,7 +602,7 @@ function growColonise(sp, r, root, size){
           const W = S.whorl && gen <= S.whorl.upTo ? S.whorl : null, atWhorl = W && i === n - 1 && !(W.skip && gen === 0 && r() < W.skip)
           phy += W ? (atWhorl ? r()*tau : 0) : gold
           const startsLimb = i === 0 && asLateral && prev.gen === 0
-          const nm = { n: node, dir: d, main: null, lat: null, phy, latDir: latOf(d, phy, gen + 1), gen, k: (i === 0 && asLateral ? 0 : prev.k) + 1, stub: !!W && !atWhorl, limb: startsLimb ? null : prev.limb }
+          const nm = { n: node, dir: d, main: null, lat: null, phy, latDir: latOf(d, phy, gen + 1), gen, k: (i === 0 && asLateral ? 0 : prev.k) + 1, stub: (!!W && !atWhorl) || (gen === 0 && pruneLimb(mets.length)), limb: startsLimb ? null : prev.limb }
           if (startsLimb){ nm.limb = nm; nm.base = first; nm.got = 0; nm.ring = prev.ring ?? prev; limbs.push(nm) }
           nm.axis = i === 0 && asLateral ? { last: 0 } : prev.axis
           if (S.planes) nm.planes = i === 0 && asLateral ? lateralPlanes(prev, d0) : prev.planes
@@ -1570,6 +1588,7 @@ function individual(sp, seed){
   const o = { ...sp, height: by(sp.height, .14), trunkRadius: by(sp.trunkRadius, .12), trunkFrac: by(sp.trunkFrac, .14), forkHeight: by(sp.forkHeight, .3), stemSpread: by(sp.stemSpread, .3),
     crownWidth: by(sp.crownWidth, .18), childAngle: by(sp.childAngle, .14), lengthRatio: by(sp.lengthRatio, .14), childStart: Math.min(by(sp.childStart, .18), .95), children: by(sp.children, .22), asym: by(sp.asym, .35), lean: by(sp.lean, .5) }
   o.forkHeight = Math.min(o.forkHeight, o.trunkFrac*.7); o.trunkFrac = Math.min(o.trunkFrac, .95)
+  o.asSet = sp.asSet ?? sp                                             // the settings as given, before this tree's own variation: the shared sliders read these
   if (sp.forms) o.gesture = sp.forms[Math.floor(r()*sp.forms.length)]
   // A species comes in several colours: most trees take its usual one, the rest a form of their own. 0 is the usual colour; the slider can force one.
   const forms = sp.colors ?? []

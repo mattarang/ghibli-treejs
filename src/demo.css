@@ -1,0 +1,117 @@
+/* The demo page: the scene full screen, with small controls that live at its edges (a sun compass, a season wheel, a tree chip) instead of
+   a menu over it, and walking with a touch pad */
+:root {
+  --glass: rgba(18, 28, 27, .58);
+  --glass-strong: rgba(18, 28, 27, .78);
+  --line: rgba(255, 255, 255, .16);
+  --ink: #f4f6f0;
+  --dim: rgba(244, 246, 240, .7);
+  --accent: #a6d77f;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --dial: 112px;
+  --gap: 14px;
+}
+html, body { margin: 0; height: 100%; background: #16201f; overflow: hidden; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+body { font: 14px/1.35 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); -webkit-user-select: none; user-select: none; }
+canvas { display: block; touch-action: none; }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:focus-visible, select:focus-visible, input:focus-visible, .dial:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hud { position: fixed; z-index: 30; transition: opacity .25s; }
+body.walking .hud, body.walking .pop { opacity: 0; pointer-events: none; }
+
+/* the tree chip */
+#tree { left: calc(var(--gap) + var(--safe-l)); top: calc(var(--gap) + var(--safe-t)); display: flex; align-items: center; height: 42px; padding: 0 4px;
+  border-radius: 21px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.chip-btn { width: 34px; height: 34px; border: 0; border-radius: 17px; background: transparent; display: grid; place-items: center; font-size: 22px; line-height: 1; color: var(--ink); }
+.chip-btn:hover, .chip-name:hover { background: rgba(255, 255, 255, .12); }
+.chip-btn[aria-expanded=true] { background: rgba(255, 255, 255, .18); }
+.chip-name { height: 34px; border: 0; border-radius: 17px; background: transparent; padding: 0 8px; font-weight: 600; font-size: 14px; min-width: 120px; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#species { position: fixed; left: -9999px; top: 0; opacity: 0; }
+
+/* the shape pop-over, under the chip */
+.pop { position: fixed; z-index: 31; left: calc(var(--gap) + var(--safe-l)); top: calc(var(--gap) + var(--safe-t) + 50px); width: 260px; box-sizing: border-box; padding: 6px 14px 12px;
+  border-radius: 14px; background: var(--glass-strong); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.pop[hidden] { display: none; }
+.pop { max-height: calc(100dvh - 150px - var(--dial)); overflow: auto; overscroll-behavior: contain; }
+.pop h2 { margin: 12px 0 0; font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.pop-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 2px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
+.pop-head .toggle { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; color: var(--ink); font-size: 13px; }
+.link { height: 28px; border: 0; background: none; color: var(--accent); font-size: 12.5px; padding: 0 2px 6px; }
+.switch { position: relative; width: 34px; height: 20px; flex: none; display: inline-block; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch i { position: absolute; inset: 0; border-radius: 10px; background: rgba(255, 255, 255, .22); transition: background .15s; pointer-events: none; }
+.switch i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); transition: transform .15s; }
+.switch input:checked + i { background: var(--accent); }
+.switch input:checked + i::after { transform: translateX(14px); }
+.pop label { display: flex; align-items: center; color: var(--dim); font-size: 12.5px; margin: 8px 0 0; }
+output { margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; height: 28px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; touch-action: pan-y; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .25); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .25); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%; background: var(--ink); border: 0; box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
+input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--ink); border: 0; }
+
+/* the corner buttons */
+#corner { right: calc(var(--gap) + var(--safe-r)); top: calc(var(--gap) + var(--safe-t)); display: flex; gap: 8px; }
+.round { width: 42px; height: 42px; border-radius: 21px; display: grid; place-items: center; padding: 0; color: var(--ink);
+  background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.round:hover { background: rgba(40, 56, 54, .75); }
+.round[aria-pressed=true] { background: var(--accent); color: #13200f; border-color: transparent; }
+
+/* the dials */
+.dial { width: var(--dial); height: var(--dial); bottom: calc(var(--gap) + var(--safe-b)); touch-action: none; cursor: grab; border-radius: 50%; }
+.dial:active { cursor: grabbing; }
+.dial svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 3px 10px rgba(0, 0, 0, .3)); }
+#sundial { left: calc(var(--gap) + var(--safe-l)); }
+#seasonWheel { right: calc(var(--gap) + var(--safe-r)); }
+.ring { fill: var(--glass); stroke: var(--line); stroke-width: 1; }
+.rim { fill: none; stroke: rgba(255, 255, 255, .5); stroke-width: 1.2; }
+.hill { fill: #4f8f45; opacity: .9; transition: fill .4s; }
+.sun { fill: #ffd86a; stroke: #fff6cf; stroke-width: 1.5; transition: fill .3s; }
+.sun.moon { fill: #e8eefc; stroke: #ffffff; }
+.dial-text { fill: #fff; font: 600 9.5px ui-sans-serif, system-ui, sans-serif; text-anchor: middle; paint-order: stroke; stroke: rgba(0, 0, 0, .35); stroke-width: 2.4px; font-variant-numeric: tabular-nums; }
+.dial-text.small { font-size: 8.5px; }
+.quarter { stroke: rgba(0, 0, 0, .25); stroke-width: .6; transition: opacity .3s; }
+.hub { fill: var(--glass-strong); stroke: var(--line); cursor: pointer; }
+.mark { fill: #fff; stroke: rgba(0, 0, 0, .35); stroke-width: 1.2; }
+#seasonWheel.off .quarter { opacity: .35; }
+#seasonWheel.off .mark { opacity: .55; }
+
+/* walking */
+#walkbar { position: fixed; z-index: 30; top: calc(12px + var(--safe-t)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+  padding: 5px; border-radius: 22px; background: var(--glass-strong); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); }
+#walkbar[hidden] { display: none; }
+#walkbar button { height: 32px; border-radius: 16px; border: 0; padding: 0 14px; background: rgba(255, 255, 255, .14); }
+#walkTip { color: var(--dim); font-size: 12px; padding-right: 8px; white-space: nowrap; }
+#pad { position: fixed; z-index: 30; left: calc(28px + var(--safe-l)); bottom: calc(28px + var(--safe-b)); width: 132px; height: 132px; border-radius: 50%;
+  background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .25); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); touch-action: none; }
+#pad[hidden] { display: none; }
+#pad .knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255, 255, 255, .55); box-shadow: 0 2px 8px rgba(0, 0, 0, .3); }
+#pad::before, #pad::after { content: ""; position: absolute; left: 50%; width: 0; height: 0; border: 6px solid transparent; margin-left: -6px; opacity: .6; }
+#pad::before { top: 8px; border-bottom-color: #fff; }
+#pad::after { bottom: 8px; border-top-color: #fff; }
+
+#tip { position: fixed; z-index: 20; left: 50%; bottom: calc(var(--gap) + var(--safe-b) + 40px); transform: translateX(-50%); padding: 6px 12px; border-radius: 16px;
+  background: rgba(0, 0, 0, .45); color: #fff; font-size: 12px; pointer-events: none; transition: opacity .6s; white-space: nowrap; }
+#tip.gone { opacity: 0; }
+
+/* the full panel, when asked for: right side, under the corner buttons, scrolling inside itself */
+.lil-gui.root { max-height: calc(100dvh - 140px); overflow: auto; top: calc(66px + var(--safe-t)) !important; right: calc(12px + var(--safe-r)) !important; z-index: 32; }
+
+@media (max-width: 640px) {
+  :root { --dial: 92px; --gap: 10px; }
+  .chip-name { min-width: 0; max-width: 34vw; font-size: 13px; padding: 0 4px; }
+  #corner .round { width: 38px; height: 38px; }
+  #corner { gap: 6px; }
+  #tree { height: 40px; }
+  .pop { left: calc(var(--gap) + var(--safe-l)); right: calc(var(--gap) + var(--safe-r)); width: auto; }
+  #walkTip { display: none; }
+  #tip { bottom: auto; top: calc(62px + var(--safe-t)); }
+  .lil-gui.root { left: 8px !important; right: 8px !important; width: auto !important; max-height: 55dvh; }
+}
+@media (max-width: 400px) { #prev, #next { display: none; } }
+@media (pointer: coarse) { #walkTip { display: none; } }
