@@ -1819,10 +1819,10 @@ const landHeight = (x, z) => {
 // The pond: in front of the tree as the framed view sees it (the camera stands out along +x+z), a little to one side so the tree stays clear.
 // Its outline is a lobed oval; pondDist is the distance from the shore as a share of the radius (negative inside). The same shape is written
 // in GLSL in main.js (POND_GLSL), and the two must agree.
-export const POND = { x: 17, z: 8, r: 7.5, sx: 1.35, turn: .5 }
+export const POND = { x: 17, z: 8, r: 7.5, sx: 1.35, turn: .5, a: [1, 2.3, .4] }   // a: the phases of its outline's three lobes
 export const pondDist = (x, z) => {
   const c = Math.cos(POND.turn), s = Math.sin(POND.turn), dx = x - POND.x, dz = z - POND.z, u = (dx*c + dz*s)/POND.sx, v = -dx*s + dz*c
-  const th = Math.atan2(v, u), R = POND.r*(1 + .16*Math.sin(2*th + 1) + .09*Math.sin(3*th + 2.3) + .05*Math.sin(5*th + .4))
+  const th = Math.atan2(v, u), R = POND.r*(1 + .16*Math.sin(2*th + POND.a[0]) + .09*Math.sin(3*th + POND.a[1]) + .05*Math.sin(5*th + POND.a[2]))
   return Math.hypot(u, v)/R - 1
 }
 // the bare bank: a ragged strip of earth round the water, about 0.8-1.6 m wide, that the grass keeps off (the same in GLSL: POND_GLSL)
@@ -1832,7 +1832,23 @@ export const reedAt = (x, z) => { const d = pondDist(x, z); return d >= -.045 &&
 // near the bank, grass leans away from the water and stands lower, so the strip of earth stays open: 0 on the bank's edge, 1 a metre or so up
 const bankBlend = (x, z) => { const e = pondDist(x, z) - pondShore(x, z); return e > .16 ? 1 : Math.max(0, e/.16)**.7 }
 const awayFromPond = (x, z) => Math.atan2(z - POND.z, x - POND.x)
-export const pondLevel = landHeight(POND.x, POND.z) - .3       // the water's surface, a little below the land at the pond's heart
+export let pondLevel = landHeight(POND.x, POND.z) - .3       // the water's surface, a little below the land at the pond's heart
+// Each tree's seed has its own pond: a few metres this way or that (always in front of the tree, clear of it), a little larger or smaller,
+// stretched and turned differently, its outline's lobes elsewhere. Seed 7 (the opening scene's) keeps the pond as designed.
+// Returns true if the pond changed (the ground and grass must then be grown again).
+const POND_BASE = { ...POND, a: [...POND.a] }
+let pondSeed = 7
+export function setPond(seed){
+  if (seed === pondSeed) return false
+  pondSeed = seed
+  if (seed === 7){ Object.assign(POND, { ...POND_BASE, a: [...POND_BASE.a] }) }
+  else { const r = mulberry32(seed*9176 + 11), lerp2 = (a, b) => a + (b - a)*r()
+    const r0 = POND_BASE.r*lerp2(.85, 1.15), sx = lerp2(1.2, 1.5), ang = Math.atan2(POND_BASE.z, POND_BASE.x) + lerp2(-.35, .35)
+    const dist = Math.max(Math.hypot(POND_BASE.x, POND_BASE.z) + lerp2(-3, 3), r0*sx + 6.5)    // its far shore never comes nearer the trunk than ~6.5 m
+    Object.assign(POND, { x: Math.cos(ang)*dist, z: Math.sin(ang)*dist, r: r0, sx, turn: POND_BASE.turn + lerp2(-.7, .7), a: [r()*6.28, r()*6.28, r()*6.28] }) }
+  pondLevel = landHeight(POND.x, POND.z) - .3
+  return true
+}
 // the land, with a basin pressed into it for the pond: a flat strip of shore just above the water, then a bowl about 1.4 m deep
 export const groundHeight = (x, z) => {
   const h = landHeight(x, z), d = pondDist(x, z)

@@ -5,7 +5,7 @@ import Stats from 'stats.js'
 import { SPECIES, CROWNS, BRUSHES } from './presets.js'
 import { speciesKeys, formKeys, seasonPal, seasonPair, groundKeys, hillKeys, HILL_TURN, autumnShare, leafKeep, isEvergreen, snowCover, SNOW_GROUND, mixPal, seasonSky, SUMMER_SKY, leafFallRate, iceCover, SEASON_NAMES } from './seasons.js'
 import { makeLeafFall } from './leaves.js'
-import { mulberry32, POND, pondDist, pondLevel, generatePlant, generateGround, generateGrassCell, generateGrassCollars, generateFlowerCell, rocksOfCell, groundHeight, layoutScene, newBuffer, GESTURE_NAMES } from './generator.js'
+import { mulberry32, POND, pondDist, pondLevel, setPond, generatePlant, generateGround, generateGrassCell, generateGrassCollars, generateFlowerCell, rocksOfCell, groundHeight, layoutScene, newBuffer, GESTURE_NAMES } from './generator.js'
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { makeBrushAtlas, makeFieldTexture, makeGrassAtlas, makeFlowerAtlas } from './atlas.js'
 import { U, patch, newPalette, setPalette, paletteUniforms, GLSL_NIGHT } from './ghibli-patch.js'
@@ -53,10 +53,15 @@ scene.add(sky, clouds)
 // The pond, painted as Ghibli paints still water: the sky reflected (deeper overhead, paler toward the far bank as the view grazes), the dark
 // green of the bank mirrored in a band round the edge, a deep teal body, a pale waterline at the shore, and a few slow horizontal glints.
 // Its outline is the terrain's own (pondDist); the plane sits at pondLevel and the banks cover its edge.
+// the pond's shape as uniforms (it moves with the tree's seed): uPondA = centre x, z, radius, stretch; uPondB = turn and the three lobe phases
+U.uPondA = { value: new THREE.Vector4() }; U.uPondB = { value: new THREE.Vector4() }
+const pondUniforms = () => { U.uPondA.value.set(POND.x, POND.z, POND.r, POND.sx); U.uPondB.value.set(POND.turn, ...POND.a) }
+pondUniforms()
 const POND_GLSL = `
-  float pondDist(vec2 p){ float c = cos(${POND.turn.toFixed(4)}), s = sin(${POND.turn.toFixed(4)}); vec2 d = p - vec2(${POND.x.toFixed(3)}, ${POND.z.toFixed(3)});
-    float u = (d.x*c + d.y*s)/${POND.sx.toFixed(3)}, v = -d.x*s + d.y*c, th = atan(v, u);
-    float R = ${POND.r.toFixed(3)}*(1. + .16*sin(2.*th + 1.) + .09*sin(3.*th + 2.3) + .05*sin(5.*th + .4));
+  uniform vec4 uPondA, uPondB;
+  float pondDist(vec2 p){ float c = cos(uPondB.x), s = sin(uPondB.x); vec2 d = p - uPondA.xy;
+    float u = (d.x*c + d.y*s)/uPondA.w, v = -d.x*s + d.y*c, th = atan(v, u);
+    float R = uPondA.z*(1. + .16*sin(2.*th + uPondB.y) + .09*sin(3.*th + uPondB.z) + .05*sin(5.*th + uPondB.w));
     return length(vec2(u, v))/R - 1.; }
   float pondShore(vec2 p){ return .14 + .06*sin(p.x*.9 + p.y*.4)*sin(p.y*.8 - p.x*.5) + .025*sin(p.x*2.3 - p.y*1.7); }`
 // The reflection: the scene drawn from a camera mirrored under the water (half resolution, the grass field left out, clipped at the surface),
@@ -64,9 +69,9 @@ const POND_GLSL = `
 // horizontal ripples. Drawn only while the pond is in view.
 const reflRT = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter })
 const reflCam = new THREE.PerspectiveCamera(), reflM = { value: new THREE.Matrix4() }
-const POND_BOX = POND.r*POND.sx*1.6
+let POND_BOX = POND.r*POND.sx*1.6
 const pondMat = new THREE.ShaderMaterial({
-  uniforms: { uIce: { value: 0 }, uProj: { value: camera.projectionMatrix }, tRefl: { value: reflRT.texture }, uReflM: reflM, uRocks: U.uRocks, uRockN: U.uRockN, uTop: sky.material.uniforms.uTop, uHorizon: sky.material.uniforms.uHorizon, uSunTint: U.uSunTint, uAmbTint: U.uAmbTint, uNightGrade: U.uNightGrade, uTime: U.uTime, uDay: U.uDay, uWindDir: U.uWindDir },
+  uniforms: { uPondA: U.uPondA, uPondB: U.uPondB, uIce: { value: 0 }, uProj: { value: camera.projectionMatrix }, tRefl: { value: reflRT.texture }, uReflM: reflM, uRocks: U.uRocks, uRockN: U.uRockN, uTop: sky.material.uniforms.uTop, uHorizon: sky.material.uniforms.uHorizon, uSunTint: U.uSunTint, uAmbTint: U.uAmbTint, uNightGrade: U.uNightGrade, uTime: U.uTime, uDay: U.uDay, uWindDir: U.uWindDir },
   vertexShader: 'uniform mat4 uReflM; varying vec3 vW; varying vec4 vR; void main(){ vec4 w = modelMatrix*vec4(position, 1.); vW = w.xyz; vR = uReflM*w; gl_Position = projectionMatrix*viewMatrix*w; }',
   fragmentShader: `uniform vec3 uTop, uHorizon, uSunTint, uAmbTint; uniform float uNightGrade, uTime, uDay; uniform vec2 uWindDir; uniform mat4 uProj; uniform float uIce; uniform sampler2D tRefl; uniform vec3 uRocks[32]; uniform int uRockN; varying vec3 vW; varying vec4 vR;
     ${GLSL_NIGHT}
@@ -278,7 +283,7 @@ const GROUND_SHADE = `{ vec2 fp = gXZ.x > 1e5 ? vWPos.xz : gXZ;               //
   gAO = rB.z; gTint *= mix(vec3(1.), vec3(.94, .98, 1.04), gAO);
   // the pond's bank: bare earth in a ragged strip round the water, darker and wet in the last hand's breadth
 #ifndef GRASS_ROOT
-  if (distance(fp, vec2(${POND.x.toFixed(3)}, ${POND.z.toFixed(3)})) < ${(POND.r*POND.sx*1.6).toFixed(2)}){ float pd = pondDist(fp), sw = pondShore(fp) - fld(fp*1.7)*.03 - fld(fp*5.3)*.02;   // a ragged edge, at two scales, only ever inside the line the grass keeps behind
+  if (distance(fp, uPondA.xy) < uPondA.z*uPondA.w*1.6){ float pd = pondDist(fp), sw = pondShore(fp) - fld(fp*1.7)*.03 - fld(fp*5.3)*.02;   // a ragged edge, at two scales, only ever inside the line the grass keeps behind
     gShore = 1. - smoothstep(sw - .008, sw + .002, pd); gShoreU = sw - pd;
     gWet = 1. - smoothstep(-.01, .06, pd + (fld(fp*2.3) - .5)*.02); }
 #endif
@@ -731,7 +736,15 @@ function buildForest(){
   size = `forest of ${forest.state.instances.length} · ${mix.length} species · ${forest.state.protos.length} prototypes` + (heldClumps.length > 256*64 ? ` · too many clumps for the light table (${heldClumps.length}), use fewer prototypes` : '')
   statsEl.textContent = `${size} · built in ${(performance.now() - t0).toFixed(0)} ms`
 }
+// a new seed, a new pond: the water moved and reshaped, and the ground (its basin, its bank, its finer rings) grown again round it
+function applyPond(){
+  pondUniforms(); POND_BOX = POND.r*POND.sx*1.6
+  pond.geometry.dispose(); pond.geometry = new THREE.CircleGeometry(POND_BOX, 96).rotateX(-Math.PI/2); pond.position.set(POND.x, pondLevel, POND.z)
+  pondSphere.center.set(POND.x, pondLevel, POND.z); pondSphere.radius = POND.r*POND.sx*1.45
+  ground.geometry.dispose(); ground.geometry = toGeometry(generateGround(620))
+}
 function rebuild(){
+  if (setPond(p.seed)) applyPond()
   if (p.forest > 0) return buildForest()
   if (forest.state.protos.length){ forest.clear(); for (const m of [foliage, caster, wood, ivy, bushLeaf, bushCaster, bushWood]) m.visible = true; applyFoliage?.() }
   U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5*woodHid.keep : 0
