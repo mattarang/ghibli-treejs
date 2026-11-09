@@ -3,7 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import GUI from 'lil-gui'
 import Stats from 'stats.js'
 import { SPECIES, CROWNS, BRUSHES } from './presets.js'
-import { speciesKeys, formKeys, seasonPal, seasonPair, groundKeys, hillKeys, HILL_TURN, autumnShare, leafKeep, isEvergreen, snowCover, SNOW_GROUND, mixPal, seasonSky, SUMMER_SKY, SEASON_NAMES } from './seasons.js'
+import { speciesKeys, formKeys, seasonPal, seasonPair, groundKeys, hillKeys, HILL_TURN, autumnShare, leafKeep, isEvergreen, snowCover, SNOW_GROUND, mixPal, seasonSky, SUMMER_SKY, leafFallRate, iceCover, SEASON_NAMES } from './seasons.js'
+import { makeLeafFall } from './leaves.js'
 import { mulberry32, POND, pondDist, pondLevel, generatePlant, generateGround, generateGrassCell, generateGrassCollars, generateFlowerCell, rocksOfCell, groundHeight, layoutScene, newBuffer, GESTURE_NAMES } from './generator.js'
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { makeBrushAtlas, makeFieldTexture, makeGrassAtlas, makeFlowerAtlas } from './atlas.js'
@@ -120,9 +121,13 @@ const pondMat = new THREE.ShaderMaterial({
       float glint = smoothstep(.86, .9, vn(g + vec2(0., vn(q*.3)*3.)))*smoothstep(.5, .65, vn(q*.18 + 7.))*smoothstep(.55, .75, l)*smoothstep(.3, .8, graze)*smoothstep(5., 14., dist);
       c = mix(c, gNightGrade(mix(vec3(1.), uSunTint, .3)*.9), glint*.6*uDay);
       // ice (winter): a pale blue sheet that keeps a faint reflection, with a few long cracks; no rings, no glints
-      if (uIce > 0.){ float cr = smoothstep(.97, .995, vn(vec2(dot(vW.xz, vec2(.8, .6))*.9, dot(vW.xz, vec2(-.6, .8))*3.)))*.5;
+      // it freezes from the shore inward: the ice reaches a front (uIce: 0 none, 1 the whole pond), its edge ragged as ice grows, with a pale
+      // rim of new ice along it
+      if (uIce > 0.){ float front = uIce*1.06, inward = -d - .0125 + (vn(vW.xz*1.6 + 3.) - .5)*.07 + (vn(vW.xz*6.) - .5)*.025;
+        float iceM = 1. - smoothstep(front - .006, front + .006, inward), rim = (1. - smoothstep(0., .018, abs(inward - front)))*step(front, 1.)*.7;
+        float cr = smoothstep(.97, .995, vn(vec2(dot(vW.xz, vec2(.8, .6))*.9, dot(vW.xz, vec2(-.6, .8))*3.)))*.5;
         vec3 ice = gNightGrade(mix(vec3(.6, .74, .86), vec3(.82, .9, .96), smoothstep(.3, .9, graze))*mix(uAmbTint, uSunTint, .6));
-        c = mix(c, ice*(1. - cr*.3) + refl*.12, uIce*.85); ring *= 1. - uIce; glint *= 1. - uIce; }
+        c = mix(c, ice*(1. - cr*.3) + refl*.12, iceM*.85); c = mix(c, gNightGrade(vec3(.9, .95, 1.)*mix(uAmbTint, uSunTint, .6)), rim*(1. - iceM*.5)); ring *= 1. - iceM; glint *= 1. - iceM; }
       vec3 pale = gNightGrade(vec3(.7, .82, .8)*mix(uAmbTint, uSunTint, .6));
       c = mix(c, pale, ring*.35*smoothstep(40., 15., dist));
       c = mix(c, pale, collar*.45*smoothstep(30., 10., dist));
@@ -133,6 +138,9 @@ const pondMat = new THREE.ShaderMaterial({
     }` })
 const pond = new THREE.Mesh(new THREE.CircleGeometry(POND.r*POND.sx*1.6, 96).rotateX(-Math.PI/2), pondMat)
 pond.position.set(POND.x, pondLevel, POND.z); pond.renderOrder = 1; scene.add(pond)
+// falling leaves (src/leaves.js): they land on the ground, or float on the pond
+const leafFall = makeLeafFall((x, z) => pondDist(x, z) < -.0125 ? { y: pondLevel, water: true } : { y: groundHeight(x, z), water: false })
+scene.add(leafFall.mesh)
 const mountains = makeMountains(scene.fog.color); scene.add(mountains)   // painted hills and mountains round the horizon
 const L = { sun, hemi, sky, clouds, mountains, scene, reach: 80 }
 
@@ -143,7 +151,7 @@ const p = {
   species: firstSpecies, seed: +(qs.get('seed') || 7), ...structuredClone(SPECIES[firstSpecies]),
   showFoliage: qs.get('foliage') !== '0', grove: +(qs.get('grove') || 1), groveRadius: 18, bushes: 8, farBushes: 30, farRocks: 1, grass: 21, flowers: 16, rocks: 2,
   mountains: true, mountainHeight: 1, seasonOn: qs.has('season'), season: +(qs.get('season') || .25),
-  time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 18, cloudSeed: 4, haze: .1, autoTime: false,
+  time: +(qs.get('time') || 10.5), sunAzimuth: 35, sunHeight: 1.05, sunIntensity: 1, sunTint: '#ffffff', ambient: 1, shadowSoft: 5, clouds: 18, cloudSeed: +(qs.get('cloudSeed') || 1 + Math.floor(Math.random()*99)),   /* a new sky each time the scene opens (?cloudSeed=N for a particular one) */ haze: .1, autoTime: false,
   lantern: 0, lanternColor: '#ffb35a', lanternX: 3, lanternY: 2.2, lanternZ: 4,
   windOn: true, wind: 1, autoRotate: false, exposure: 1, forest: +(qs.get('forest') || 0), forestKinds: 4, lodScale: 1,
   forestMix: qs.get('mix') ? qs.get('mix').split(',').filter(n => SPECIES[n]) : [],    // species planted in the forest besides the current one
@@ -740,12 +748,14 @@ function rebuild(){
   mainWood = generatePlant.debug?.branches ?? null                       // the branch records of the tree just grown, for the branch debug view
   // bushes are a species of their own: their own meshes and materials (palette, brushes, season), lit from the same clump tables as the trees
   useBushMats()
+  const treeClumps = leafB.held?.length ?? 0                            // the trees' clumps come first; the bushes' after (they don't drop leaves)
   const bush = { ...SPECIES['Round bush'] }, bushWoodB = newBuffer(), bushLeafB = newBuffer()
   for (const q of bushes) clumps += placeBush(bush, q, bushWoodB, bushLeafB, leafB.held ??= [])
   for (const [m, g] of [[bushLeaf, bushLeafB], [bushCaster, platesOf(bushLeafB)], [bushWood, bushWoodB]]){ m.geometry.dispose(); m.geometry = g.pos.length ? toGeometry(g) : new THREE.BufferGeometry() }
   ivy.geometry.dispose(); ivy.geometry = ivyB.pos.length ? toGeometry(ivyB) : new THREE.BufferGeometry()
   foliage.geometry.dispose(); foliage.geometry = toGeometry(leafB)
   heldClumps = leafB.held || []; shaders.clear(); fillLobes(heldClumps)
+  leafFall.state.sources = heldClumps.slice(0, treeClumps).map(c => [c.c[0], c.c[1], c.c[2], c.r])
   caster.geometry.dispose(); caster.geometry = toGeometry(platesOf(leafB))
   renderer.shadowMap.needsUpdate = true
   wood.geometry.dispose(); wood.geometry = toGeometry(woodB)
@@ -941,13 +951,24 @@ function applySeason(){
   const snow = p.seasonOn ? snowCover(p.season) : 0; U.uSnow.value = snow
   const g = p.seasonOn ? mixPal(seasonPal(groundKeys(MEADOW), p.season), SNOW_GROUND, snow) : p.ground
   setPalette(pals.ground, g); groundMat.color.set(g[2]); grassMat.color.set(g[2])
-  flowerMat.visible = snow < .3; pondMat.uniforms.uIce.value = Math.min(1, Math.max(0, (snow - .4)/.4))
-  mountains.setPalette(p.seasonOn ? seasonPal(hillKeys(mountains.basePalette), p.season) : mountains.basePalette, HILL_TURN, p.seasonOn ? autumnShare(p.season)*.55 : 0)
-  if (p.forest > 0) forest.rebake()
+  flowerMat.visible = snow < .3; pondMat.uniforms.uIce.value = p.seasonOn ? iceCover(p.season) : 0   // the ice front follows the dial: frozen at midwinter
+  // leaves falling from a deciduous tree through autumn, in this moment's leaf colours with some withered ones among them
+  const falling = p.seasonOn && !isEvergreen(p.species) && p.showFoliage !== false && !(p.forest > 0) ? leafFallRate(p.season) : 0
+  leafFall.state.rate = falling*80
+  if (falling){ const P = seasonPal(speciesKeys(p.species, { ...p, name: p.species }), p.season); leafFall.state.colors = [P[1], P[2], P[2], P[3], '#8a5a34', '#a8743e'].map(h => new THREE.Color(h)) }
   renderer.shadowMap.needsUpdate = true
-  // the sky: sun height and sky colour at once; the clouds are regrown a moment after the slider stops (a rebuild takes a few frames)
-  if (seasonReady){ relight(); clearTimeout(reCloudT); reCloudT = setTimeout(reCloud, 120) }
+  // (perf) the costly parts - the hills' cards baked again, the forest's impostors, the relight (sun height and sky) - at most ~12 times a second
+  // while the season is dragged, and once more when it stops; the clouds are regrown only after it has rested (a rebuild takes a few frames)
+  const heavy = () => { seasonHeavyAt = performance.now()
+    if (!view.seasonDrag) mountains.setPalette(p.seasonOn ? seasonPal(hillKeys(mountains.basePalette), p.season) : mountains.basePalette, HILL_TURN, p.seasonOn ? autumnShare(p.season)*.55 : 0)
+    if (p.forest > 0 && !view.seasonDrag) forest.rebake()
+    if (seasonReady && !view.seasonDrag) relight() }   // (a relight re-bakes the clouds' and hills' cards: once the wheel is let go)
+  clearTimeout(seasonHeavyT)
+  const every = view.seasonPlay ? 1000 : 80                               // playing the year: the sky and hills step about once a second
+  if (!seasonReady || performance.now() - seasonHeavyAt > every) heavy(); else seasonHeavyT = setTimeout(heavy, every + 10)
+  if (seasonReady){ clearTimeout(reCloudT); reCloudT = setTimeout(reCloud, 350) }
 }
+let seasonHeavyAt = 0, seasonHeavyT = 0
 function frame(){
   if (p.forest > 0){ const R = forest.state.radius || 50; camera.position.set(R*.9, R*.35 + 15, R*.9); controls.target.set(0, 8, 0); controls.update(); return }
   const h = p.height*p.size, d = (p.grove > 1 ? h*3.2 + p.groveRadius*Math.max(1, p.size) : Math.max(h*3.1, h*(p.crownWidth || .5)*4.6))*Math.min(Math.max(1, .9/camera.aspect), 1.5)   // a narrow view stands further back
@@ -1131,7 +1152,15 @@ lightF.addColor(p, 'sunTint').name('Sun tint').onChange(relight)
 lightF.add(p, 'ambient', 0, 2, .01).name('Ambient').onChange(relight)
 lightF.add(p, 'shadowSoft', 0, 16, .1).name('Shadow softness').onChange(relight)
 const cloudShape = () => p.seasonOn ? seasonSky(p.season) : SUMMER_SKY
-const reCloud = () => { const sh = cloudShape(); clouds.build(Math.max(1, Math.round(p.clouds*sh.count)), p.cloudSeed, sh); clouds.setCool(sh.cool) }
+// the first sky is the cloud seed's, composed for the opening view; every sky grown after it (a season's change of shape, a new count) is a
+// fresh one - new shapes in new places - so the same clouds don't come back each time
+let cloudKey = '', cloudSkies = 0, cloudSeedWas = null
+const reCloud = () => { const sh = cloudShape(), n = Math.max(1, Math.round(p.clouds*sh.count)), key = [n, p.cloudSeed, sh.tall.toFixed(2), sh.spread.toFixed(2)].join()
+  clouds.setCool(sh.cool)
+  if (key === cloudKey) return                                           // the same clouds: only their colour moved
+  cloudKey = key; const fresh = cloudSkies++ > 0 && p.cloudSeed === cloudSeedWas   // a new Cloud seed is grown exactly, as the panel promises
+  cloudSeedWas = p.cloudSeed
+  clouds.build(n, fresh ? p.cloudSeed*1000 + Math.floor(Math.random()*999) : p.cloudSeed, { ...sh, fresh }) }
 lightF.add(p, 'clouds', 0, 30, 1).name('Clouds').onChange(reCloud)
 lightF.add(p, 'cloudSeed', 1, 99, 1).name('Cloud seed').onChange(reCloud)
 lightF.add(p, 'haze', 0, .95, .01).name('Haze').onChange(relight)
@@ -1328,13 +1357,14 @@ renderer.setAnimationLoop(now => {
   fps.st.begin(); ms.st.begin()
   const dt = Math.min((now - last)/1000, .1); last = now
   U.uTime.value += dt; sky.tick(U.uTime.value)
+  leafFall.state.wind.copy(U.uWindDir.value); leafFall.state.windSpeed = .8*U.uWind.value; leafFall.update(dt, U.uTime.value)
   if (p.autoTime){ p.time = (p.time + dt*.4)%24; relight() }
   if (walk.on) walk.step(dt); else controls.update()
   pxAngle.value = 2*Math.tan(camera.fov*Math.PI/360)/Math.max(renderer.domElement.clientHeight, 1)   // the angle one pixel spans
   sky.position.copy(camera.position); sky.scale.setScalar(1000); clouds.position.copy(camera.position); mountains.update(camera)
   { // the sky drifts with the wind: the cloud dome turns so that clouds ahead of the camera slide the way the wind blows across the view
     const f = camera.getWorldDirection(new THREE.Vector3()), side = U.uWindDir.value.x*-f.z + U.uWindDir.value.y*f.x
-    clouds.rotation.y += -side*dt*.006*U.uWind.value }
+    clouds.rotation.y += -side*dt*.006*U.uWind.value; clouds.drift(dt, U.uWind.value) }
   field.update(camera)
   if (++frameNo%3 === 0 && U.uWind.value > 0) renderer.shadowMap.needsUpdate = true     // shadows only need redrawing while things move
   holdFrameRate()

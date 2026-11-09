@@ -66,7 +66,7 @@ export function leafKeep(s){ const t = ((s % 1) + 1) % 1
   if (t < .92) return 0
   return .15*(t - .92)/.08 }
 // how much snow lies: none until late autumn, thickest at midwinter, gone by early spring
-export function snowCover(s){ const t = ((s % 1) + 1) % 1, d = Math.min(Math.abs(t - .75), Math.abs(t - 1.75), Math.abs(t + .25)); return Math.min(1, Math.max(0, (.17 - d)/.08)) }
+export function snowCover(s){ const t = ((s % 1) + 1) % 1, d = Math.min(Math.abs(t - .75), Math.abs(t - 1.75), Math.abs(t + .25)); return Math.min(1, Math.max(0, (.13 - d)/.06)) }   // first snow in late autumn, once the leaves are down
 export const SEASON_NAMES = { 'Early spring': .02, Spring: 0.08, Summer: .25, 'Early autumn': .45, Autumn: .55, 'Late autumn': .64, Winter: .75 }
 
 // the sky through the year. Summer's tall cumulus grow from ground the sun has heated; in the cold the air hardly rises, so clouds lie low,
@@ -78,3 +78,14 @@ export function seasonSky(s){
   return { sun: 1 - .32*w, tall: 1 - .62*w, spread: 1 + .6*w, count: 1 - .3*a, cool: w, pale: .35*w, deep: .12*a }
 }
 export const SUMMER_SKY = { sun: 1, tall: 1, spread: 1, count: 1, cool: 0, pale: 0, deep: 0 }
+
+// how fast a deciduous tree is letting its leaves go: through autumn, most at its height (0..1)
+export function leafFallRate(s){ const t = ((s % 1) + 1) % 1; return Math.max(0, 1 - Math.abs(t - .6)/.13) }
+
+// how much of the pond is frozen (0 open water, 1 iced over), straight from the time of year: the ice closes in from the shore between early
+// winter and midwinter, holds through the deep of winter, and melts back to the shore as winter ends
+export function iceCover(s){ const t = ((s % 1) + 1) % 1
+  if (t >= .66 && t < .75) return (t - .66)/.09
+  if (t >= .75 && t < .81) return 1
+  if (t >= .81 && t < .88) return 1 - (t - .81)/.07
+  return 0 }

@@ -1,7 +1,7 @@
 // The demo page: the scene full screen, with its settings as small things at its edges rather than a menu over it:
 //   a tree chip (which kind, the next or last kind, a new tree of the kind, its shape), a sun compass (drag the sun round its 24-hour ring),
-//   a season wheel (drag round the four quarters; tap the middle for the species' own colours), and round buttons to walk, go full screen
-//   or open every setting. Walking has a touch pad: tank controls. Every control goes through the full panel's own controller, so a change
+//   a season wheel (drag round the four quarters; tap the middle to play the year), and round buttons to walk, go full screen
+//   or recentre on the tree. Walking has a touch pad: tank controls. Every control goes through the full panel's own controller, so a change
 //   here does exactly what the same change does there.
 window.__DEMO = true
 await import('./main.js')
@@ -65,7 +65,7 @@ $('leaves').addEventListener('change', e => set('showFoliage', e.target.checked)
 $('reset').addEventListener('click', () => ctl('species')._onChange?.(p.species))     // the species' own change: its shape back (setValue skips an unchanged value)
 
 // ---- a dial: drag round it (pointer angle from its centre, clockwise from the top) ----
-function dial(el, onAngle, onTap){
+function dial(el, onAngle, onTap, onEnd){
   let drag = null
   const angle = e => { const r = el.getBoundingClientRect(), dx = e.clientX - (r.left + r.width/2), dy = e.clientY - (r.top + r.height/2)
     return { a: ((Math.atan2(dx, -dy)/TAU) + 1)%1, d: Math.hypot(dx, dy)/(r.width/2) } }
@@ -74,10 +74,16 @@ function dial(el, onAngle, onTap){
   el.addEventListener('pointermove', e => { if (!drag || e.pointerId !== drag.id) return
     if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) drag.moved = true
     if (!drag.hub || drag.moved) onAngle(angle(e).a) })
-  const end = () => { if (drag?.hub && !drag.moved) onTap?.(); drag = null }
-  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', () => { drag = null })
+  const end = () => { if (drag?.hub && !drag.moved) onTap?.(); drag = null; requestAnimationFrame(() => onEnd?.()) }
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end)
 }
 const onRing = (a, r) => [Math.sin(a*TAU)*r, -Math.cos(a*TAU)*r]
+// a dial drags smoothly: its mark follows the pointer at once (live), and the scene takes the newest value once per frame, however many
+// pointer events arrive in between
+const live = {}, pending = new Map(); let commitRaf = 0
+const commit = (prop, v) => { live[prop] = v; pending.set(prop, v)
+  commitRaf ||= requestAnimationFrame(() => { commitRaf = 0; for (const [k, x] of pending) set(k, x); pending.clear() }) }
+const shown = prop => live[prop] ?? p[prop]
 
 // ---- the sun compass: noon at the top, midnight at the bottom; the little sky inside follows the hour and the hill the season ----
 const sunMark = $('sunMark'), sunDot = sunMark.firstElementChild, sky = $('sky'), hill = document.querySelector('#sundial .hill'), sundial = $('sundial')
@@ -91,10 +97,10 @@ const skyAt = h => { for (let i = 0; i < SKY.length - 1; i++) if (h <= SKY[i + 1
 let mirror = false
 function facing(){ const az = p.sunAzimuth*Math.PI/180, c = G.camera.matrixWorld.elements
   mirror = -Math.sin(az)*c[0] + Math.cos(az)*c[2] < 0 }                  // the sun's travel (increasing azimuth) against the camera's right
-dial(sundial, a => { const u = mirror ? (1 - a) % 1 : a; set('time', Math.round(((u*24 + 12) % 24)*20)/20) })
+dial(sundial, a => { const u = mirror ? (1 - a) % 1 : a; commit('time', (u*24 + 12) % 24) }, null, () => { delete live.time })
 sundial.addEventListener('keydown', e => { const d = { ArrowRight: .25, ArrowUp: .25, ArrowLeft: -.25, ArrowDown: -.25 }[e.key]; if (d){ set('time', ((p.time + d) % 24 + 24) % 24); e.preventDefault() } })
 function drawSun(){
-  facing(); const h = ((p.time % 24) + 24) % 24, [x, y] = onRing((mirror ? 12 - h : h - 12)/24, 40)
+  facing(); const h = ((shown('time') % 24) + 24) % 24, [x, y] = onRing((mirror ? 12 - h : h - 12)/24, 40)
   sunMark.setAttribute('transform', `translate(${x} ${y})`); sunDot.classList.toggle('moon', h < 5.6 || h > 19.4)
   sky.setAttribute('fill', skyAt(h)); $('timeOut').textContent = fmtTime(h); sundial.setAttribute('aria-valuenow', h.toFixed(2)); sundial.setAttribute('aria-valuetext', fmtTime(h))
 }
@@ -109,18 +115,34 @@ QUARTERS.forEach(([name, col, glyph], i) => {
   const [gx, gy] = onRing(toAngle(i*.25), 37), t = svgEl('text', { x: gx, y: gy + 3.2, 'text-anchor': 'middle', 'font-size': 9, fill: i === 3 ? '#5a6f8f' : '#fff', 'pointer-events': 'none' }); t.textContent = glyph
   quarters.append(t)
 })
-const seasonName = s => { const t = ((s % 1) + 1) % 1; return t < .04 || t > .96 ? 'Early spring' : t < .16 ? 'Spring' : t < .36 ? 'Summer' : t < .47 ? 'Early autumn' : t < .6 ? 'Autumn' : t < .68 ? 'Late autumn' : t < .88 ? 'Winter' : 'Late winter' }
-dial(wheel, a => { if (!p.seasonOn) set('seasonOn', true); set('season', Math.round(fromAngle(a)*200)/200) }, () => set('seasonOn', !p.seasonOn))
-wheel.addEventListener('keydown', e => { const d = { ArrowRight: .02, ArrowUp: .02, ArrowLeft: -.02, ArrowDown: -.02 }[e.key]
-  if (d){ if (!p.seasonOn) set('seasonOn', true); set('season', ((p.season + d) % 1 + 1) % 1); e.preventDefault() } else if (e.key === 'Enter' || e.key === ' ') set('seasonOn', !p.seasonOn) })
+// the time of year, continuously: the season (nearest quarter) and the part of the month, spring at mid-April (northern-hemisphere months)
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const seasonOf = s => ['Spring', 'Summer', 'Autumn', 'Winter'][Math.round((((s % 1) + 1) % 1)*4) % 4]
+const monthOf = s => { const m = ((((s % 1) + 1) % 1)*12 + 3.5) % 12, i = Math.floor(m), f = m - i; return `${f < .34 ? 'Early' : f < .67 ? 'Mid' : 'Late'} ${MONTHS[i]}` }
+if (!p.seasonOn) set('seasonOn', true)                                     // the demo always follows the year
+// playing the year: tap the middle and the season runs on by itself (a year in YEAR seconds) until tapped again or the ring is grabbed
+const YEAR = 48
+let playing = false, playLast = 0
+function play(on){
+  playing = on; G.view.seasonPlay = on; wheel.classList.toggle('playing', on)
+  $('playGlyph').textContent = on ? '❚❚' : '▶'; wheel.setAttribute('aria-label', on ? 'Season (playing; press Space to pause)' : 'Season (press Space to play)')
+  if (on){ playLast = performance.now(); requestAnimationFrame(advance) } else ctl('season')._onChange?.(p.season)   // pausing brings the sky and hills up to date
+}
+function advance(now){ if (!playing) return
+  const dt = Math.min(.1, (now - playLast)/1000); playLast = now
+  set('season', (p.season + dt/YEAR) % 1); requestAnimationFrame(advance) }
+// while the wheel is dragged the far hills keep their colour (re-baking their cards is the costly part); they catch up when it is let go
+dial(wheel, a => { if (playing) play(false); G.view.seasonDrag = true; commit('season', fromAngle(a)) }, () => play(!playing), () => { delete live.season; if (G.view.seasonDrag){ G.view.seasonDrag = false; ctl('season')._onChange?.(p.season) } })
+wheel.addEventListener('keydown', e => { const d = { ArrowRight: .01, ArrowUp: .01, ArrowLeft: -.01, ArrowDown: -.01 }[e.key]
+  if (d){ if (playing) play(false); set('season', ((p.season + d) % 1 + 1) % 1); e.preventDefault() }
+  else if (e.key === ' ' || e.key === 'Enter'){ play(!playing); e.preventDefault() } })
 function drawSeason(){
-  const [x, y] = onRing(toAngle(p.season), 37)
-  seasonMark.setAttribute('transform', `translate(${x} ${y})`); wheel.classList.toggle('off', !p.seasonOn)
-  const label = p.seasonOn ? seasonName(p.season) : 'As painted'; $('seasonOut').textContent = label.length > 11 ? label.split(' ')[1] : label
-  wheel.setAttribute('aria-valuenow', p.season.toFixed(3)); wheel.setAttribute('aria-valuetext', label)
+  const s = ((shown('season') % 1) + 1) % 1, [x, y] = onRing(toAngle(s), 37)
+  seasonMark.setAttribute('transform', `translate(${x} ${y})`)
+  $('seasonOut').textContent = seasonOf(s); $('monthOut').textContent = monthOf(s)
+  wheel.setAttribute('aria-valuenow', s.toFixed(3)); wheel.setAttribute('aria-valuetext', `${seasonOf(s)}, ${monthOf(s)}`)
   // the compass's little hill wears the season too
-  const s = ((p.season % 1) + 1) % 1
-  hill.style.fill = !p.seasonOn ? '#4f8f45' : s > .64 && s < .9 ? '#e9eef6' : s > .4 && s <= .64 ? '#c8a04a' : s < .12 || s > .9 ? '#7cbf55' : '#4f8f45'
+  hill.style.fill = s > .64 && s < .9 ? '#e9eef6' : s > .4 && s <= .64 ? '#c8a04a' : s < .12 || s > .9 ? '#7cbf55' : '#4f8f45'
 }
 
 // ---- keep everything in step with the scene (the full panel can change it too) ----
@@ -130,22 +152,23 @@ function sync(){
     if (unit === 'metres'){ const c = ctl(prop); el.min = (c._min*p.height).toFixed(2); el.max = (c._max*p.height).toFixed(2) }
     if (el !== busy && p[prop] !== undefined) el.value = toShown(unit, prop); out.textContent = fmt(+el.value) }
   $('leaves').checked = p.showFoliage !== false
-  drawSun(); drawSeason()
 }
 sync(); setInterval(sync, 250)
+const dials = () => { drawSun(); drawSeason(); requestAnimationFrame(dials) }; dials()
 
 // ---- corner buttons ----
-const full = $('full'), adv = $('adv')
+const full = $('full')
 if (!document.fullscreenEnabled) full.hidden = true
 full.addEventListener('click', () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {}))
 document.addEventListener('fullscreenchange', () => full.setAttribute('aria-pressed', !!document.fullscreenElement))
-adv.addEventListener('click', () => { const on = adv.getAttribute('aria-pressed') !== 'true'; on ? G.gui.show() : G.gui.hide(); adv.setAttribute('aria-pressed', on) })
+// recentre: back to the framing view of the tree (and out of walking, if walking)
+$('recenter').addEventListener('click', () => { if (G.walk.on){ G.walk.stop(); showWalk(false) } G.frame() })
 
 // ---- walking: the pad (tank controls: push up to walk, down to back off, sideways to turn; push all the way to run) ----
 const walkbar = $('walkbar'), pad = $('pad'), knob = pad.querySelector('.knob'), touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window
 function showWalk(on){
   document.body.classList.toggle('walking', on); walkbar.hidden = !on; pad.hidden = !on || !touch; $('walk').setAttribute('aria-pressed', on)
-  if (on){ shape.hidden = true; if (adv.getAttribute('aria-pressed') === 'true') adv.click() }
+  if (on) shape.hidden = true
 }
 $('walk').addEventListener('click', () => { G.walk.toggle(); showWalk(G.walk.on) })
 $('stopWalk').addEventListener('click', () => { G.walk.stop(); showWalk(false) })

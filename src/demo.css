@@ -74,9 +74,12 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .sun { fill: #ffd86a; stroke: #fff6cf; stroke-width: 1.5; transition: fill .3s; }
 .sun.moon { fill: #e8eefc; stroke: #ffffff; }
 .dial-text { fill: #fff; font: 600 9.5px ui-sans-serif, system-ui, sans-serif; text-anchor: middle; paint-order: stroke; stroke: rgba(0, 0, 0, .35); stroke-width: 2.4px; font-variant-numeric: tabular-nums; }
-.dial-text.small { font-size: 8.5px; }
+.dial-text.small { font-size: 9px; }
+.dial-text.tiny { font-size: 6.5px; font-weight: 500; opacity: .85; }
 .quarter { stroke: rgba(0, 0, 0, .25); stroke-width: .6; transition: opacity .3s; }
 .hub { fill: var(--glass-strong); stroke: var(--line); cursor: pointer; }
+.dial-text.play { font-size: 7px; letter-spacing: -.5px; }
+#seasonWheel.playing .hub { stroke: var(--accent); stroke-width: 1.4; }
 .mark { fill: #fff; stroke: rgba(0, 0, 0, .35); stroke-width: 1.2; }
 #seasonWheel.off .quarter { opacity: .35; }
 #seasonWheel.off .mark { opacity: .55; }
@@ -99,9 +102,6 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
   background: rgba(0, 0, 0, .45); color: #fff; font-size: 12px; pointer-events: none; transition: opacity .6s; white-space: nowrap; }
 #tip.gone { opacity: 0; }
 
-/* the full panel, when asked for: right side, under the corner buttons, scrolling inside itself */
-.lil-gui.root { max-height: calc(100dvh - 140px); overflow: auto; top: calc(66px + var(--safe-t)) !important; right: calc(12px + var(--safe-r)) !important; z-index: 32; }
-
 @media (max-width: 640px) {
   :root { --dial: 92px; --gap: 10px; }
   .chip-name { min-width: 0; max-width: 34vw; font-size: 13px; padding: 0 4px; }
@@ -111,7 +111,6 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
   .pop { left: calc(var(--gap) + var(--safe-l)); right: calc(var(--gap) + var(--safe-r)); width: auto; }
   #walkTip { display: none; }
   #tip { bottom: auto; top: calc(62px + var(--safe-t)); }
-  .lil-gui.root { left: 8px !important; right: 8px !important; width: auto !important; max-height: 55dvh; }
 }
 @media (max-width: 400px) { #prev, #next { display: none; } }
 @media (pointer: coarse) { #walkTip { display: none; } }

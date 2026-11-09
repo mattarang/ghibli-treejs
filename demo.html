@@ -34,8 +34,8 @@
     <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="13" cy="4.5" r="2" fill="currentColor"/><path d="M10 21l2-6 3 3v4M9 12l2-4h3l2 4 2 1M11 8l-2 5-3 1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   <button id="full" class="round" type="button" aria-label="Fullscreen" title="Fullscreen">
     <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
-  <button id="adv" class="round" type="button" aria-label="All settings" title="All settings">
-    <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+  <button id="recenter" class="round" type="button" aria-label="Recentre on the tree" title="Recentre on the tree">
+    <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
 </div>
 
 <!-- the sun compass: a small sky; the sun (or the moon) rides a 24-hour ring, noon at the top. Drag it round to change the hour -->
@@ -53,14 +53,16 @@
   </svg>
 </div>
 
-<!-- the season wheel: four quarters round the year, spring at the left, summer at the top. Drag round it; tap the middle for the species'
-     own colours -->
+<!-- the season wheel: four quarters round the year, spring at the left, summer at the top. Drag round it: the year moves smoothly.
+     Tap the middle to play the year through (and again to pause) -->
 <div id="seasonWheel" class="dial hud" role="slider" aria-label="Season" tabindex="0" aria-valuemin="0" aria-valuemax="1">
   <svg viewBox="-50 -50 100 100">
     <g id="quarters"></g>
     <circle r="27" class="hub"/>
     <g id="seasonMark"><circle r="6.5" class="mark"/></g>
-    <text id="seasonOut" y="3.5" class="dial-text small"></text>
+    <text id="playGlyph" y="-10" class="dial-text tiny play">&#x25B6;</text>
+    <text id="seasonOut" y="2" class="dial-text small"></text>
+    <text id="monthOut" y="11" class="dial-text tiny"></text>
   </svg>
 </div>
 

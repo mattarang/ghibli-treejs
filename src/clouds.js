@@ -48,14 +48,17 @@ export function makeClouds(){
         c = mix(c*12.92, 1.055*pow(c, vec3(1./2.4)) - .055, step(.0031308, c));   // to display colour, as the strokes were when they blended on screen
         gl_FragColor = vec4(c*t.a, t.a)*uFade; }` })
   function buildCards(cards){
-    for (const c of cardList){ group.remove(c.quad); c.quad.geometry.dispose(); c.quad.material.dispose(); c.rt.dispose() }
+    for (const c of cardList){ group.remove(c.pivot); c.quad.geometry.dispose(); c.quad.material.dispose(); c.rt.dispose() }
     cardList = cards.map(cd => {
       const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false })
       const quad = new THREE.Mesh(new THREE.PlaneGeometry(2*cd.tx*DIST, 2*cd.ty*DIST), cardMat(rt.texture))
       const basis = new THREE.Matrix4().makeBasis(cd.right, cd.up, cd.out.clone().negate())
       quad.quaternion.setFromRotationMatrix(basis); quad.position.copy(cd.out).multiplyScalar(DIST)
-      quad.frustumCulled = false; quad.renderOrder = 11 + cd.order; group.add(quad)
-      return { ...cd, rt, quad }
+      quad.frustumCulled = false; quad.renderOrder = 11 + cd.order
+      // each cloud on its own pivot about the vertical: it drifts round the sky at its own pace (a card seen from the centre looks the same
+      // wherever it turns to, so the bake still holds)
+      const pivot = new THREE.Object3D(); pivot.add(quad); group.add(pivot)
+      return { ...cd, rt, quad, pivot, drift: (Math.random() - .5)*2 }
     })
     dirty = true
   }
@@ -81,9 +84,11 @@ export function makeClouds(){
     dirty = false
   }
   group.markDirty = () => { dirty = true }
+  // per cloud, on top of the whole sky's drift with the wind: up to +-0.0025 rad/s (about +-2.5 m/s at the clouds' distance) with the wind's strength
+  group.drift = (dt, wind) => { for (const c of cardList) c.pivot.rotation.y += c.drift*.0025*wind*dt }
 
   group.build = (count, seed, shape = { tall: 1, spread: 1 }) => {
-    const r = mulberry32(seed*7919 + 3), b = newBuffer(), cards = []
+    const r = mulberry32(seed*7919 + 3), b = newBuffer(), cards = [], spin = shape.fresh ? Math.random()*Math.PI*2 : 0   // (fresh) a new sky: the whole arrangement turned at random too
     for (let c = 0; c < count; c++){
       // the first two sit where the opening camera looks; low, because cumulus stands on the horizon rather than overhead
       // a Ghibli sky holds many cumulus of mixed sizes scattered up the sky, not one wall on the horizon: a few sit low where the opening camera looks,
@@ -91,7 +96,7 @@ export function makeClouds(){
       // a ring of cloud around the viewer: a few huge cumulus standing on the horizon all round (two of them where the opening camera looks),
       // middle-sized ones between, and small ones higher up. Every third cloud is big, so wherever the camera turns there is a tower of cloud.
       const tier = c < 2 || c%3 === 0 ? 0 : c%3 === 1 ? 1 : 2, hero = tier === 0
-      const az = c < 2 ? Math.PI*1.25 + (c ? .62 : -.62)*.5 + (r() - .5)*.2 : (c/Math.max(count, 1))*Math.PI*2 + 2.1 + (r() - .5)*.6
+      const az = (c < 2 ? Math.PI*1.25 + (c ? .62 : -.62)*.5 + (r() - .5)*.2 : (c/Math.max(count, 1))*Math.PI*2 + 2.1 + (r() - .5)*.6) + spin
       const high = tier === 2 ? .4 + r()*.6 : r()*.3
       const el = (hero ? -.6 + r()*.5 : tier === 1 ? .2 + r()*2 : 1.2 + high*high*16)*Math.PI/180   // big bases sink just below the horizon: the cloud stands on the land
       const size = hero ? (c < 2 ? 18 + r()*7 : 22 + r()*12) : tier === 1 ? 12 + r()*8 : (3.5 + r()*6)*(1 - .45*high), world = 12   // the two in the opening view a little smaller, so they frame rather than fill it
