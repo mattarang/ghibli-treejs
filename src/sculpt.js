@@ -3,48 +3,28 @@
 // all along the drawn wood. Here it is shown over the scene - the wood as tubes with a handle at every node, the canopy as a soft shell with
 // handles for its size at each height and its bulge round about - and edited with a mouse or a finger:
 //   wood:    tap a + to grow a limb out from there (or, at a tip, to lengthen it); drag a dot to move it; tap a dot or the wood to pick it
-//   canopy:  drag a ring's handle to widen or narrow the canopy at that height, a bulge handle to push it out or pull it in that way,
-//            the top and bottom handles to raise or lower them
+//   canopy:  its outline is set flat in the panel (canopy-curve.js); here, the middle handle moves the whole canopy up or down, the top and bottom
+//            handles stretch it, and a bulge handle pushes it out or pulls it in that way
 // Anywhere else the camera turns as usual. Every edit regrows the tree: a light preview while dragging, the full tree on release.
 import * as THREE from 'three'
 import { canopyRadius, canopyLobe } from './generator.js'
+import { profileRings } from './canopy-curve.js'
 
 const RINGS = 7, LOBES = 8
 const clone = d => JSON.parse(JSON.stringify(d))
 
-// A first drawing, from the tree as it stands: its canopy traced round its leaf clumps, a trunk up into it and a limb into each quarter
-export function designFromTree(info, p){
-  const [rx, ry, rz] = info.root, cs = info.clumps.length ? info.clumps : [{ c: [rx, ry + p.height*p.size*.6, rz], r: p.height*p.size*.3, squash: 1 }]
-  const lo = Math.min(...cs.map(c => c.c[1] - c.r*(c.squash ?? 1))) - ry, hi = Math.max(...cs.map(c => c.c[1] + c.r*(c.squash ?? 1))) - ry
-  const y0 = Math.max(lo, .6), y1 = Math.max(hi, y0 + 2)
-  // the canopy's radius at each height: the farthest clump edge there, a little generous so the growth has room to reach it
-  const rings = Array.from({ length: RINGS }, (_, k) => { const y = ry + y0 + (y1 - y0)*k/(RINGS - 1), band = (y1 - y0)/(RINGS - 1)*1.2
-    let m = 0; for (const c of cs){ const dy = Math.abs(c.c[1] - y); if (dy < band + c.r) m = Math.max(m, Math.hypot(c.c[0] - rx, c.c[2] - rz) + c.r*Math.sqrt(Math.max(0, 1 - (dy/(band + c.r))**2))) }
-    return m*1.08 })
-  rings[0] = Math.min(rings[0], rings[1]*.35); rings[RINGS - 1] = Math.min(rings[RINGS - 1], rings[RINGS - 2]*.3)
-  for (let k = 1; k < RINGS - 1; k++) rings[k] = Math.max(rings[k], (y1 - y0)*.08)
-  // its bulge each way: how far the clumps reach in each eighth, against all round
-  const reach = Array(LOBES).fill(0); for (const c of cs){ const a = Math.atan2(c.c[2] - rz, c.c[0] - rx), k = Math.round(((a/(Math.PI*2))%1 + 1)%1*LOBES)%LOBES; reach[k] = Math.max(reach[k], Math.hypot(c.c[0] - rx, c.c[2] - rz) + c.r) }
-  const mean = reach.reduce((t, v) => t + v, 0)/LOBES || 1, lobes = reach.map(v => Math.min(1.25, Math.max(.8, v ? v/mean : 1)))
-  // the trunk up to a third of the way into the canopy, and four main limbs out from it, rising into the crown
-  const top = y0 + (y1 - y0)*.32, strokes = [{ pts: [[0, 0, 0], [0, top*.5, 0], [0, top, 0]] }]
-  const spin = (p.seed % 97)/97*Math.PI*2
-  for (let k = 0; k < 4; k++){ const a = spin + k*Math.PI/2 + (k % 2 ? .25 : -.15), base = lerp(y0*.92, top*.95, k/3), up = (y1 - y0)*lerp(.38, .22, k/3)
-    const out = canopyRadius({ rings }, (base + up - y0)/(y1 - y0))*lobeAt(lobes, a)*.62
-    strokes.push({ from: { s: 0, i: 1 }, pts: [[0, base, 0], [Math.cos(a)*out*.45, base + up*.55, Math.sin(a)*out*.45], [Math.cos(a)*out, base + up, Math.sin(a)*out]] }) }
-  return { strokes, canopy: { y0, y1, cx: 0, cz: 0, rings, lobes } }
-}
 // A new drawing: a short trunk up into a canopy sized for the kind of tree - something to tap + on and drag about from the start
-export function blankDesign(p){
+export function blankDesign(p, canopy){
   const H = p.height*p.size, y0 = H*.32, rings = [.06, .36, .44, .43, .36, .24, .05].map(k => k*H*Math.max(.6, Math.min(1.4, (p.crownWidth ?? .6)/.6)))
-  const top = y0 + (H - y0)*.12
-  return { strokes: [{ pts: [[0, 0, 0], [0, top*.5, 0], [0, top, 0]] }], canopy: { y0, y1: H, cx: 0, cz: 0, rings, lobes: [1, 1, 1, 1, 1, 1, 1, 1] } }
+  const cv = canopy ? clone(canopy) : { y0, y1: H, cx: 0, cz: 0, rings, lobes: [1, 1, 1, 1, 1, 1, 1, 1] }, top = cv.y0 + (cv.y1 - cv.y0)*.12   // (a canopy already shaped is kept, and the trunk goes up into it)
+  return { strokes: [{ pts: [[0, 0, 0], [0, top*.5, 0], [0, top, 0]] }], canopy: cv }
 }
 const lerp = (a, b, t) => a + (b - a)*t
-const lobeAt = (lobes, th) => canopyLobe({ lobes }, th)
 
 export function makeSculpt(G, { onEdit, onPreview, onSelect, guessRadius }){
-  const { scene, camera, renderer, controls } = G, canvas = renderer.domElement
+  const { scene, camera, renderer, controls, flat } = G, canvas = renderer.domElement, view = () => flat.on ? flat.cam : camera
+  // how much a screen pixel spans at a handle: flat, a length in the scene; in perspective, an angle (three.js multiplies it by the distance)
+  const pixel = () => (flat.on ? 2*flat.half() : 2*Math.tan(camera.fov*Math.PI/360))/(canvas.clientHeight || innerHeight)
   const group = new THREE.Group(); group.name = 'sculpt'; group.visible = false; group.renderOrder = 50; scene.add(group)
   let design = null, tool = 'wood', root = [0, 0, 0], selected = -1, selNode = -1, on = false
   const W = p => new THREE.Vector3(root[0] + p[0], root[1] + p[1], root[2] + p[2])
@@ -63,17 +43,18 @@ export function makeSculpt(G, { onEdit, onPreview, onSelect, guessRadius }){
   function disc(style){ if (TEX[style]) return TEX[style]
     const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'), [fill, rim, f] = {
       node: ['#ffffff', '#23271f', .42], picked: ['#ffffff', '#e0893c', .52], limb: ['#e0893c', '#ffffff', .4],
-      paper: ['#f1f2ec', '#23271f', .42], green: ['#3d6b38', '#f1f2ec', .42], plus: ['#f1f2ec', '#3d6b38', .62], halo: ['rgba(224,137,60,.3)', 'rgba(224,137,60,.9)', .9] }[style]
+      paper: ['#f1f2ec', '#23271f', .42], green: ['#3d6b38', '#f1f2ec', .42], plus: ['#f1f2ec', '#3d6b38', .62], move: ['#f1f2ec', '#3d6b38', .62], halo: ['rgba(224,137,60,.3)', 'rgba(224,137,60,.9)', .9] }[style]
     x.fillStyle = fill; x.strokeStyle = rim; x.lineWidth = 128*f*.16; x.beginPath(); x.arc(64, 64, 64*f - x.lineWidth/2, 0, Math.PI*2); x.fill(); x.stroke()
     if (style === 'plus'){ x.lineCap = 'round'; x.lineWidth = 128*f*.14; const a = 64*f*.5; x.beginPath(); x.moveTo(64, 64 - a); x.lineTo(64, 64 + a); x.moveTo(64 - a, 64); x.lineTo(64 + a, 64); x.stroke() }
+    if (style === 'move'){ x.fillStyle = rim; const a = 64*f*.46, g = 64*f*.14; for (const k of [-1, 1]){ x.beginPath(); x.moveTo(64, 64 + k*(a + g)); x.lineTo(64 - a*.8, 64 + k*g); x.lineTo(64 + a*.8, 64 + k*g); x.closePath(); x.fill() } }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return TEX[style] = t }
-  const PX = { node: COARSE ? 20 : 13, picked: COARSE ? 26 : 18, limb: COARSE ? 18 : 12, paper: COARSE ? 22 : 15, green: COARSE ? 22 : 15, plus: COARSE ? 34 : 24, halo: COARSE ? 46 : 32 }
-  const FRAC = { node: .42, picked: .52, limb: .4, paper: .42, green: .42, plus: .62, halo: .9 }
+  const PX = { node: COARSE ? 20 : 13, picked: COARSE ? 26 : 18, limb: COARSE ? 18 : 12, paper: COARSE ? 22 : 15, green: COARSE ? 22 : 15, plus: COARSE ? 34 : 24, move: COARSE ? 34 : 24, halo: COARSE ? 46 : 32 }
+  const FRAC = { node: .42, picked: .52, limb: .4, paper: .42, green: .42, plus: .62, move: .62, halo: .9 }
   // a disc at a point: 'style' picks its look, px its visible size; the sprite itself is the target, never smaller than a fingertip
   function handle(at, kind, data, style){
-    const vis = PX[style], s = Math.max(vis/FRAC[style], COARSE ? 44 : 26), k = 2*Math.tan(camera.fov*Math.PI/360)/(canvas.clientHeight || innerHeight)
+    const vis = PX[style], s = Math.max(vis/FRAC[style], COARSE ? 44 : 26)
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: s > vis/FRAC[style] + .5 ? discPadded(style, vis/s) : disc(style), depthTest: false, depthWrite: false, sizeAttenuation: false, toneMapped: false }))
-    sp.scale.setScalar(s*k); sp.position.copy(at); sp.renderOrder = style === 'halo' ? 58 : style === 'plus' ? 63 : 61; if (kind) sp.userData = { kind, ...data }
+    sp.px = s; sp.scale.setScalar(s*pixel()); sp.position.copy(at); sp.renderOrder = style === 'halo' ? 58 : style === 'plus' ? 63 : 61; if (kind) sp.userData = { kind, ...data }
     handles.add(sp); return sp }
   // the same disc drawn smaller inside its canvas, so the sprite (the target) can be bigger than the dot
   function discPadded(style, frac){ const key = style + frac.toFixed(3); if (TEX[key]) return TEX[key]
@@ -123,27 +104,23 @@ export function makeSculpt(G, { onEdit, onPreview, onSelect, guessRadius }){
       for (let j = 0; j <= cols; j++){ const th = j/cols*Math.PI*2, rr = rad*canopyLobe(cv, th); ring.push(new THREE.Vector3(cx + Math.cos(th)*rr, y, cz + Math.sin(th)*rr)) }
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ring), M.ringLine); line.renderOrder = 52; shell.add(line) }
     if (tool === 'canopy'){
-      // a ring's handle stands on the side of the canopy facing the camera's right, so dragging it sideways widens or narrows that ring
-      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0); right.y = 0; right.normalize(); const th = Math.atan2(right.z, right.x)
-      for (let k = 1; k < RINGS - 1; k++){ const t = k/(RINGS - 1), rr = canopyRadius(cv, t)*canopyLobe(cv, th)
-        handle(new THREE.Vector3(cx + Math.cos(th)*rr, lerp(y0, y1, t), cz + Math.sin(th)*rr), 'ring', { k, th }, 'paper') }
       // the bulges, round the canopy's widest height
       let best = .5, bw = 0; for (let k = 1; k < 20; k++){ const t = k/20, w = canopyRadius(cv, t); if (w > bw){ bw = w; best = t } }
       for (let l = 0; l < LOBES; l++){ const a = l/LOBES*Math.PI*2, rr = bw*canopyLobe(cv, a)
         handle(new THREE.Vector3(cx + Math.cos(a)*rr, lerp(y0, y1, best), cz + Math.sin(a)*rr), 'lobe', { l, a, t: best }, 'green') }
-      handle(new THREE.Vector3(cx, y1, cz), 'top', {}, 'paper'); handle(new THREE.Vector3(cx, y0, cz), 'bottom', {}, 'paper')
+      handle(new THREE.Vector3(cx, y1, cz), 'top', {}, 'paper'); handle(new THREE.Vector3(cx, y0, cz), 'bottom', {}, 'paper'); handle(new THREE.Vector3(cx, (y0 + y1)/2, cz), 'centre', {}, 'move')
     }
     void s
   }
 
   // ---- the pointer: a tap on a + adds, a dot drags to move or taps to pick, wood taps to pick its limb; anywhere else the camera has it ----
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(), hit3 = new THREE.Vector3()
-  const pointAt = e => { const r = canvas.getBoundingClientRect(); ndc.set((e.clientX - r.left)/r.width*2 - 1, -(e.clientY - r.top)/r.height*2 + 1); ray.setFromCamera(ndc, camera) }
-  const onPlane = (through, e) => { pointAt(e); const n = new THREE.Vector3(); camera.getWorldDirection(n); plane.setFromNormalAndCoplanarPoint(n, through); return ray.ray.intersectPlane(plane, hit3) ? hit3.clone() : null }
+  const pointAt = e => { const r = canvas.getBoundingClientRect(); ndc.set((e.clientX - r.left)/r.width*2 - 1, -(e.clientY - r.top)/r.height*2 + 1); ray.setFromCamera(ndc, view()) }
+  const onPlane = (through, e) => { pointAt(e); const n = new THREE.Vector3(); view().getWorldDirection(n); plane.setFromNormalAndCoplanarPoint(n, through); return ray.ray.intersectPlane(plane, hit3) ? hit3.clone() : null }
   // of the targets under the pointer, the one whose centre is nearest it on screen (targets overlap where the wood is short)
   function handleAt(e){ pointAt(e); const hits = ray.intersectObjects(handles.children.filter(o => o.userData.kind), false); if (!hits.length) return null
     const v = new THREE.Vector3(); let best = null, bd = Infinity
-    for (const h of hits){ v.copy(h.object.position).project(camera); const d = Math.hypot(v.x - ndc.x, (v.y - ndc.y)*camera.aspect**-1); if (d < bd){ bd = d; best = h.object } }
+    for (const h of hits){ v.copy(h.object.position).project(view()); const d = Math.hypot(v.x - ndc.x, (v.y - ndc.y)*camera.aspect**-1); if (d < bd){ bd = d; best = h.object } }
     return best }
   let drag = null, blank = null
   function down(e){
@@ -167,20 +144,23 @@ export function makeSculpt(G, { onEdit, onPreview, onSelect, guessRadius }){
     if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true
     // only dots and the canopy's handles drag; a + or the wood is a tap, whatever the finger does
     if (!drag.moved || drag.kind === 'branch' || drag.kind === 'tip' || drag.kind === 'wood') return
+    if (drag.kind === 'node' && !drag.picked){ drag.picked = true; selected = drag.s; selNode = drag.i; onSelect?.(selected, selNode) }   // dragging a dot picks it, as tapping does
     const q = onPlane(drag.at, e); if (!q) return
     const cv = design.canopy, cx = root[0] + (cv.cx ?? 0), cz = root[2] + (cv.cz ?? 0)
     if (drag.kind === 'node'){ const st = design.strokes[drag.s], was = st.pts[drag.i], now = rel(q)
       st.pts[drag.i] = now
       // limbs grown from this node come with it
       design.strokes.forEach(o => { if (o.from && o.from.s === drag.s && o.from.i === drag.i) o.pts[0] = [o.pts[0][0] + now[0] - was[0], o.pts[0][1] + now[1] - was[1], o.pts[0][2] + now[2] - was[2]] }) }
-    else if (drag.kind === 'ring'){ const t = drag.k/(RINGS - 1), lobe = canopyLobe(cv, drag.th), want = Math.hypot(q.x - cx, q.z - cz)/lobe
-      // the ring's radius set so the canopy reaches the pointer there: through the curve the rings make, by how much this ring shapes that height
-      cv.rings[drag.k] = Math.max(.2, cv.rings[drag.k] + (want - canopyRadius(cv, t))) }
     else if (drag.kind === 'lobe'){ const rad = canopyRadius(cv, drag.t), d = (q.x - cx)*Math.cos(drag.a) + (q.z - cz)*Math.sin(drag.a); cv.lobes[drag.l] = Math.min(1.8, Math.max(.35, d/Math.max(rad, .1))) }
     else if (drag.kind === 'top') cv.y1 = Math.max(cv.y0 + 1, q.y - root[1])
     else if (drag.kind === 'bottom') cv.y0 = Math.min(Math.max(.3, q.y - root[1]), cv.y1 - 1)
+    else if (drag.kind === 'centre'){ const span = cv.y1 - cv.y0; cv.y0 = Math.max(.3, q.y - root[1] - span/2); cv.y1 = cv.y0 + span }   // the whole canopy, its height kept
     draw(); onPreview?.(design)
   }
+  // these limbs go, with every limb growing from them; what is left is renumbered
+  function dropStrokes(gone){ let grew = true; while (grew){ grew = false; design.strokes.forEach((o, n) => { if (!gone.has(n) && o.from && gone.has(o.from.s)){ gone.add(n); grew = true } }) }
+    const keep = design.strokes.map((_, n) => n).filter(n => !gone.has(n)), map = new Map(keep.map((n, k) => [n, k]))
+    design.strokes = keep.map(n => { const o = design.strokes[n]; return o.from ? { ...o, from: { s: map.get(o.from.s), i: o.from.i } } : o }); return map }
   function insertNode(si, k, at){ const st = design.strokes[si]
     st.pts.splice(k, 0, at); if (st.r) st.r.splice(k, 0, st.r[k - 1] != null && st.r[k] != null ? (st.r[k - 1] + st.r[k])/2 : null)
     design.strokes.forEach(o => { if (o.from && o.from.s === si && o.from.i >= k) o.from.i++ }); selNode = k }
@@ -234,13 +214,12 @@ export function makeSculpt(G, { onEdit, onPreview, onSelect, guessRadius }){
   addEventListener('pointerdown', down, { capture: true })
   addEventListener('pointermove', move, { capture: true })
   addEventListener('pointerup', up, { capture: true }); addEventListener('pointercancel', up, { capture: true })
-  // the ring handles follow the camera round, so they always face the way a sideways drag goes
-  let lastAz = null
-  controls.addEventListener('change', () => { if (!on || tool !== 'canopy' || drag) return; const az = Math.round(Math.atan2(camera.position.x - root[0], camera.position.z - root[2])*20); if (az !== lastAz){ lastAz = az; draw() } })
+  // (flat, handles don't keep their size by themselves as the view zooms)
+  controls.addEventListener('change', () => { if (flat.on) for (const o of handles.children) o.scale.setScalar(o.px*pixel()) })
 
   // ---- a reference picture, standing behind the tree: as tall as the canopy (times size), raised or lowered, turned to the camera when asked
   const refGroup = new THREE.Group(); refGroup.name = 'reference'; scene.add(refGroup)
-  let ref = null
+  let ref = null, flatWas = null
   function placeRef(){ if (!ref) return
     const cv = design?.canopy ?? { y1: 10, rings: [5] }, h = cv.y1*1.05*ref.o.size, w = h*ref.aspect, back = Math.max(...cv.rings)*1.15 + 1
     ref.mesh.scale.set(w, h, 1); ref.mesh.rotation.set(0, ref.o.yaw, 0)
@@ -267,13 +246,23 @@ export function makeSculpt(G, { onEdit, onPreview, onSelect, guessRadius }){
     radius(si, i){ return design?.strokes[si]?.r?.[i] ?? null },
     setRadius(si, i, r){ const st = design.strokes[si]; st.r ??= st.pts.map(() => null); st.r[i] = r; draw() },
     // a node out of a limb: its neighbours join up, and limbs drawn from it move to the node before it (a limb keeps two nodes at least)
-    removeNode(si, i){ const st = design?.strokes[si]; if (!st || i < 1 || st.pts.length <= 2) return null; const before = clone(design)
-      st.pts.splice(i, 1); st.r?.splice(i, 1)
-      design.strokes.forEach(o => { if (o.from && o.from.s === si && o.from.i >= i) o.from.i = Math.max(o.from.i - 1, 0) })
-      selNode = Math.min(i, st.pts.length - 1); draw(); return before },
+    // a node and all the wood beyond it: the rest of its limb, and every limb growing from that (the trunk keeps its first length; a limb cut at its first node is the whole limb: remove())
+    removeNode(si, i){ const st = design?.strokes[si]; if (!st || i < 2 || i >= st.pts.length) return null; const before = clone(design)
+      st.pts.length = i; if (st.r) st.r.length = i
+      selected = dropStrokes(new Set(design.strokes.flatMap((o, n) => o.from?.s === si && o.from.i >= i ? [n] : []))).get(si); selNode = i - 1; draw(); return before },
     set(d){ design = d ? clone(d) : null; if (selected >= (design?.strokes.length ?? 0)){ selected = -1; selNode = -1 } draw(); placeRef() },
     show(v, r){ on = v; group.visible = v && tool !== 'look'; if (!v) canvas.style.cursor = ''; if (r) root = r; refGroup.visible = v; placeRef(); if (!v){ selected = -1; selNode = -1; drag = null; controls.enabled = true } draw() },
     // ('look': the leaves or bark are being set - nothing over the tree, so it can be seen)
+    showCanopy(v){ shell.visible = v },
+    // the flat view: straight on to the picture (or level, from where the camera is), dragging moves the view rather than turning it; left, and the camera goes back
+    setFlat(v){ if (flat.on === v) return; flat.on = v; (v ? flat.scene : scene).add(group, refGroup)
+      if (v){ flatWas = { pos: camera.position.clone(), target: controls.target.clone(), left: controls.mouseButtons.LEFT, one: controls.touches.ONE, polar: controls.maxPolarAngle }
+        const d = Math.max(design?.canopy.y1 ?? 10, ref ? ref.mesh.scale.y : 0)*1.25/2/Math.tan(camera.fov*Math.PI/360), yaw = ref ? ref.o.yaw : Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z), y = root[1] + (design?.canopy.y1 ?? 10)/2
+        controls.maxPolarAngle = Math.PI/2; controls.mouseButtons.LEFT = THREE.MOUSE.PAN; controls.touches.ONE = THREE.TOUCH.PAN
+        controls.target.set(root[0], y, root[2]); camera.position.set(root[0] + Math.sin(yaw)*d, y, root[2] + Math.cos(yaw)*d) }
+      else { controls.mouseButtons.LEFT = flatWas.left; controls.touches.ONE = flatWas.one; controls.maxPolarAngle = flatWas.polar; camera.position.copy(flatWas.pos); controls.target.copy(flatWas.target) }
+      controls.update(); if (v) flat.sync(); draw() },
+    setProfile(P){ design.canopy.profile = P; design.canopy.rings = profileRings(P); draw() },
     setTool(t){ tool = t; group.visible = on && t !== 'look'; draw() },
     // a limb (and all grown from it) turned a sixth of the way round the wood it grows from
     spin(si){ const st = design?.strokes[si]; if (!st?.from) return null; const before = clone(design), par = design.strokes[st.from.s], i = st.from.i
@@ -283,10 +272,7 @@ export function makeSculpt(G, { onEdit, onPreview, onSelect, guessRadius }){
       draw(); return before },
     select(s, i = -1){ selected = s; selNode = i; draw() },
     // a limb and everything drawn from it
-    remove(s){ if (s < 1 || !design) return null; const before = clone(design), gone = new Set([s])
-      let grew = true; while (grew){ grew = false; design.strokes.forEach((o, n) => { if (!gone.has(n) && o.from && gone.has(o.from.s)){ gone.add(n); grew = true } }) }
-      const keep = design.strokes.map((_, n) => n).filter(n => !gone.has(n)), map = new Map(keep.map((n, k) => [n, k]))
-      design.strokes = keep.map(n => { const o = design.strokes[n]; return o.from ? { ...o, from: { s: map.get(o.from.s), i: o.from.i } } : o })
+    remove(s){ if (s < 1 || !design) return null; const before = clone(design); dropStrokes(new Set([s]))
       selected = -1; selNode = -1; draw(); return before },
   }
 }

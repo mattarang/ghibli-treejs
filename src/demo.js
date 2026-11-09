@@ -5,8 +5,9 @@
 //   here does exactly what the same change does there.
 window.__DEMO = true
 await import('./main.js')
-const { makeSculpt, designFromTree, blankDesign } = await import('./sculpt.js')
+const { makeSculpt, blankDesign } = await import('./sculpt.js')
 const { speciesKeys, isEvergreen, mixPal } = await import('./seasons.js')
+const { makeCurve } = await import('./canopy-curve.js')
 const G = window.__foliage, p = G.p, $ = id => document.getElementById(id)
 const ctl = prop => G.gui.controllersRecursive().find(c => c.property === prop)
 const set = (prop, v) => ctl(prop)?.setValue(v)
@@ -51,7 +52,7 @@ function pushHistory(s){ history.push(s); if (history.length > 40) history.shift
 function remember(){ pushHistory(snap()) }
 function setSpecies(name){ if (p.species !== name) set('species', name); defaults = snap().v }
 function restore(s){
-  if (s.species !== p.species) setSpecies(s.species)
+  if (s.species !== p.species){ setSpecies(s.species); lookShown = '' }   // (another kind brings its own look: the tree's goes back on, in afterRestore)
   if (s.seed !== p.seed) set('seed', s.seed)
   for (const k of PROPS) if (p[k] !== s.v[k]) set(k, s.v[k])
   // the drawing as it was (and whether the tree was drawn at all)
@@ -143,8 +144,8 @@ for (const [el, prop, out, fmt, , unit, label] of sliders){
 $('leaves').addEventListener('change', e => set('showFoliage', e.target.checked))
 $('reset').addEventListener('click', () => { remember(); ctl('species')._onChange?.(p.species); defaults = snap().v; sync() })   // the species' own change: its whole shape back
 
-// ---- your own trees (src/sculpt.js): + adds one, drawn from the tree in view - its trunk and main limbs drawn by hand, the canopy they grow
-// into shaped, its leaves and bark taken from a kind of tree, a reference picture behind it to draw over. They are listed in the tree sheet
+// ---- your own trees (src/sculpt.js): + adds one - its branches placed by hand, the canopy they grow into shaped, its leaves and bark its
+// own, a reference picture behind it to work over. They are listed in the tree sheet
 // and kept in this browser; choosing a kind of tree leaves them ----
 const TREES = 'ghibli-foliage-trees-v1', REF = id => 'ghibli-foliage-ref-' + id
 try { mine = JSON.parse(localStorage.getItem(TREES) ?? '[]') } catch {}
@@ -157,11 +158,11 @@ const myList = $('myList')
 renderMine = () => { myList.replaceChildren(...mine.map(t => { const b = document.createElement('button'); Object.assign(b, { type: 'button', className: 'species', textContent: t.name || 'My tree' })
   b.setAttribute('aria-current', t.id === active); b.addEventListener('click', () => { if (t.id !== active){ remember(); useTree(t.id) } openSheet(false); nameBtn.focus() }); return b }))
   myList.hidden = !mine.length; myList.previousElementSibling.hidden = !mine.length }
-const HINTS = { wood: 'Tap a + to grow a branch from there; the + at a tip makes it longer. Drag any dot to shape it. Tap a branch to pick it and add to it, tap a dot to set its thickness.',
-  canopy: 'Drag the side handles to widen or narrow the canopy at that height, the green ones to bulge it out or pull it in, the top and bottom ones to raise or lower it.',
+const HINTS = { wood: 'Tap a + to grow a branch; the + at a tip makes it longer. Drag a dot to shape it, or tap one to set its thickness. Picking a branch shows just your own branches: tap the sky to bring the rest back.',
+  canopy: 'Drag the points to shape the outline that spins into the canopy; tap the line to add one. On the tree, the middle handle moves the whole canopy up or down, the top and bottom ones stretch it, the green ones bulge one side.',
   leaves: 'Your tree\'s own leaves: pick a colour and the shades follow.',
   bark: 'Your tree\'s own bark and what grows on it.',
-  ref: 'Choose a picture (or drop one onto the page) to stand behind the tree and draw over. Turn the camera to the view you want, then press Face the camera.' }
+  ref: 'Choose a picture (or drop one onto the page) to stand behind the tree: only your branches show over it, so drag their dots to match. Turn the camera to the view you want and press Face the camera, or use Orthographic view to line up without perspective, dragging to move the view.' }
 const orderOf = (d, si) => { let n = 0; for (let s = si; s > 0 && d.strokes[s]?.from; s = d.strokes[s].from.s) n++; return n }
 const lerpN = (a, b, t) => a + (b - a)*t
 const guessRadius = (si, i, d) => { const R = p.trunkRadius*p.size, st = d.strokes[si], along = i/Math.max(st.pts.length - 1, 1)
@@ -169,33 +170,49 @@ const guessRadius = (si, i, d) => { const R = p.trunkRadius*p.size, st = d.strok
 // a node's thickness on the slider: metres of radius on a log scale, 1.5 cm to 3 m
 const R_LO = .015, R_HI = 3, toSlider = r => Math.log(r/R_LO)/Math.log(R_HI/R_LO), fromSlider = v => R_LO*(R_HI/R_LO)**v
 // what is picked, said in words, with what can be done to it
-function showSel(){ const si = sculpt.selected, i = sculpt.selNode, d = sculpt.design, on = !!p.design && tool === 'wood' && si >= 0 && !!d?.strokes[si]; $('selBox').hidden = !on; if (!on) return
+function showSel(){ applyView(); if (tool === 'canopy') curve.refresh(); const si = sculpt.selected, i = sculpt.selNode, d = sculpt.design, on = !!p.design && (tool === 'wood' || tool === 'ref') && si >= 0 && !!d?.strokes[si]; $('selBox').hidden = !on; if (!on) return
   const st = d.strokes[si], nodes = st.pts.length - 1, isNode = i >= 1
-  $('selTitle').textContent = (si === 0 ? 'The trunk' : `Limb ${si}`) + (isNode ? `, node ${i} of ${nodes}` : '')
+  $('selTitle').textContent = (si === 0 ? 'The trunk' : `Branch ${si}`) + (isNode ? `, node ${i} of ${nodes}` : '')
   $('nodeTools').hidden = !isNode
   if (isNode){ const r = sculpt.radius(si, i), el = $('nodeR'); el.value = toSlider(r ?? guessRadius(si, i, d)); fill(el)
     $('nodeAuto').textContent = r == null ? 'Auto' : `${Math.round(r*200)} cm`; $('nodeAuto').disabled = r == null
     $('nodeAuto').title = r == null ? 'The growth decides this thickness' : 'Back to the growth\'s own thickness' }
-  // Delete takes the node - or, from a limb down to its last two nodes (or with no node picked), the whole limb
-  const nodeGoes = isNode && st.pts.length > 2
-  $('delSel').innerHTML = nodeGoes ? 'Delete node <kbd>Del</kbd>' : si > 0 ? 'Delete limb <kbd>Del</kbd>' : 'Delete node <kbd>Del</kbd>'
+  // Delete takes the node and all beyond it - or, from a branch's first node (or with no node picked), the whole branch. The trunk always keeps its first length
+  const nodeGoes = isNode && i >= 2
+  $('delSel').innerHTML = (nodeGoes ? (i === nodes ? 'Delete node' : 'Delete from here') : si > 0 ? 'Delete branch' : 'Delete node') + ' <kbd>Del</kbd>'
+  $('delSel').title = nodeGoes && i < nodes ? 'This node, the rest of the branch above it, and any branches growing from those' : ''
   $('delSel').disabled = !nodeGoes && si === 0; $('delLimb').hidden = !(si > 0 && nodeGoes); $('spinLimb').hidden = !(si > 0) }
 const commitDesign = before => { pushHistory({ ...snap(), design: JSON.stringify(before) }); p.design = JSON.parse(JSON.stringify(sculpt.design)); saveDesign(); G.later(); showMode(); sync() }
 sculpt = makeSculpt(G, { guessRadius,
   onEdit(d, before){ pushHistory({ ...snap(), design: JSON.stringify(before) }); p.design = JSON.parse(JSON.stringify(d)); saveDesign(); G.later(); sync(); showSel() },
-  onPreview(d){ p.design = JSON.parse(JSON.stringify(d)); G.preview() },
+  onPreview(d){ p.design = JSON.parse(JSON.stringify(d)); G.preview(); curve.refresh() },
   onSelect(){ showSel() },
 })
+// the canopy's outline, in the panel: a light preview while a point is dragged, the full tree on release
+let curveBefore = null
+const curve = makeCurve($('canopyCurve'), { read: () => sculpt.design?.canopy,
+  begin(){ curveBefore = JSON.parse(JSON.stringify(sculpt.design)) },
+  change(P){ sculpt.setProfile(P); p.design = JSON.parse(JSON.stringify(sculpt.design)); G.preview() },
+  end(changed){ if (changed && curveBefore) commitDesign(curveBefore); curveBefore = null },
+  onPick(r, removable){ $('curveOut').textContent = r == null ? '' : `Radius ${r.toFixed(1)} m`; $('curveRemove').disabled = !removable } })
+$('curveRemove').addEventListener('click', () => curve.removePicked())
 function deleteSel(){ const si = sculpt.selected, i = sculpt.selNode, st = sculpt.design?.strokes[si]; if (!st) return
-  const before = i >= 1 && st.pts.length > 2 ? sculpt.removeNode(si, i) : si > 0 ? sculpt.remove(si) : null
+  const before = i >= 2 ? sculpt.removeNode(si, i) : si > 0 ? sculpt.remove(si) : null
   if (before) commitDesign(before); showSel() }
-// the Character sliders (trunk bends, lean, crookedness, windswept) shape the growth that fills a drawing: the editor borrows them
-const charGroup = () => groups[groups.length - 1]
+// while a branch is picked in the Growth tab only your own branches show: the canopy (the leaves and their outline) and the auto-filled branches step aside. Each toggle overrules that until the editor closes
+let canopyChoice = null, fillChoice = null, foliageHeld = null, flatWanted = false   // (over a picture only the overlay's wood shows, so the picture can be seen through the tree)
+const canopyShown = () => canopyChoice ?? sculpt.selected < 0, fillShown = () => fillChoice ?? sculpt.selected < 0
+function applyView(){ const open = !editor.hidden, growth = open && tool === 'wood', tracing = open && tool === 'ref' && (sculpt.reference.on || flatWanted), on = !tracing && (!growth || canopyShown()), bare = growth && !fillShown()
+  sculpt.showCanopy(on); G.wood.visible = !tracing; sculpt.setFlat(open && tool === 'ref' && flatWanted); $('refFlat').setAttribute('aria-pressed', flatWanted); $('showCanopy').setAttribute('aria-pressed', canopyShown()); $('autoFill').setAttribute('aria-pressed', fillShown())
+  if (!on && foliageHeld === null){ foliageHeld = p.showFoliage; set('showFoliage', false) } else if (on && foliageHeld !== null){ set('showFoliage', foliageHeld); foliageHeld = null }
+  if (!!p.designBare !== bare){ p.designBare = bare; G.later() } }
+const toggleCanopy = () => { canopyChoice = !canopyShown(); applyView() }, toggleFill = () => { fillChoice = !fillShown(); applyView() }
+$('refFlat').addEventListener('click', () => { flatWanted = !flatWanted; applyView() }); $('showCanopy').addEventListener('click', toggleCanopy); $('autoFill').addEventListener('click', toggleFill)
 function openEditor(on){ if (on && !active) return
   if (!on) releaseSeason()
   editor.hidden = !on; shapeBtn.setAttribute('aria-expanded', on); document.body.classList.toggle('shaping', on)
-  if (on){ openShape(false); openSheet(false); $('editChar').append(charGroup()); charGroup().hidden = false } else if (charGroup().parentElement !== panel){ panel.append(charGroup()); showTab(0) }
-  sculpt.show(on && !!p.design, G.treeInfo().root); showMode() }
+  if (on){ openShape(false); openSheet(false) } else { canopyChoice = fillChoice = null; flatWanted = false }
+  sculpt.show(on && !!p.design, G.treeInfo().root); showMode(); applyView() }
 $('closeEditor').addEventListener('click', () => openEditor(false)); $('doneEditor').addEventListener('click', () => openEditor(false))
 function useTree(id, { open = false } = {}){ const t = mine.find(x => x.id === id); if (!t) return
   active = id; setSpecies(t.species); p.design = JSON.parse(JSON.stringify(t.design)); p.designVary = t.vary ?? { amount: .35, seed: 0 }
@@ -207,9 +224,9 @@ function leaveTree(){ if (!active) return; releaseSeason(); active = null; p.des
 afterRestore = () => { if (!active){ openEditor(false); p.design = null }
   // (undo may have changed the look, or left the tree)
   const look = JSON.stringify(current()?.look ?? null); if (look !== lookShown){ applyTreeLook(current()); G.later() }
-  loadRef(); renderMine() }
+  store(); loadRef(); renderMine() }
 function addTree(){ remember(); let n = mine.length + 1; while (mine.some(t => t.name === `My tree ${n}`)) n++
-  const t = { id: 't' + Date.now().toString(36), name: `My tree ${n}`, species: p.species, look: { ...lookFrom('Camphor tree', LOOK_KEYS), spring: undefined, evergreen: false, autumn: leafShades('#c8742a') }, design: blankDesign(p), vary: { amount: .35, seed: 0 } }   // a fresh start: a short trunk to add to, and a plain green tree's leaves and bark to change
+  const t = { id: 't' + Date.now().toString(36), name: `My tree ${n}`, species: growKinds.includes(p.species) ? p.species : 'Camphor tree', look: { ...lookFrom('Camphor tree', LOOK_KEYS), spring: undefined, evergreen: false, autumn: leafShades('#c8742a') }, design: blankDesign(p), vary: { amount: .35, seed: 0 } }   // a fresh start: a short trunk to add to, and a plain green tree's leaves and bark to change
   mine.push(t); store(); useTree(t.id, { open: true }) }
 $('addTree').addEventListener('click', addTree); $('sheetAdd').addEventListener('click', () => { openSheet(false); addTree() })
 $('treeName').addEventListener('input', e => { const t = current(); if (t){ t.name = e.target.value; store(); renderMine(); $('nameText').textContent = t.name || 'My tree' } })
@@ -219,6 +236,7 @@ $('deleteTree').addEventListener('click', () => { const t = current(); if (!t) r
 const SHAPE_KEYS = ['brushWidth', 'midSize', 'strays', 'core', 'plateSize', 'strokeAngle', 'strokeJitter', 'lobePoint', 'lobeTilt', 'lobeWide', 'lobeDrape', 'lobeFollow', 'lobeAlong', 'lobeRough', 'lobeStretch', 'clumpVar', 'hang', 'dabStretch', 'sheer']
 const LEAF_KEYS = ['palette', 'sss', 'rim', 'fleck', 'coverage', 'clumpRadius', 'cardSize', 'clumpsPerTip', 'squash', 'leaf', 'edge', 'colors', 'colorPick', 'autumn', 'spring', 'evergreen', 'clumpKeep', ...SHAPE_KEYS]
 const BARK_KEYS = ['bark', 'barkScale', 'barkStretch', 'barkFurrow', 'barkPlates', 'barkBands', 'moss', 'ivy']
+const GROWTH_KEYS = ['density', 'trunkRadius', 'childAngle', 'lengthRatio', 'droop', 'gnarl']   // kept in the look only once changed: until then the tree follows the kind it grows like
 const LOOK_KEYS = [...LEAF_KEYS, ...BARK_KEYS], cloneV = v => v == null ? v : JSON.parse(JSON.stringify(v))
 // the settings of a kind of tree, as a look: its year's colours written out, since a look's colours are its own
 function lookFrom(name, keys){ const sp = G.SPECIES[name], y = speciesKeys(name, sp), o = {}
@@ -227,7 +245,7 @@ function lookFrom(name, keys){ const sp = G.SPECIES[name], y = speciesKeys(name,
   return o }
 let lookShown = 'null'
 function applyTreeLook(t){ const base = G.SPECIES[p.species]
-  for (const k of LOOK_KEYS){ if (t?.look && k in t.look) p[k] = cloneV(t.look[k]); else if (k in base) p[k] = cloneV(base[k]); else delete p[k] }
+  for (const k of [...LOOK_KEYS, ...GROWTH_KEYS]){ if (t?.look && k in t.look) p[k] = cloneV(t.look[k]); else if (k in base) p[k] = cloneV(base[k]); else delete p[k] }
   if (t?.look) p.custom = true; else delete p.custom
   lookShown = JSON.stringify(t?.look ?? null); G.applyLook() }
 // the four shades from one colour (the rule in presets.js): shade cooler and darker, highlight warmer and lighter
@@ -279,7 +297,8 @@ const shapeBtns = SHAPES.map(([label, o]) => { const b = document.createElement(
   b.addEventListener('click', () => { remember(); for (const [k, v] of Object.entries(o)) putLook(k, v); store(); G.later(); syncLook() }); return [b, o] })
 const scale = v => `${Math.round(v*100)}%`
 const word = (v, lo, mid, hi, a, b) => v < a ? lo : v > b ? hi : mid
-const LOOK_ROWS = { clumpRows: [['clumpKeep', 'Fullness', .15, 1, .01, scale, true], ['clumpRadius', 'Clump size', .3, 3.5, .01, v => `${(+v).toFixed(1)} m`, true], ['squash', 'Clump height', .3, 2, .01, v => word(+v, 'Flat', 'Round', 'Tall', .6, 1.15), true], ['clumpVar', 'Mixed sizes', 0, .8, .01, v => word(+v, 'Even', 'Some', 'Very', .2, .55), true], ['lobeRough', 'Knobbly', 0, 2, .01, v => word(+v, 'Smooth', 'Some', 'Rough', .5, 1.2), true]],
+const LOOK_ROWS = { growthRows: [['density', 'Branch density', .3, 2.5, .01, scale, true], ['trunkRadius', 'Trunk thickness', .06, 1.4, .01, v => `${Math.round(v*200)} cm`, true], ['childAngle', 'Branch angle', 15, 90, 1, deg, true], ['lengthRatio', 'Branch length', .4, 1.3, .01, scale, true], ['droop', 'Droop', 0, .3, .005, pct(0, .3), true], ['gnarl', 'Crookedness', 0, .5, .005, pct(0, .5), true]],
+  clumpRows: [['clumpKeep', 'Fullness', .15, 1, .01, scale, true], ['clumpRadius', 'Clump size', .3, 3.5, .01, v => `${(+v).toFixed(1)} m`, true], ['squash', 'Clump height', .3, 2, .01, v => word(+v, 'Flat', 'Round', 'Tall', .6, 1.15), true], ['clumpVar', 'Mixed sizes', 0, .8, .01, v => word(+v, 'Even', 'Some', 'Very', .2, .55), true], ['lobeRough', 'Knobbly', 0, 2, .01, v => word(+v, 'Smooth', 'Some', 'Rough', .5, 1.2), true]],
   dabRows: [['cardSize', 'Dab size', .3, 3.5, .01, scale, true], ['dabStretch', 'Stretch', .3, 3, .01, v => word(+v, 'Squashed', 'Natural', 'Drawn out', .75, 1.35), true], ['strokeAngle', 'Direction', 0, 90, 1, v => word(+v, 'Hanging', 'Slanted', 'Level', 25, 65), true], ['strokeJitter', 'Looseness', 0, 90, 1, v => word(+v, 'Neat', 'Loose', 'Wild', 30, 72), true], ['sheer', 'See-through', 0, 1, .01, v => +v < .01 ? 'Solid' : scale(v), true], ['fleck', 'Flecks', 0, 1, .01, scale, false]],
   barkRows: [['barkScale', 'Pattern size', .3, 4, .01, scale, false], ['barkFurrow', 'Fissures', 0, 2, .01, scale, false], ['barkPlates', 'Plates', 0, 1.5, .01, scale, false], ['barkBands', 'Bands', 0, 1, .01, scale, false], ['moss', 'Moss', 0, 1, .01, scale, false], ['ivy', 'Ivy', 0, 1, .01, scale, true]] }
 const lookInputs = []
@@ -294,32 +313,37 @@ for (const [sel, keys, title] of [['copyLeaves', LEAF_KEYS, 'Choose a kind of tr
   el.addEventListener('change', () => { const n = el.value, t = current(); el.value = ''; if (!n || !t) return; remember(); const o = lookFrom(n, keys)
     for (const k of keys) if (k in o) putLook(k, o[k]); else if (k in t.look) putLook(k, undefined)
     store(); applyTreeLook(t); G.later(); syncLook() }) }
+// what the small branches grow like: a kind of tree that grows from buds (only those can fill a canopy); its own settings come with it
+const growKinds = names.filter(n => G.SPECIES[n].rings?.colonise?.selfOrg)
+for (const n of growKinds) $('growsLike').add(new Option(n, n))
+$('growsLike').addEventListener('change', e => { const t = current(), n = e.target.value; if (!t || n === p.species) return; remember(); for (const k of GROWTH_KEYS) delete t.look[k]
+  G.useKind(n); defaults = snap().v; applyTreeLook(t); saveDesign(); G.later(); showMode(); sync() })
 function syncLook(){ if (!active) return
+  $('growsLike').value = p.species
   $('leafColor').value = p.palette[2]; $('barkColor').value = p.bark[2]; $('autumnColor').value = (p.autumn ?? ['', '', '#c8742a'])[2]
   $('evergreen').setAttribute('aria-pressed', !!p.evergreen); $('autumnSwatch').toggleAttribute('data-off', !!p.evergreen)
   bandInputs.leaf.forEach((c, i) => { c.value = p.palette[i] }); bandInputs.bark.forEach((c, i) => { c.value = p.bark[i] })
   for (const [b, o] of shapeBtns) b.setAttribute('aria-pressed', p.leaf === o.leaf && p.edge === o.edge)
-  for (const [input, k, out, fmt] of lookInputs){ input.value = p[k] ?? ({ clumpKeep: 1, dabStretch: 1 }[k] ?? 0); out.textContent = fmt(+input.value); fill(input) } }
+  for (const [input, k, out, fmt] of lookInputs){ input.value = p[k] ?? ({ clumpKeep: 1, dabStretch: 1, density: 1 }[k] ?? 0); out.textContent = fmt(+input.value); fill(input) } }
 showMode = () => { const t = current()
   $('shapeLabel').textContent = active ? 'Edit' : 'Shape'; shapeBtn.setAttribute('aria-controls', active ? 'editor' : 'shape')
   if (!t) return
   if (document.activeElement !== $('treeName')) $('treeName').value = t.name
-  $('drawHint').textContent = HINTS[tool]; for (const [id, k] of [['leavesBox', 'leaves'], ['barkBox', 'bark']]) $(id).hidden = tool !== k; $('shapeBits').hidden = tool !== 'wood'; syncLook()
-  $('grove').setAttribute('aria-pressed', p.grove > 1)
+  $('drawHint').textContent = HINTS[tool]; for (const [id, k] of [['leavesBox', 'leaves'], ['barkBox', 'bark']]) $(id).hidden = tool !== k; $('growthBox').hidden = $('canopyRow').hidden = tool !== 'wood'; $('canopyBox').hidden = tool !== 'canopy'; syncLook()
+  $('grove').setAttribute('aria-pressed', p.grove > 1); $('groveBits').hidden = !(p.grove > 1)
   const v = p.designVary?.amount ?? .35; $('varyAmt').value = v; $('varyOut').textContent = `${Math.round(v*100)}%`; fill($('varyAmt'))
   $('refBox').hidden = tool !== 'ref'; $('refFace').disabled = $('refRemove').disabled = !sculpt.reference.on
   showSel() }
 let tool = 'wood'
-const TOOLS = [['toolWood', 'wood'], ['toolCanopy', 'canopy'], ['toolLeaves', 'leaves'], ['toolBark', 'bark'], ['toolRef', 'ref']]
-function setTool(t){ if (t !== 'leaves') releaseSeason(); tool = t; sculpt.setTool(t === 'ref' ? 'none' : t === 'leaves' || t === 'bark' ? 'look' : t); for (const [id, k] of TOOLS) $(id).setAttribute('aria-checked', k === t); showMode() }
+const TOOLS = [['toolGrowth', 'wood'], ['toolCanopy', 'canopy'], ['toolLeaves', 'leaves'], ['toolBark', 'bark'], ['toolRef', 'ref']]
+function setTool(t){ if (t !== 'leaves') releaseSeason(); tool = t; sculpt.setTool(t === 'leaves' || t === 'bark' ? 'look' : t === 'ref' ? 'wood' : t); for (const [id, k] of TOOLS) $(id).setAttribute('aria-checked', k === t); showMode() }
 for (const [id, k] of TOOLS) $(id).addEventListener('click', () => setTool(k))
 $('delSel').addEventListener('click', deleteSel)
 $('spinLimb').addEventListener('click', () => { const before = sculpt.spin(sculpt.selected); if (before) commitDesign(before); showSel() })
 $('delLimb').addEventListener('click', () => { const before = sculpt.remove(sculpt.selected); if (before) commitDesign(before); showSel() })
-// Clear: back to a base node (the canopy kept); Trace: a drawing of the tree in view - grown from the kind of tree, not from this drawing
+// Clear: back to a bare trunk, the canopy kept
 const replaceDesign = d => { remember(); p.design = d; sculpt.set(d); sculpt.select(-1); saveDesign(); G.later(); showMode(); sync() }
-$('clearDraw').addEventListener('click', () => { const b = blankDesign(p); if (p.design) b.canopy = JSON.parse(JSON.stringify(p.design.canopy)); replaceDesign(b) })
-$('traceTree').addEventListener('click', async () => { const d = p.design; p.design = null; await G.rebuild(); const traced = designFromTree(G.treeInfo(), p); p.design = d; replaceDesign(traced) })
+$('clearDraw').addEventListener('click', () => replaceDesign(blankDesign(p, p.design?.canopy)))
 // the picked node's thickness: a light preview while dragging, the full tree on release; Auto gives it back to the growth
 let nodeBefore = null
 $('nodeR').addEventListener('pointerdown', () => { nodeBefore = JSON.parse(JSON.stringify(sculpt.design)) })
@@ -334,13 +358,12 @@ function nudgeRadius(k){ const si = sculpt.selected, i = sculpt.selNode; if (si 
   keyBefore ??= JSON.parse(JSON.stringify(sculpt.design)); const r = (sculpt.radius(si, i) ?? guessRadius(si, i, sculpt.design))*k
   sculpt.setRadius(si, i, Math.min(Math.max(r, R_LO), R_HI)); p.design = JSON.parse(JSON.stringify(sculpt.design)); G.preview(); showSel()
   clearTimeout(keyT); keyT = setTimeout(() => { commitDesign(keyBefore); keyBefore = null }, 450) }
-// neighbours: the same drawing, a little different each time; the drawing itself is always one tap away
-$('varyAmt').addEventListener('input', e => { p.designVary = { ...(p.designVary ?? { seed: 0 }), amount: +e.target.value }; $('varyOut').textContent = `${Math.round(e.target.value*100)}%`; fill(e.target); if (p.designVary.seed || p.grove > 1) G.preview() })
+// a grove: your tree in the middle, always as you made it, with neighbours round it a little different from it
+$('varyAmt').addEventListener('input', e => { p.designVary = { ...(p.designVary ?? { seed: 0 }), amount: +e.target.value }; $('varyOut').textContent = `${Math.round(e.target.value*100)}%`; fill(e.target); if (p.grove > 1) G.preview() })
 $('varyAmt').addEventListener('change', () => { saveDesign(); G.later() })
-const neighbour = () => { remember(); p.designVary = { amount: Math.max(+$('varyAmt').value, .1), seed: 1 + Math.floor(Math.random()*99999) }; saveDesign(); G.later(); sync() }
+const neighbour = () => { if (!(p.grove > 1)) return; remember(); p.designVary = { amount: Math.max(+$('varyAmt').value, .1), seed: 1 + Math.floor(Math.random()*99999) }; saveDesign(); G.later(); sync() }
 $('neighbour').addEventListener('click', neighbour)
-$('original').addEventListener('click', () => { if (!p.designVary?.seed) return; remember(); p.designVary = { ...p.designVary, seed: 0 }; saveDesign(); G.later(); sync() })
-$('grove').addEventListener('click', () => { remember(); set('grove', p.grove > 1 ? 1 : 5); showMode() })
+$('grove').addEventListener('click', () => { remember(); set('grove', p.grove > 1 ? 1 : 5); G.frame(); showMode() })   // (the view stands back to take it in)
 // ---- the reference picture: shrunk to at most 1024 pixels (so it can be kept with the tree), stood behind the tree ----
 async function readImage(file){ const url = URL.createObjectURL(file); try { const img = new Image(); img.src = url; await img.decode()
   const k = Math.min(1, 1024/Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth*k); c.height = Math.round(img.naturalHeight*k)
@@ -355,12 +378,14 @@ $('refRemove').addEventListener('click', () => { const t = current(); sculpt.ref
 for (const [id, k] of [['refOpacity', 'opacity'], ['refSize', 'size'], ['refRaise', 'raise']]) $(id).addEventListener('input', e => { fill(e.target); const o = sculpt.reference.update({ [k]: +e.target.value }); const t = current(); if (t && o){ t.ref = o; store() } })
 addEventListener('dragover', e => { if (!editor.hidden) e.preventDefault() })
 addEventListener('drop', e => { if (editor.hidden) return; e.preventDefault(); useImage([...(e.dataTransfer?.files ?? [])].find(f => f.type.startsWith('image/'))) })
-// ---- the editor's keys: Delete removes what is picked, 1 2 3 the tools, [ and ] thickness, N a new neighbour (Escape and undo above) ----
+// ---- the editor's keys: Delete removes what is picked, 1 to 5 the tabs, [ and ] thickness, C the canopy, F auto-fill, N new neighbours (Escape and undo above) ----
 addEventListener('keydown', e => { if (editor.hidden || typing() || e.metaKey || e.ctrlKey || e.altKey) return
-  if (e.key === 'Delete' || e.key === 'Backspace'){ deleteSel(); e.preventDefault() }
+  if (e.key === 'Delete' || e.key === 'Backspace'){ if (tool === 'canopy') curve.removePicked(); else if (tool === 'wood' || tool === 'ref') deleteSel(); e.preventDefault() }
   else if (/^[1-5]$/.test(e.key)) setTool(TOOLS[+e.key - 1][1])
   else if (e.key === '[') nudgeRadius(1/1.15); else if (e.key === ']') nudgeRadius(1.15)
-  else if (e.key.toLowerCase() === 'n') neighbour() })
+  else if (e.key.toLowerCase() === 'n') neighbour()
+  else if (e.key.toLowerCase() === 'c' && tool === 'wood') toggleCanopy()
+  else if (e.key.toLowerCase() === 'f' && tool === 'wood') toggleFill() })
 // the tree shown last time, if it was one of yours
 try { const last = localStorage.getItem('ghibli-foliage-active'); if (last && mine.some(t => t.id === last)) useTree(last) } catch {}
 addEventListener('pagehide', () => { try { if (active) localStorage.setItem('ghibli-foliage-active', active); else localStorage.removeItem('ghibli-foliage-active') } catch {} })

@@ -44,6 +44,14 @@ const scene = new THREE.Scene()
 scene.fog = new THREE.Fog(0xcdeaf6, 50, 400)
 const camera = new THREE.PerspectiveCamera(36, innerWidth/innerHeight, .1, 1500)
 const controls = new OrbitControls(camera, renderer.domElement)
+// the flat view: just the editor's overlay and the reference picture, on plain paper through an orthographic camera that holds the main camera's place and
+// framing (the same controls drive it; the main camera, and so the field that follows it, stays where it is)
+const flat = { on: false, scene: new THREE.Scene(), cam: new THREE.OrthographicCamera(-1, 1, 1, -1, -3000, 3000),
+  half: () => camera.position.distanceTo(controls.target)*Math.tan(camera.fov*Math.PI/360),
+  sync(){ const c = this.cam, h = this.half(); c.top = h; c.bottom = -h; c.left = -h*camera.aspect; c.right = h*camera.aspect; c.zoom = camera.zoom
+    if (camera.view?.enabled){ const v = camera.view; c.setViewOffset(v.fullWidth, v.fullHeight, v.offsetX, v.offsetY, v.width, v.height) } else c.clearViewOffset()
+    c.updateProjectionMatrix(); c.position.copy(camera.position); c.quaternion.copy(camera.quaternion); c.updateMatrixWorld() } }
+flat.scene.background = new THREE.Color(0xe9ebe3)
 controls.enableDamping = true; controls.maxPolarAngle = Math.PI*.495; controls.minDistance = 2; controls.maxDistance = 320
 
 const sun = new THREE.DirectionalLight(0xffffff, 3)
@@ -987,7 +995,7 @@ function applySeason(){
 let seasonHeavyAt = 0, seasonHeavyT = 0
 function frame(){
   if (p.forest > 0){ const R = forest.state.radius || 50; camera.position.set(R*.9, R*.35 + 15, R*.9); controls.target.set(0, 8, 0); controls.update(); return }
-  const h = p.height*p.size, d = (p.grove > 1 ? h*3.2 + p.groveRadius*Math.max(1, p.size) : Math.max(h*3.1, h*(p.crownWidth || .5)*4.6))*Math.min(Math.max(1, .9/camera.aspect), 1.5)   // a narrow view stands further back
+  const h = p.design?.canopy?.y1 ?? p.height*p.size, d = (p.grove > 1 ? h*3.2 + p.groveRadius*Math.max(1, p.size) : Math.max(h*3.1, h*(p.crownWidth || .5)*4.6))*Math.min(Math.max(1, .9/camera.aspect), 1.5)   // a narrow view stands further back
   camera.position.set(d*.72, h*.2, d*.72); controls.target.set(0, h*.5, 0); controls.update()
 }
 
@@ -1313,7 +1321,8 @@ function bootTick(){
 if (qs.has('close')) gui.close()
 // the main tree for the drawing editor (src/sculpt.js): where it stands, and its leaf clumps, to start a drawing from the tree as grown
 const treeInfo = () => ({ root: [0, groundHeight(0, 0) - .08, 0], clumps: heldClumps.filter(c => c.plant === lastTreePlant), scale: p.size })
-window.__foliage = { applyLook, treeInfo, later, preview, layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
+const useKind = name => { p.species = name; compare.species(name); setSpecies(name); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()) }
+window.__foliage = { flat, useKind, applyLook, treeInfo, later, preview, layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
 // profiling: frame rate and frame time, then draw calls and triangles per frame (these include the shadow pass)
 const statsBar = document.createElement('div')
 statsBar.style.cssText = 'position:fixed;left:8px;top:8px;display:flex;gap:4px;z-index:20;pointer-events:none'
@@ -1418,8 +1427,8 @@ renderer.setAnimationLoop(now => {
   holdFrameRate()
   if (p.forest > 0){ forest.update(camera, p.lodScale); if (frameNo%15 === 0){ const c = forest.state.counts; statsEl.textContent = `${size} · full ${c[0]} · medium ${c[1]} · low ${c[2]} · impostor ${c[3]} · ${(renderer.info.render.triangles/1e6).toFixed(2)}M tris drawn` } }
   clouds.bake(renderer); mountains.bake(renderer)                      // only redraw when the light has changed
-  renderPondReflection()
-  renderer.render(scene, camera)
+  if (flat.on){ flat.sync(); renderer.render(flat.scene, flat.cam) }
+  else { renderPondReflection(); renderer.render(scene, camera) }
   fps.st.end(); ms.st.end()
   const info = renderer.info.render, t = info.triangles/1000
   peakCalls = Math.max(peakCalls, info.calls); peakTris = Math.max(peakTris, t)

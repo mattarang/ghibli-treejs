@@ -63,27 +63,35 @@
   </div>
   <div class="ed-body">
     <div class="tabs five" role="radiogroup" aria-label="What to edit">
-      <button id="toolWood" type="button" class="tab" role="radio" aria-checked="true" title="Wood (1)">Wood</button>
+      <button id="toolGrowth" type="button" class="tab" role="radio" aria-checked="true" title="Growth (1)">Growth</button>
       <button id="toolCanopy" type="button" class="tab" role="radio" aria-checked="false" title="Canopy (2)">Canopy</button>
       <button id="toolLeaves" type="button" class="tab" role="radio" aria-checked="false" title="Leaves (3)">Leaves</button>
       <button id="toolBark" type="button" class="tab" role="radio" aria-checked="false" title="Bark (4)">Bark</button>
       <button id="toolRef" type="button" class="tab" role="radio" aria-checked="false" title="Picture to work over (5)">Picture</button>
     </div>
     <p id="drawHint" class="hint"></p>
+    <div id="canopyRow" class="draw-row"><button id="showCanopy" type="button" class="btn ghost small" aria-pressed="true" title="The leaves and the canopy outline. They step aside on their own while a branch is picked">Show canopy <kbd>C</kbd></button><button id="autoFill" type="button" class="btn ghost small" aria-pressed="true" title="The smaller branches that grow by themselves. They step aside on their own while a branch is picked">Auto-fill branches <kbd>F</kbd></button></div>
     <div id="selBox" class="node" hidden>
       <p id="selTitle" class="sel-title"></p>
       <div id="nodeTools">
         <div class="row"><div class="row-head"><label for="nodeR">Thickness here</label><button id="nodeAuto" type="button" class="val" title="Let the growth decide this node's thickness">Auto</button></div><input id="nodeR" type="range" min="0" max="1" step=".001"></div>
       </div>
-      <div class="draw-row"><button id="delSel" type="button" class="btn ghost small">Delete node <kbd>Del</kbd></button><button id="delLimb" type="button" class="btn ghost small">Delete limb</button><button id="spinLimb" type="button" class="btn ghost small" title="Turn this branch round the wood it grows from">Spin</button></div>
+      <div class="draw-row"><button id="delSel" type="button" class="btn ghost small">Delete node <kbd>Del</kbd></button><button id="delLimb" type="button" class="btn ghost small">Delete branch</button><button id="spinLimb" type="button" class="btn ghost small" title="Turn this branch round the wood it grows from">Spin</button></div>
+    </div>
+    <div id="canopyBox" hidden>
+      <div class="row-head"><h3 class="draw-head">Outline</h3><span id="curveOut" class="val" aria-hidden="true"></span></div>
+      <svg id="canopyCurve" tabindex="0" role="img" aria-label="The canopy's outline. Page Up and Page Down pick a point, the arrow keys move it"></svg>
+      <div class="draw-row"><button id="curveRemove" type="button" class="btn ghost small" disabled>Remove point <kbd>Del</kbd></button></div>
     </div>
     <div id="refBox" class="node" hidden>
       <div class="draw-row"><label class="btn ghost small file">Choose an image<input id="refFile" type="file" accept="image/*"></label><button id="refFace" type="button" class="btn ghost small">Face the camera</button><button id="refRemove" type="button" class="btn ghost small">Remove</button></div>
+      <div class="draw-row"><button id="refFlat" type="button" class="btn ghost small" aria-pressed="false" title="No perspective, straight on to the picture, so the branches line up with it">Orthographic view</button></div>
       <div class="row"><div class="row-head"><label for="refOpacity">Opacity</label></div><input id="refOpacity" type="range" min=".1" max="1" step=".01" value=".7"></div>
       <div class="row"><div class="row-head"><label for="refSize">Size</label></div><input id="refSize" type="range" min=".3" max="3" step=".01" value="1"></div>
       <div class="row"><div class="row-head"><label for="refRaise">Raise</label></div><input id="refRaise" type="range" min="-.5" max=".5" step=".005" value="0"></div>
     </div>
     <div id="leavesBox" hidden>
+      <h3 class="draw-head">Colour</h3>
       <div class="swatches">
         <label class="swatch"><input id="leafColor" type="color"><span>Leaf colour</span></label>
         <label class="swatch" id="autumnSwatch"><input id="autumnColor" type="color"><span>Autumn</span></label>
@@ -101,19 +109,25 @@
       <label class="base copy"><span>Copy leaves from</span><select id="copyLeaves"></select></label>
     </div>
     <div id="barkBox" hidden>
+      <h3 class="draw-head">Colour</h3>
       <div class="swatches"><label class="swatch"><input id="barkColor" type="color"><span>Bark colour</span></label></div>
       <details class="fine"><summary>Fine-tune the shades</summary><div class="swatches four" id="barkBands"></div></details>
       <h3 class="draw-head">Texture</h3>
       <div id="barkRows"></div>
       <label class="base copy"><span>Copy bark from</span><select id="copyBark"></select></label>
     </div>
-    <div id="shapeBits">
-    <div class="draw-row"><button id="clearDraw" type="button" class="btn ghost small" title="Back to a bare base node">Clear</button><button id="traceTree" type="button" class="btn ghost small" title="Start from the shape of the tree in view">Trace the tree in view</button></div>
-    <h3 class="draw-head">Neighbours</h3>
-    <div class="row"><div class="row-head"><label for="varyAmt">Variation</label><span id="varyOut" class="val" aria-hidden="true"></span></div><input id="varyAmt" type="range" min="0" max="1" step=".01" value=".35"></div>
-    <div class="draw-row"><button id="neighbour" type="button" class="btn ghost small">New neighbour <kbd>N</kbd></button><button id="original" type="button" class="btn ghost small">The drawing</button><button id="grove" type="button" class="btn ghost small" aria-pressed="false">Grove</button></div>
-    <h3 class="draw-head">Character</h3>
-    <div id="editChar"></div>
+    <div id="growthBox">
+      <h3 class="draw-head">How it grows</h3>
+      <div id="growthRows"></div>
+      <p class="hint">Your own branches stay where you put them. These shape the smaller ones that grow from them.</p>
+      <label class="base copy"><span>Grows like</span><select id="growsLike"></select></label>
+      <div class="draw-row"><button id="clearDraw" type="button" class="btn ghost small" title="Back to a bare trunk. The canopy stays">Clear branches</button></div>
+      <h3 class="draw-head">Grove</h3>
+      <div class="draw-row"><button id="grove" type="button" class="btn ghost small" aria-pressed="false" title="Plant four neighbours round your tree">Show a grove</button></div>
+      <div id="groveBits" hidden>
+        <div class="row"><div class="row-head"><label for="varyAmt">Variation</label><span id="varyOut" class="val" aria-hidden="true"></span></div><input id="varyAmt" type="range" min="0" max="1" step=".01" value=".35"></div>
+        <div class="draw-row"><button id="neighbour" type="button" class="btn ghost small" title="Different neighbours. Your own tree stays as it is">Shuffle <kbd>N</kbd></button></div>
+      </div>
     </div>
   </div>
   <div class="pop-foot">
