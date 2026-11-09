@@ -229,13 +229,26 @@ export function canopyLobe(cv, th){                                     // its b
 const drawnRadius = (st, k, f) => { const a = st.r?.[k - 1], b = st.r?.[k]; return a != null && b != null ? lerp(a, b, f) : a ?? b ?? null }
 function designCanopy(d, root, ds){
   const cv = d.canopy, y0 = root[1] + cv.y0*ds, y1 = root[1] + cv.y1*ds, cx = root[0] + (cv.cx ?? 0)*ds, cz = root[2] + (cv.cz ?? 0)*ds
-  const inside = q => { const t = (q[1] - y0)/(y1 - y0); if (t <= 0 || t >= 1) return false
+  const inCanopy = q => { const t = (q[1] - y0)/(y1 - y0); if (t <= 0 || t >= 1) return false
     const dx = q[0] - cx, dz = q[2] - cz; return Math.hypot(dx, dz) < canopyRadius(cv, t)*ds*canopyLobe(cv, Math.atan2(dz, dx)) }
   const world = p => [root[0] + p[0]*ds, root[1] + p[1]*ds, root[2] + p[2]*ds]
+  // a limb drawn out past the canopy is still the tree's: the room to grow runs along the part of it outside, so it gets twigs and leaves of its own
+  // (a limb that only passes through on its way in ends inside, and stays bare until it gets there)
+  const halos = [], seen = [root[1] + cv.y0*ds, cv.rings.length ? Math.max(...cv.rings)*ds : 0]
+  for (const st of d.strokes.slice(1)){ const w = st.pts.map(world); if (w.length < 2 || inCanopy(w[w.length - 1])) continue
+    let len = 0; for (let i = 1; i < w.length; i++) len += Math.hypot(w[i][0] - w[i - 1][0], w[i][1] - w[i - 1][1], w[i][2] - w[i - 1][2])
+    // (slim where it leaves the wood and fullest at its tip, so the leaves gather out along the branch and the trunk stays in view)
+    const reach = Math.max(len*.22, .75*ds), along = i => .15 + .85*i/(w.length - 1)
+    for (let i = 1; i < w.length; i++){ if (inCanopy(w[i]) && inCanopy(w[i - 1])) continue
+      halos.push({ a: w[i - 1], b: w[i], ra: reach*along(i - 1), rb: reach*along(i) }); seen[0] = Math.min(seen[0], w[i][1] - reach, w[i - 1][1] - reach); seen[1] = Math.max(seen[1], Math.hypot(w[i][0] - cx, w[i][2] - cz) + reach) } }
+  const nearLimb = q => halos.some(({ a, b, ra, rb }) => { const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], aq = [q[0] - a[0], q[1] - a[1], q[2] - a[2]], t = Math.min(1, Math.max(0, (aq[0]*ab[0] + aq[1]*ab[1] + aq[2]*ab[2])/(ab[0]*ab[0] + ab[1]*ab[1] + ab[2]*ab[2] || 1)))
+    return Math.hypot(aq[0] - ab[0]*t, aq[1] - ab[1]*t, aq[2] - ab[2]*t) < ra + (rb - ra)*t })
+  const inside = halos.length ? q => inCanopy(q) || (q[1] > root[1] + .3*ds && nearLimb(q)) : inCanopy
+  const low = Math.max(seen[0], root[1] + .3*ds)
   const rings = () => { const out = []; for (let k = 0; k <= 24; k++){ const t = k/24, y = lerp(y0, y1, t), ring = []
     for (let j = 0; j <= 48; j++){ const th = j/48*Math.PI*2, rr = canopyRadius(cv, Math.min(Math.max(t, .001), .999))*ds*canopyLobe(cv, th); ring.push([cx + Math.cos(th)*rr, y, cz + Math.sin(th)*rr]) }
     out.push(ring) } return out }
-  return { y0, y1, cx, cz, inside, rings, wide: Math.max(...cv.rings)*ds*Math.max(...(cv.lobes ?? [1]))*1.05 + Math.hypot(cx - root[0], cz - root[2]),
+  return { y0, y1, cx, cz, inside, rings, low, wide: Math.max(Math.max(...cv.rings)*ds*Math.max(...(cv.lobes ?? [1]))*1.05, seen[1]) + Math.hypot(cx - root[0], cz - root[2]),
     ds, strokes: d.strokes.map(s => ({ ...s, world: s.pts.map(world) })) }
 }
 // A neighbour of a drawn tree: the same frame, a little different, as two trees grown from one cutting are. The trunk leans and stretches a few
@@ -279,7 +292,7 @@ function growColonise(sp, r, root, size){
   const axis = DES ? (() => [DES.cx, DES.cz]) : y => { const t = clamp((y - root[1])/H), k = t*t*W*sp.windLean, m = tiltBy*(y - root[1]); return [root[0] + Math.cos(bendTo)*k + Math.cos(leanTo)*m + crownShift[0], root[2] + Math.sin(bendTo)*k + Math.sin(leanTo)*m + crownShift[1]] }
   const reachAt = y => { const t = clamp((y - root[1] - H*bottom)/(H*(1 - bottom))), w = clamp(t + peak*Math.sin(Math.PI*t)), u = (from + w*(1 - from))*(g.outline.length - 1), i = Math.min(Math.floor(u), g.outline.length - 2); return CH*widen*lerp(g.outline[i], g.outline[i + 1], u - i) }
   const bays = Array.from({ length: Math.round(sp.notches + r()*v*2) }, () => { const y = root[1] + H*lerp(bottom + .1, .92, r()), th = r()*tau, m = reachAt(y)*.95; return { p: [root[0] + Math.cos(th)*m, y, root[2] + Math.sin(th)*m], r: W*lerp(.25, .45, r()) } })
-  const y0 = DES ? DES.y0 : root[1] + H*bottom, wide = DES ? DES.wide : W*1.6 + H*sp.windLean
+  const y0 = DES ? DES.low : root[1] + H*bottom, wide = DES ? DES.wide : W*1.6 + H*sp.windLean
   // the bare trunk comes first and takes no part: nothing grows from it until it reaches the crown
   const add0 = (p, parent, stage) => { const n = { p, parent, stage, kids: [], pull: [0, 0, 0], pulled: 0, d: parent ? norm(sub(p, parent.p)) : [0, 1, 0] }; nodes.push(n); if (parent) parent.kids.push(n); return n }
   let tip = add0(add(root, [0, -.3*sp.flare*R, 0]), null, -1)
@@ -1573,6 +1586,8 @@ export function emitFoliage(sp, r, clumps, root, scale, out){
   const H = sp.height*scale, turn = sp.strokeAngle*Math.PI/180, jitter = sp.strokeJitter*Math.PI/180
   const swayAt = y => .32*scale*(clamp((y - root[1])/H)**1.6)*(sp.height > 4 ? 1 : .5)
   const len0 = markSize(sp, scale), wid0 = len0*sp.brushWidth
+  // (a tree's own dabs) Stretch draws every mark out or squashes it flat, the big plates too; See-through leaves out the marks that close a clump, big ones first, so light and wood show inside it
+  const sheer = sp.sheer ?? 0, stretch = Math.sqrt(sp.dabStretch ?? 1)
   // the crown as one form: its bounds give every stroke a place on the whole tree, so one light runs across it
   const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]
   for (const { c, r: q } of clumps) for (let a = 0; a < 3; a++){ lo[a] = Math.min(lo[a], c[a] - q); hi[a] = Math.max(hi[a], c[a] + q) }
@@ -1593,8 +1608,8 @@ export function emitFoliage(sp, r, clumps, root, scale, out){
     cl.pivot = pivot; cl.wind = wind
     // Strokes on a shell are thinnest exactly where a clump faces the viewer, so it needs a body. One large stroke at its heart always turns to
     // the viewer, in the clump's own light and colour: whatever shows between strokes is more of the same paint, and never a hole.
-    if (sp.massMarks && sp.core){ const k = cl.rim > .72 ? .88 : 1
-      addStroke(out, r, { q: c, n: formAt(c, shelf).n, t: [0, 1, 0], len: rad*2.3*Math.max(sp.squash, .6)*k, wid: rad*2.4*k, tile: randTile(r), pivot, ao: .5, tone, wind, dab: .25, clump }) }
+    if (sp.massMarks && sp.core && !(sheer && r() < sheer*1.6)){ const k = cl.rim > .72 ? .88 : 1
+      addStroke(out, r, { q: c, n: formAt(c, shelf).n, t: [0, 1, 0], len: rad*2.3*Math.max(sp.squash, .6)*k*stretch, wid: rad*2.4*k/stretch, tile: randTile(r), pivot, ao: .5, tone, wind, dab: .25, clump }) }
     // lobes: the lumps a painter blocks in first. Strokes take their tone and much of their normal from their lobe, so light
     // falls on groups of dabs, and the valleys between lobes stay dark.
     const L = Math.round(clamp(rad/len0*4.5, 4, 12)), lobes = Array.from({ length: L }, () => { const dir = randDir(r); return { dir, tone: clamp(tone + (r() - .5)*.7), gone: shelf && r() < .14 } })   // missing lobes bite the clump's outline
@@ -1611,6 +1626,7 @@ export function emitFoliage(sp, r, clumps, root, scale, out){
     const dome = norm([(c[0] - crown[0])/half[0], (c[1] - (crown[1] - half[1]*.7))/half[1], (c[2] - crown[2])/half[2]]), up = norm(add([0, 1, 0], sub(dome, [0, 1, 0]), sp.lobeFollow ?? 0))
     const out0 = norm([c[0] - root[0] + 1e-3, 0, c[2] - root[2]]), pointed = sp.lobePoint ?? 0, tilt = sp.lobeTilt ?? 0, rough = sp.lobeRough ?? 1
     for (let layer = 0; layer < 5; layer++) for (let i = 0, count = [L*sp.plates*1.1, n*1.1*fewer, n*1.5*fewer, n*sp.strays, mids][layer]; i < count; i++){
+      if (sheer && r() < [1, .92, .88, .6, 1][layer]*sheer) continue
       const d = randDir(r)
       let lobe = lobes[0], b = -2
       for (const l of lobes){ const q = dot(d, l.dir); if (q > b){ b = q; lobe = l } }
@@ -1630,13 +1646,13 @@ export function emitFoliage(sp, r, clumps, root, scale, out){
       // marks at three clear scales: plates sized by the mass, dabs by the brush, so the big shapes aren't just more of the small ones
       const plate = Math.max(rad*lerp(.58, .95, r()), sp.massMarks && shelf ? Math.min(shelf.rx, rad*2.2)*lerp(.32, .44, r()) : 0)*sp.plateSize, size = [0, sp.massMarks ? lerp(.72, 1.15, r()) : lerp(.8, 1.3, r()), lerp(.38, .66, r()), layer === 4 ? 0 : lerp(.3, .5, r())][layer]
       const sized = layer === 4 ? sp.midSize*lerp(.75, 1.3, r()) : size
-      addStroke(out, r, { q, n: nS, t, len: layer ? len0*sized : plate, wid: layer ? wid0*sized : plate*.85, tile: randTile(r, layer === 2 || layer === 3), pivot, ao,
+      addStroke(out, r, { q, n: nS, t, len: (layer ? len0*sized : plate)*stretch, wid: (layer ? wid0*sized : plate*.85)/stretch, tile: randTile(r, layer === 2 || layer === 3), pivot, ao,
         tone: clamp(lobe.tone + (r() - .5)*.2), wind, dab: [0, 1, 2, .7, .6][layer], clump })
     }
   }
   // Neighbouring clumps of one mass are one body of leaves, so the space between them is painted too, in the colour of the clump it joins.
   // Sky stays in the gaps between boughs and in notches too wide to bridge, where it reads as the tree's own shape.
-  if (sp.massMarks && sp.core) for (let i = 0; i < clumps.length; i++) for (let j = 0; j < i; j++){
+  if (sp.massMarks && sp.core && sheer < .25) for (let i = 0; i < clumps.length; i++) for (let j = 0; j < i; j++){
     const a = clumps[i], b = clumps[j]
     if (!a.shelf || a.shelf !== b.shelf) continue
     const gap = sub(b.c, a.c), d = Math.hypot(gap[0], gap[1]/sp.squash, gap[2])
@@ -1720,7 +1736,10 @@ export function generatePlant(species, seed, root, scale, wood, foliage, ivy = n
     if (vary?.amount && (vary.seed || seed !== species.seed)) sp.design = designVariant(sp.design, (vary.seed ?? 0) + seed, vary.amount)
     const cv = sp.design.canopy; sp.designScale = scale; sp.skinBudget = 1.2e6   // drawn limbs carry thick wood far out: the bark skin gets a quarter of the usual cells, or it costs seconds
     sp.height = cv.y1/species.size; sp.split = 0; sp.lean = 0; sp.windLean = 0
-    sp.crownLine = Math.min(sp.crownLine ?? 1, cv.y0/cv.y1*.8); sp.trunkFrac = cv.y0/cv.y1 }
+    // (the crown starts at the canopy, or lower for a limb drawn out and down past it: leaves there are the drawing's, and aren't cleared off the trunk)
+    const tips = sp.design.strokes.slice(1).filter(s => s.pts.length > 1).map(s => s.pts[s.pts.length - 1]), outside = q => { const t = (q[1] - cv.y0)/(cv.y1 - cv.y0); return t <= 0 || t >= 1 || Math.hypot(q[0] - (cv.cx ?? 0), q[2] - (cv.cz ?? 0)) >= canopyRadius(cv, t)*canopyLobe(cv, Math.atan2(q[2] - (cv.cz ?? 0), q[0] - (cv.cx ?? 0))) }
+    const lowest = Math.min(cv.y0, ...tips.filter(outside).map(q => q[1]*.7))
+    sp.crownLine = Math.min(sp.crownLine ?? 1, lowest/cv.y1*.8); sp.trunkFrac = cv.y0/cv.y1 }
   else if (sp.design) sp.design = null
   scale *= species.size                                                // a species' true mature size: everything grows together, so proportions hold
   const r = mulberry32(seed*2654435761 >>> 0)

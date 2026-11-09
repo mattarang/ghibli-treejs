@@ -216,7 +216,7 @@ $('treeName').addEventListener('input', e => { const t = current(); if (t){ t.na
 $('treeName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur() })
 $('deleteTree').addEventListener('click', () => { const t = current(); if (!t) return; remember(); mine = mine.filter(x => x !== t); store(); try { localStorage.removeItem(REF(t.id)) } catch {} leaveTree() })
 // ---- a tree's own look: its leaves and bark, kept with it and independent of any kind of tree ----
-const SHAPE_KEYS = ['brushWidth', 'midSize', 'strays', 'core', 'plateSize', 'strokeAngle', 'strokeJitter', 'lobePoint', 'lobeTilt', 'lobeWide', 'lobeDrape', 'lobeFollow', 'lobeAlong', 'lobeRough', 'lobeStretch', 'clumpVar', 'hang']
+const SHAPE_KEYS = ['brushWidth', 'midSize', 'strays', 'core', 'plateSize', 'strokeAngle', 'strokeJitter', 'lobePoint', 'lobeTilt', 'lobeWide', 'lobeDrape', 'lobeFollow', 'lobeAlong', 'lobeRough', 'lobeStretch', 'clumpVar', 'hang', 'dabStretch', 'sheer']
 const LEAF_KEYS = ['palette', 'sss', 'rim', 'fleck', 'coverage', 'clumpRadius', 'cardSize', 'clumpsPerTip', 'squash', 'leaf', 'edge', 'colors', 'colorPick', 'autumn', 'spring', 'evergreen', 'clumpKeep', ...SHAPE_KEYS]
 const BARK_KEYS = ['bark', 'barkScale', 'barkStretch', 'barkFurrow', 'barkPlates', 'barkBands', 'moss', 'ivy']
 const LOOK_KEYS = [...LEAF_KEYS, ...BARK_KEYS], cloneV = v => v == null ? v : JSON.parse(JSON.stringify(v))
@@ -266,19 +266,21 @@ for (const [which, box] of [['leaf', 'leafBands'], ['bark', 'barkBands']]) BAND_
   c.addEventListener('input', () => { beginLook(); const k = which === 'leaf' ? 'palette' : 'bark', pal = [...p[k]]; pal[i] = c.value; if (which === 'leaf') setLeafBands(pal); else { putLook('bark', pal); G.applyLook(); syncLook() } })
   c.addEventListener('change', endLook) })
 // a leaf shape is a whole way of painting the leaves: the brush alone is too fine to see from where a tree is looked at, so each also sets the strokes, the clumps they make and their size
-const PLAIN = { brushWidth: .85, midSize: 2.4, strays: .18, core: true, plateSize: 1, strokeAngle: 0, strokeJitter: 70, lobePoint: .1, lobeTilt: 0, lobeWide: 1, lobeDrape: 0, lobeFollow: 0, lobeAlong: 1.5, lobeRough: .8, lobeStretch: [1.12, .8], clumpVar: .45, hang: 0, cardSize: .72, clumpRadius: .8, squash: .78 }
+const PLAIN = { brushWidth: .85, midSize: 2.4, strays: .18, core: true, plateSize: 1, strokeAngle: 0, strokeJitter: 70, lobePoint: .1, lobeTilt: 0, lobeWide: 1, lobeDrape: 0, lobeFollow: 0, lobeAlong: 1.5, lobeRough: .8, lobeStretch: [1.12, .8], clumpVar: .45, hang: 0, squash: .78, dabStretch: 1, sheer: 0 }
 const SHAPES = [
-  ['Soft', { leaf: 'round', edge: 'round', lobeAlong: 1, brushWidth: 1, strays: 0, strokeAngle: 80, strokeJitter: 24, lobePoint: 0, lobeRough: .35, lobeStretch: [1.2, .7], clumpVar: .3, cardSize: 1.05, clumpRadius: 1.25, squash: .62 }],
+  ['Soft', { leaf: 'round', edge: 'round', lobeAlong: 1, brushWidth: 1, strays: 0, strokeAngle: 80, strokeJitter: 24, lobePoint: 0, lobeRough: .35, lobeStretch: [1.2, .7], clumpVar: .3, squash: .62, dabStretch: .85 }],
   ['Broad', { leaf: 'round', edge: 'pointed' }],
-  ['Spiky', { leaf: 'pointed', edge: 'pointed', lobeAlong: 1, brushWidth: .38, midSize: 1.4, strays: .5, plateSize: .55, strokeAngle: 72, strokeJitter: 26, lobePoint: .6, lobeRough: 1.5, lobeStretch: [.8, 1.25], clumpVar: .3, cardSize: .78, clumpRadius: .58, squash: .95 }],
-  ['Maple', { leaf: 'pointed', edge: 'maple', lobeAlong: 1, midSize: 2, strays: .4, plateSize: .42, lobePoint: 0, lobeTilt: -.4, lobeWide: 1.4, lobeDrape: .45, lobeFollow: .6, lobeRough: .6, lobeStretch: [1.4, .5], clumpVar: .55, cardSize: .62, clumpRadius: .7, squash: .42 }],
-  ['Willow', { leaf: 'willow', edge: 'spray', lobeAlong: 1, brushWidth: .3, midSize: 0, strays: 0, core: false, strokeJitter: 16, lobePoint: 0, lobeRough: 1, lobeStretch: null, clumpVar: .35, hang: 2.6, cardSize: .95, clumpRadius: .9, squash: .62 }],
-  ['Frond', { leaf: 'pointed', edge: 'spray', brushWidth: .55, midSize: 1.8, strays: .3, plateSize: .7, strokeAngle: 70, strokeJitter: 30, lobePoint: .25, lobeTilt: -.35, lobeAlong: 2.4, lobeRough: 1, lobeStretch: [1.5, .6], clumpVar: .3, cardSize: .8, clumpRadius: .72, squash: .55 }],
+  ['Spiky', { leaf: 'pointed', edge: 'pointed', lobeAlong: 1, brushWidth: .38, midSize: 1.4, strays: .5, plateSize: .55, strokeAngle: 72, strokeJitter: 26, lobePoint: .6, lobeRough: 1.5, lobeStretch: [.8, 1.25], clumpVar: .3, squash: .95, dabStretch: 1.5, sheer: .2 }],
+  ['Maple', { leaf: 'pointed', edge: 'maple', lobeAlong: 1, midSize: 2, strays: .4, plateSize: .42, lobePoint: 0, lobeTilt: -.4, lobeWide: 1.4, lobeDrape: .45, lobeFollow: .6, lobeRough: .6, lobeStretch: [1.4, .5], clumpVar: .55, squash: .42, sheer: .15 }],
+  ['Willow', { leaf: 'willow', edge: 'spray', lobeAlong: 1, brushWidth: .3, midSize: 0, strays: 0, core: false, strokeJitter: 16, lobePoint: 0, lobeRough: 1, lobeStretch: null, clumpVar: .35, hang: 2.6, squash: .62 }],
+  ['Frond', { leaf: 'pointed', edge: 'spray', brushWidth: .55, midSize: 1.8, strays: .3, plateSize: .7, strokeAngle: 70, strokeJitter: 30, lobePoint: .25, lobeTilt: -.35, lobeAlong: 2.4, lobeRough: 1, lobeStretch: [1.5, .6], clumpVar: .3, squash: .55, dabStretch: 1.3, sheer: .1 }],
 ].map(([label, o]) => [label, { ...PLAIN, ...o }])
 const shapeBtns = SHAPES.map(([label, o]) => { const b = document.createElement('button'); Object.assign(b, { type: 'button', className: 'btn ghost small', textContent: label }); $('leafShapes').append(b)
   b.addEventListener('click', () => { remember(); for (const [k, v] of Object.entries(o)) putLook(k, v); store(); G.later(); syncLook() }); return [b, o] })
 const scale = v => `${Math.round(v*100)}%`
-const LOOK_ROWS = { leafRows: [['clumpKeep', 'Fullness', .15, 1, .01, scale, true], ['clumpRadius', 'Clump size', .3, 3.5, .01, v => `${(+v).toFixed(1)} m`, true], ['squash', 'Clump height', .3, 2, .01, scale, true], ['cardSize', 'Leaf size', .3, 3.5, .01, scale, true], ['fleck', 'Flecks', 0, 1, .01, scale, false]],
+const word = (v, lo, mid, hi, a, b) => v < a ? lo : v > b ? hi : mid
+const LOOK_ROWS = { clumpRows: [['clumpKeep', 'Fullness', .15, 1, .01, scale, true], ['clumpRadius', 'Clump size', .3, 3.5, .01, v => `${(+v).toFixed(1)} m`, true], ['squash', 'Clump height', .3, 2, .01, v => word(+v, 'Flat', 'Round', 'Tall', .6, 1.15), true], ['clumpVar', 'Mixed sizes', 0, .8, .01, v => word(+v, 'Even', 'Some', 'Very', .2, .55), true], ['lobeRough', 'Knobbly', 0, 2, .01, v => word(+v, 'Smooth', 'Some', 'Rough', .5, 1.2), true]],
+  dabRows: [['cardSize', 'Dab size', .3, 3.5, .01, scale, true], ['dabStretch', 'Stretch', .3, 3, .01, v => word(+v, 'Squashed', 'Natural', 'Drawn out', .75, 1.35), true], ['strokeAngle', 'Direction', 0, 90, 1, v => word(+v, 'Hanging', 'Slanted', 'Level', 25, 65), true], ['strokeJitter', 'Looseness', 0, 90, 1, v => word(+v, 'Neat', 'Loose', 'Wild', 30, 72), true], ['sheer', 'See-through', 0, 1, .01, v => +v < .01 ? 'Solid' : scale(v), true], ['fleck', 'Flecks', 0, 1, .01, scale, false]],
   barkRows: [['barkScale', 'Pattern size', .3, 4, .01, scale, false], ['barkFurrow', 'Fissures', 0, 2, .01, scale, false], ['barkPlates', 'Plates', 0, 1.5, .01, scale, false], ['barkBands', 'Bands', 0, 1, .01, scale, false], ['moss', 'Moss', 0, 1, .01, scale, false], ['ivy', 'Ivy', 0, 1, .01, scale, true]] }
 const lookInputs = []
 for (const [box, rows] of Object.entries(LOOK_ROWS)) for (const [k, label, min, max, step, fmt, grows] of rows){
@@ -297,7 +299,7 @@ function syncLook(){ if (!active) return
   $('evergreen').setAttribute('aria-pressed', !!p.evergreen); $('autumnSwatch').toggleAttribute('data-off', !!p.evergreen)
   bandInputs.leaf.forEach((c, i) => { c.value = p.palette[i] }); bandInputs.bark.forEach((c, i) => { c.value = p.bark[i] })
   for (const [b, o] of shapeBtns) b.setAttribute('aria-pressed', p.leaf === o.leaf && p.edge === o.edge)
-  for (const [input, k, out, fmt] of lookInputs){ input.value = p[k] ?? (k === 'clumpKeep' ? 1 : 0); out.textContent = fmt(+input.value); fill(input) } }
+  for (const [input, k, out, fmt] of lookInputs){ input.value = p[k] ?? ({ clumpKeep: 1, dabStretch: 1 }[k] ?? 0); out.textContent = fmt(+input.value); fill(input) } }
 showMode = () => { const t = current()
   $('shapeLabel').textContent = active ? 'Edit' : 'Shape'; shapeBtn.setAttribute('aria-controls', active ? 'editor' : 'shape')
   if (!t) return
