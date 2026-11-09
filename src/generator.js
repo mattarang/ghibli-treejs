@@ -602,7 +602,7 @@ function growColonise(sp, r, root, size){
           const W = S.whorl && gen <= S.whorl.upTo ? S.whorl : null, atWhorl = W && i === n - 1 && !(W.skip && gen === 0 && r() < W.skip)
           phy += W ? (atWhorl ? r()*tau : 0) : gold
           const startsLimb = i === 0 && asLateral && prev.gen === 0
-          const nm = { n: node, dir: d, main: null, lat: null, phy, latDir: latOf(d, phy, gen + 1), gen, k: (i === 0 && asLateral ? 0 : prev.k) + 1, stub: (!!W && !atWhorl) || (gen === 0 && pruneLimb(mets.length)), limb: startsLimb ? null : prev.limb }
+          const nm = { n: node, dir: d, main: null, lat: null, phy, latDir: latOf(d, phy, gen + 1), gen, k: (i === 0 && asLateral ? 0 : prev.k) + 1, stub: (!!W && !atWhorl) || (gen === 0 && node.p[1] < y0 + (ceiling - y0)*.7 && pruneLimb(mets.length)), limb: startsLimb ? null : prev.limb }
           if (startsLimb){ nm.limb = nm; nm.base = first; nm.got = 0; nm.ring = prev.ring ?? prev; limbs.push(nm) }
           nm.axis = i === 0 && asLateral ? { last: 0 } : prev.axis
           if (S.planes) nm.planes = i === 0 && asLateral ? lateralPlanes(prev, d0) : prev.planes

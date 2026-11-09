@@ -1015,16 +1015,20 @@ applyFoliage()
 treeF.add(p, 'showFoliage').name('Show foliage').onChange(applyFoliage)
 let recipeUi = null
 // a species is all of its own settings and nothing else: a setting the last species had and this one doesn't is dropped, or one tree's look would leak into the next
-const setSpecies = (name, settings = SPECIES[name]) => { for (const k of new Set(Object.values(SPECIES).flatMap(Object.keys))) if (!(k in settings)) delete p[k]; Object.assign(p, structuredClone(settings)); p.species = name }
+const setSpecies = (name, settings = SPECIES[name]) => { for (const k of new Set(Object.values(SPECIES).flatMap(Object.keys))) if (!(k in settings)) delete p[k]; Object.assign(p, structuredClone(settings)); p.species = name; heightWas = p.height }
 const speciesCtl = treeF.add(p, 'species', Object.keys(SPECIES).sort()).name('Species').onChange(name => {
   compare.species(name)
   setSpecies(name); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); recipeUi?.refresh(); rebuild(); rebuildGrass(); frame() })
 treeF.add(p, 'seed', 1, 9999, 1).name('Seed').onChange(later).listen()
 treeF.add({ dice(){ p.seed = 1 + Math.floor(Math.random()*9998); rebuild(); rebuildGrass() } }, 'dice').name('New seed')
-treeF.add(p, 'height', 1.5, 26, .1).name('Height').onChange(later)
+// Height and Trunk height: Height is the whole tree; the trunk keeps its length in metres when Height moves, so a taller tree is more crown
+// on the same trunk (Trunk height itself is stored as a share of Height, as every recipe has it)
+let heightWas = p.height
+const trunkCtl = () => gui.controllersRecursive().find(c => c.property === 'trunkFrac')
+treeF.add(p, 'height', 1.5, 26, .1).name('Height').onChange(v => { if (heightWas > 0 && v > 0){ p.trunkFrac = Math.min(.85, Math.max(.02, p.trunkFrac*heightWas/v)); trunkCtl()?.updateDisplay() } heightWas = v; later() })
+treeF.add(p, 'trunkFrac', .02, .85, .01).name('Trunk height').onChange(later)
 treeF.add(p, 'size', .3, 4, .01).name('Mature size').onChange(() => { later(); frame() })
 treeF.add(p, 'trunkRadius', .06, 1.4, .01).name('Trunk radius').onChange(later)
-treeF.add(p, 'trunkFrac', .02, .85, .01).name('Trunk height').onChange(later)
 treeF.add(p, 'stems', 1, 5, .1).name('Stems (average)').onChange(later)
 treeF.add(p, 'stemVar', 0, 3, .1).name('Stem count variation').onChange(later)
 treeF.add(p, 'stemSpread', 0, 50, 1).name('Stem spread').onChange(later)
@@ -1032,12 +1036,12 @@ treeF.add(p, 'trunkBow', 0, .6, .01).name('Trunk curve').onChange(later)
 treeF.add(p, 'split', 0, 1, .01).name('Split low (self-organising)').onChange(later)
 treeF.add(p, 'variety', 0, 1.5, .01).name('Seed variety').onChange(later)
 treeF.add(p, 'sinuous', 0, 1.5, .01).name('Trunk bends').onChange(later)
-treeF.add(p, 'crownWidth', .08, 1.1, .01).name('Crown width').onChange(later)
+treeF.add(p, 'crownWidth', .05, 1.1, .01).name('Crown width').onChange(later)
 treeF.add(p, 'asym', 0, .6, .01).name('Asymmetry').onChange(later)
 treeF.add(p, 'windLean', 0, .7, .01).name('Wind lean').onChange(later)
 treeF.add(p, 'notches', 0, 8, 1).name('Bays in the crown').onChange(later)
 const branchF = treeF.addFolder('Branching').close()
-branchF.add(p, 'children', 2, 10, 1).name('Main limbs').onChange(later)
+branchF.add(p, 'children', 0, 64, 1).name('Main limbs').onChange(later)   // 0 (a trunk carrying only its leader) to a conifer's many tiers: every species' own count sits inside the range
 branchF.add(p, 'childAngle', 8, 95, 1).name('Branch angle').onChange(later)
 branchF.add(p, 'lengthRatio', .25, 1.3, .01).name('Branch length').onChange(later)
 branchF.add(p, 'gnarl', 0, .5, .01).name('Crookedness').onChange(later)

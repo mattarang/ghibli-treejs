@@ -31,8 +31,8 @@ const ONLY = {}
 const SHAPE = [
   ['Trunk'],
   ['height', 'Height', v => `${(+v).toFixed(1)} m`],
+  ['trunkFrac', 'Trunk height', v => `${(+v).toFixed(1)} m`, 'metres'],   // the bare part below the crown, in metres (stored as a share of Height)
   ['trunkRadius', 'Trunk thickness', v => `${Math.round(v*200)} cm`],
-  ['trunkFrac', 'Trunk height', v => `${Math.round(v*100)}%`],   // the bare part below the crown: what people call the trunk
   ['stems', 'Stems', v => (+v).toFixed(1)],
   ['sinuous', 'Trunk bends', pct(0, 1.5)],
   ['lean', 'Lean', v => v < .01 ? 'None' : pct(0, .4)(v)],
@@ -48,16 +48,19 @@ const SHAPE = [
   ['clumpRadius', 'Leaf clumps', v => `${(+v).toFixed(1)} m`],
 ]
 const sliders = [], box = $('shapeSliders')
-for (const [prop, label, fmt] of SHAPE){
+for (const [prop, label, fmt, unit] of SHAPE){
   if (!label){ const h = document.createElement('h2'); h.textContent = prop; box.append(h); continue }
   const c = ctl(prop); if (!c) continue
   const id = 's-' + prop, row = document.createElement('label'), input = document.createElement('input'), out = document.createElement('output')
   row.htmlFor = id; row.append(label, out); Object.assign(input, { id, type: 'range', min: c._min, max: c._max, step: c._step ?? .01 })
-  const wrap = document.createElement('div'); wrap.append(row, input); box.append(wrap); sliders.push([input, prop, out, fmt, wrap])
+  if (unit === 'metres') input.step = .1                                // shown in metres, its range following the tree's height
+  const wrap = document.createElement('div'); wrap.append(row, input); box.append(wrap); sliders.push([input, prop, out, fmt, wrap, unit])
 }
 let busy = null
-for (const [el, prop, out, fmt] of sliders){
-  el.addEventListener('input', () => { busy = el; set(prop, +el.value); out.textContent = fmt(+el.value) }); el.addEventListener('change', () => { busy = null }) }
+// a slider in metres stands for a share of the tree's height: its value converts both ways
+const toShown = (unit, prop) => unit === 'metres' ? p[prop]*p.height : p[prop], fromShown = (unit, v) => unit === 'metres' ? v/p.height : v
+for (const [el, prop, out, fmt, , unit] of sliders){
+  el.addEventListener('input', () => { busy = el; set(prop, fromShown(unit, +el.value)); out.textContent = fmt(+el.value) }); el.addEventListener('change', () => { busy = null }) }
 $('leaves').addEventListener('change', e => set('showFoliage', e.target.checked))
 $('reset').addEventListener('click', () => ctl('species')._onChange?.(p.species))     // the species' own change: its shape back (setValue skips an unchanged value)
 
@@ -123,7 +126,9 @@ function drawSeason(){
 // ---- keep everything in step with the scene (the full panel can change it too) ----
 function sync(){
   species.value = p.species; nameBtn.textContent = p.species; placePicker()
-  for (const [el, prop, out, fmt, wrap] of sliders){ wrap.hidden = !!ONLY[prop] && !ONLY[prop].includes(p.species); if (el !== busy && p[prop] !== undefined) el.value = p[prop]; out.textContent = fmt(+el.value) }
+  for (const [el, prop, out, fmt, wrap, unit] of sliders){ wrap.hidden = !!ONLY[prop] && !ONLY[prop].includes(p.species)
+    if (unit === 'metres'){ const c = ctl(prop); el.min = (c._min*p.height).toFixed(2); el.max = (c._max*p.height).toFixed(2) }
+    if (el !== busy && p[prop] !== undefined) el.value = toShown(unit, prop); out.textContent = fmt(+el.value) }
   $('leaves').checked = p.showFoliage !== false
   drawSun(); drawSeason()
 }
