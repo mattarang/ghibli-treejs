@@ -156,7 +156,7 @@ const myList = $('myList')
 renderMine = () => { myList.replaceChildren(...mine.map(t => { const b = document.createElement('button'); Object.assign(b, { type: 'button', className: 'species', textContent: t.name || 'My tree' })
   b.setAttribute('aria-current', t.id === active); b.addEventListener('click', () => { if (t.id !== active){ remember(); useTree(t.id) } openSheet(false); nameBtn.focus() }); return b }))
   myList.hidden = !mine.length; myList.previousElementSibling.hidden = !mine.length }
-const HINTS = { wood: 'Drag up from the base to draw the trunk. Point at any wood and a + appears: drag it out to grow a branch from there. Drag a dot to move it; tap it to pick it and set its thickness. A picked limb shows faint dots: tap one to add a node, or drag the one past the tip to lengthen it.',
+const HINTS = { wood: 'Tap a + to grow a branch from there; the + at a tip makes it longer. Drag any dot to shape it. Tap a branch to pick it and add to it, tap a dot to set its thickness.',
   canopy: 'Drag the side handles to widen or narrow the canopy at that height, the green ones to bulge it out or pull it in, the top and bottom ones to raise or lower it.',
   ref: 'Choose a picture (or drop one onto the page) to stand behind the tree and draw over. Turn the camera to the view you want, then press Face the camera.' }
 const orderOf = (d, si) => { let n = 0; for (let s = si; s > 0 && d.strokes[s]?.from; s = d.strokes[s].from.s) n++; return n }
@@ -176,7 +176,7 @@ function showSel(){ const si = sculpt.selected, i = sculpt.selNode, d = sculpt.d
   // Delete takes the node - or, from a limb down to its last two nodes (or with no node picked), the whole limb
   const nodeGoes = isNode && st.pts.length > 2
   $('delSel').innerHTML = nodeGoes ? 'Delete node <kbd>Del</kbd>' : si > 0 ? 'Delete limb <kbd>Del</kbd>' : 'Delete node <kbd>Del</kbd>'
-  $('delSel').disabled = !nodeGoes && si === 0; $('delLimb').hidden = !(si > 0 && nodeGoes) }
+  $('delSel').disabled = !nodeGoes && si === 0; $('delLimb').hidden = !(si > 0 && nodeGoes); $('spinLimb').hidden = !(si > 0) }
 const commitDesign = before => { pushHistory({ ...snap(), design: JSON.stringify(before) }); p.design = JSON.parse(JSON.stringify(sculpt.design)); saveDesign(); G.later(); showMode(); sync() }
 sculpt = makeSculpt(G, { guessRadius,
   onEdit(d, before){ pushHistory({ ...snap(), design: JSON.stringify(before) }); p.design = JSON.parse(JSON.stringify(d)); saveDesign(); G.later(); sync(); showSel() },
@@ -195,11 +195,13 @@ function openEditor(on){ if (on && !active) return
 $('closeEditor').addEventListener('click', () => openEditor(false)); $('doneEditor').addEventListener('click', () => openEditor(false))
 function useTree(id, { open = false } = {}){ const t = mine.find(x => x.id === id); if (!t) return
   active = id; setSpecies(t.species); p.design = JSON.parse(JSON.stringify(t.design)); p.designVary = t.vary ?? { amount: .35, seed: 0 }
+  // (a tree saved as a lone base dot, from before new trees began with a trunk: it gets the trunk)
+  if (p.design.strokes[0].pts.length < 2){ p.design.strokes[0] = blankDesign(p).strokes[0]; t.design = JSON.parse(JSON.stringify(p.design)) }
   sculpt.set(p.design); loadRef(); G.later(); renderMine(); showMode(); sync(); if (open) openEditor(true) }
 function leaveTree(){ if (!active) return; active = null; p.design = null; sculpt.set(null); openEditor(false); loadRef(); G.later(); renderMine(); showMode(); sync() }
 afterRestore = () => { if (!active){ openEditor(false); p.design = null } loadRef(); renderMine() }
 function addTree(){ remember(); let n = mine.length + 1; while (mine.some(t => t.name === `My tree ${n}`)) n++
-  const t = { id: 't' + Date.now().toString(36), name: `My tree ${n}`, species: p.species, design: blankDesign(p), vary: { amount: .35, seed: 0 } }   // a blank canvas: a base node to draw up from
+  const t = { id: 't' + Date.now().toString(36), name: `My tree ${n}`, species: p.species, design: blankDesign(p), vary: { amount: .35, seed: 0 } }   // a fresh start: a short trunk to add to
   mine.push(t); store(); useTree(t.id, { open: true }) }
 $('addTree').addEventListener('click', addTree); $('sheetAdd').addEventListener('click', () => { openSheet(false); addTree() })
 $('treeName').addEventListener('input', e => { const t = current(); if (t){ t.name = e.target.value; store(); renderMine(); $('nameText').textContent = t.name || 'My tree' } })
@@ -220,6 +222,7 @@ let tool = 'wood'
 function setTool(t){ tool = t; sculpt.setTool(t === 'ref' ? 'none' : t); for (const [id, k] of [['toolWood', 'wood'], ['toolCanopy', 'canopy'], ['toolRef', 'ref']]) $(id).setAttribute('aria-checked', k === t); showMode() }
 $('toolWood').addEventListener('click', () => setTool('wood')); $('toolCanopy').addEventListener('click', () => setTool('canopy')); $('toolRef').addEventListener('click', () => setTool('ref'))
 $('delSel').addEventListener('click', deleteSel)
+$('spinLimb').addEventListener('click', () => { const before = sculpt.spin(sculpt.selected); if (before) commitDesign(before); showSel() })
 $('delLimb').addEventListener('click', () => { const before = sculpt.remove(sculpt.selected); if (before) commitDesign(before); showSel() })
 // Clear: back to a base node (the canopy kept); Trace: a drawing of the tree in view - grown from the kind of tree, not from this drawing
 const replaceDesign = d => { remember(); p.design = d; sculpt.set(d); sculpt.select(-1); saveDesign(); G.later(); showMode(); sync() }
