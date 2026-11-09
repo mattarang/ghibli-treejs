@@ -23,6 +23,8 @@ const G_SPRING = ['#22402a', '#386a3a', '#6cb83c', '#a8da5a'], G_AUTUMN = ['#343
 const H_AUTUMN = ['#4a3220', '#7a4a26', '#a8703a', '#c89a52']
 
 export const isEvergreen = name => EVERGREEN.has(name)
+// (one of your own trees says for itself)
+export const evergreenOf = (name, sp) => sp?.custom ? !!sp.evergreen : EVERGREEN.has(name)
 
 const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)/255)
 const hex = c => '#' + c.map(v => Math.round(Math.min(1, Math.max(0, v))*255).toString(16).padStart(2, '0')).join('')
@@ -33,6 +35,9 @@ const formKey = name => /autumn|scarlet|wine|rust|russet|gold/.test(name) ? 'aut
 
 // the four keys of a species, from its palette and colour forms
 export function speciesKeys(name, sp){
+  // one of your own trees: its leaf colour is its summer, whatever kind of tree it grows like
+  if (sp.custom){ const ever = !!sp.evergreen, summer = sp.palette
+    return { spring: sp.spring ?? mixPal(summer, FRESH, ever ? .2 : .5), summer, autumn: ever ? mixPal(summer, COLD, .2) : sp.autumn ?? AUTUMN_DEFAULT, winter: ever ? mixPal(summer, COLD, .45) : WITHERED } }
   const base = BASE_KEY[name] ?? 'summer', green = sp.colors?.find(f => /summer/.test(f.name))?.palette
   const summer = base === 'summer' ? sp.palette : green ?? GREEN
   const ever = EVERGREEN.has(name)

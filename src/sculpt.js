@@ -272,8 +272,9 @@ export function makeSculpt(G, { onEdit, onPreview, onSelect, guessRadius }){
       design.strokes.forEach(o => { if (o.from && o.from.s === si && o.from.i >= i) o.from.i = Math.max(o.from.i - 1, 0) })
       selNode = Math.min(i, st.pts.length - 1); draw(); return before },
     set(d){ design = d ? clone(d) : null; if (selected >= (design?.strokes.length ?? 0)){ selected = -1; selNode = -1 } draw(); placeRef() },
-    show(v, r){ on = v; group.visible = v; if (!v) canvas.style.cursor = ''; if (r) root = r; refGroup.visible = v; placeRef(); if (!v){ selected = -1; selNode = -1; drag = null; controls.enabled = true } draw() },
-    setTool(t){ tool = t; draw() },
+    show(v, r){ on = v; group.visible = v && tool !== 'look'; if (!v) canvas.style.cursor = ''; if (r) root = r; refGroup.visible = v; placeRef(); if (!v){ selected = -1; selNode = -1; drag = null; controls.enabled = true } draw() },
+    // ('look': the leaves or bark are being set - nothing over the tree, so it can be seen)
+    setTool(t){ tool = t; group.visible = on && t !== 'look'; draw() },
     // a limb (and all grown from it) turned a sixth of the way round the wood it grows from
     spin(si){ const st = design?.strokes[si]; if (!st?.from) return null; const before = clone(design), par = design.strokes[st.from.s], i = st.from.i
       const a = W(par.pts[Math.max(i - 1, 0)]), b = W(par.pts[Math.min(i + 1, par.pts.length - 1)]), axis = b.sub(a).normalize(), o = W(par.pts[i]), q = new THREE.Quaternion().setFromAxisAngle(axis, Math.PI/3)

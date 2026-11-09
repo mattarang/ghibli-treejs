@@ -62,11 +62,12 @@
     <button id="closeEditor" class="icon-btn" type="button" aria-label="Close" title="Close (Esc)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg></button>
   </div>
   <div class="ed-body">
-    <label class="base"><span>Leaves and bark like</span><select id="treeBase"></select></label>
-    <div class="tabs three" role="radiogroup" aria-label="What to edit">
-      <button id="toolWood" type="button" class="tab" role="radio" aria-checked="true">Wood <kbd>1</kbd></button>
-      <button id="toolCanopy" type="button" class="tab" role="radio" aria-checked="false">Canopy <kbd>2</kbd></button>
-      <button id="toolRef" type="button" class="tab" role="radio" aria-checked="false">Reference <kbd>3</kbd></button>
+    <div class="tabs five" role="radiogroup" aria-label="What to edit">
+      <button id="toolWood" type="button" class="tab" role="radio" aria-checked="true" title="Wood (1)">Wood</button>
+      <button id="toolCanopy" type="button" class="tab" role="radio" aria-checked="false" title="Canopy (2)">Canopy</button>
+      <button id="toolLeaves" type="button" class="tab" role="radio" aria-checked="false" title="Leaves (3)">Leaves</button>
+      <button id="toolBark" type="button" class="tab" role="radio" aria-checked="false" title="Bark (4)">Bark</button>
+      <button id="toolRef" type="button" class="tab" role="radio" aria-checked="false" title="Picture to work over (5)">Picture</button>
     </div>
     <p id="drawHint" class="hint"></p>
     <div id="selBox" class="node" hidden>
@@ -82,12 +83,35 @@
       <div class="row"><div class="row-head"><label for="refSize">Size</label></div><input id="refSize" type="range" min=".3" max="3" step=".01" value="1"></div>
       <div class="row"><div class="row-head"><label for="refRaise">Raise</label></div><input id="refRaise" type="range" min="-.5" max=".5" step=".005" value="0"></div>
     </div>
+    <div id="leavesBox" hidden>
+      <div class="swatches">
+        <label class="swatch"><input id="leafColor" type="color"><span>Leaf colour</span></label>
+        <label class="swatch" id="autumnSwatch"><input id="autumnColor" type="color"><span>Autumn</span></label>
+      </div>
+      <button id="evergreen" type="button" class="btn ghost small" aria-pressed="false">Evergreen</button>
+      <details class="fine"><summary>Fine-tune the shades</summary><div class="swatches four" id="leafBands"></div></details>
+      <div class="draw-row" role="group" aria-label="Season shown on the tree"><button id="seeSummer" type="button" class="btn ghost small" aria-pressed="false">See summer</button><button id="seeAutumn" type="button" class="btn ghost small" aria-pressed="false">See autumn</button></div>
+      <h3 class="draw-head">Leaf shape</h3>
+      <div class="chips" id="leafShapes"></div>
+      <h3 class="draw-head">Density</h3>
+      <div id="leafRows"></div>
+      <label class="base copy"><span>Copy leaves from</span><select id="copyLeaves"></select></label>
+    </div>
+    <div id="barkBox" hidden>
+      <div class="swatches"><label class="swatch"><input id="barkColor" type="color"><span>Bark colour</span></label></div>
+      <details class="fine"><summary>Fine-tune the shades</summary><div class="swatches four" id="barkBands"></div></details>
+      <h3 class="draw-head">Texture</h3>
+      <div id="barkRows"></div>
+      <label class="base copy"><span>Copy bark from</span><select id="copyBark"></select></label>
+    </div>
+    <div id="shapeBits">
     <div class="draw-row"><button id="clearDraw" type="button" class="btn ghost small" title="Back to a bare base node">Clear</button><button id="traceTree" type="button" class="btn ghost small" title="Start from the shape of the tree in view">Trace the tree in view</button></div>
     <h3 class="draw-head">Neighbours</h3>
     <div class="row"><div class="row-head"><label for="varyAmt">Variation</label><span id="varyOut" class="val" aria-hidden="true"></span></div><input id="varyAmt" type="range" min="0" max="1" step=".01" value=".35"></div>
     <div class="draw-row"><button id="neighbour" type="button" class="btn ghost small">New neighbour <kbd>N</kbd></button><button id="original" type="button" class="btn ghost small">The drawing</button><button id="grove" type="button" class="btn ghost small" aria-pressed="false">Grove</button></div>
     <h3 class="draw-head">Character</h3>
     <div id="editChar"></div>
+    </div>
   </div>
   <div class="pop-foot">
     <p class="keys"><span><kbd>⌘Z</kbd> undo</span><span><kbd>⇧⌘Z</kbd> redo</span><span><kbd>Del</kbd> delete</span></p>

@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import GUI from 'lil-gui'
 import Stats from 'stats.js'
 import { SPECIES, CROWNS, BRUSHES } from './presets.js'
-import { speciesKeys, formKeys, seasonPal, seasonPair, groundKeys, hillKeys, HILL_TURN, autumnShare, leafKeep, isEvergreen, snowCover, SNOW_GROUND, mixPal, seasonSky, SUMMER_SKY, leafFallRate, iceCover, SEASON_NAMES } from './seasons.js'
+import { speciesKeys, formKeys, seasonPal, seasonPair, groundKeys, hillKeys, HILL_TURN, autumnShare, leafKeep, evergreenOf, snowCover, SNOW_GROUND, mixPal, seasonSky, SUMMER_SKY, leafFallRate, iceCover, SEASON_NAMES } from './seasons.js'
 import { makeLeafFall } from './leaves.js'
 import { mulberry32, POND, pondDist, pondLevel, setPond, generatePlant, generateGround, generateGrassCell, generateGrassCollars, generateFlowerCell, rocksOfCell, groundHeight, layoutScene, newBuffer, GESTURE_NAMES } from './generator.js'
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
@@ -949,7 +949,7 @@ const MEADOW = SPECIES['Camphor tree'].ground
 // a tree's leaves, its colour forms, and its backlight and rim, which follow its lit leaves into autumn (off: the species' own colours)
 function seasonLeaves(sp, pal, mat, sss, rim, depth){
   const name = sp.name ?? p.species, keys = speciesKeys(name, sp), on = p.seasonOn, u = mat.uniforms
-  const keep = on && !isEvergreen(name) ? leafKeep(p.season) : 1
+  const keep = on && !evergreenOf(name, sp) ? leafKeep(p.season) : 1
   u.uLeafKeep.value = keep; if (depth?.userData.leafKeep) depth.userData.leafKeep.value = keep
   const [A, B, t] = on ? seasonPair(keys, p.season) : [sp.palette, sp.palette, 0], P = on ? seasonPal(keys, p.season) : sp.palette
   setPalette(pal, A); B.forEach((hex, n) => u['uPalB' + n].value.set(hex)); u.uSeasonT.value = t
@@ -969,7 +969,7 @@ function applySeason(){
   setPalette(pals.ground, g); groundMat.color.set(g[2]); grassMat.color.set(g[2])
   flowerMat.visible = snow < .3; pondMat.uniforms.uIce.value = p.seasonOn ? iceCover(p.season) : 0   // the ice front follows the dial: frozen at midwinter
   // leaves falling from a deciduous tree through autumn, in this moment's leaf colours with some withered ones among them
-  const falling = p.seasonOn && !isEvergreen(p.species) && p.showFoliage !== false && !(p.forest > 0) ? leafFallRate(p.season) : 0
+  const falling = p.seasonOn && !evergreenOf(p.species, p) && p.showFoliage !== false && !(p.forest > 0) ? leafFallRate(p.season) : 0
   leafFall.state.rate = falling*80
   if (falling){ const P = seasonPal(speciesKeys(p.species, { ...p, name: p.species }), p.season); leafFall.state.colors = [P[1], P[2], P[2], P[3], '#8a5a34', '#a8743e'].map(h => new THREE.Color(h)) }
   renderer.shadowMap.needsUpdate = true
@@ -1313,7 +1313,7 @@ function bootTick(){
 if (qs.has('close')) gui.close()
 // the main tree for the drawing editor (src/sculpt.js): where it stands, and its leaf clumps, to start a drawing from the tree as grown
 const treeInfo = () => ({ root: [0, groundHeight(0, 0) - .08, 0], clumps: heldClumps.filter(c => c.plant === lastTreePlant), scale: p.size })
-window.__foliage = { treeInfo, later, preview, layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
+window.__foliage = { applyLook, treeInfo, later, preview, layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
 // profiling: frame rate and frame time, then draw calls and triangles per frame (these include the shadow pass)
 const statsBar = document.createElement('div')
 statsBar.style.cssText = 'position:fixed;left:8px;top:8px;display:flex;gap:4px;z-index:20;pointer-events:none'

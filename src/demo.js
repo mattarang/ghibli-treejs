@@ -6,6 +6,7 @@
 window.__DEMO = true
 await import('./main.js')
 const { makeSculpt, designFromTree, blankDesign } = await import('./sculpt.js')
+const { speciesKeys, isEvergreen, mixPal } = await import('./seasons.js')
 const G = window.__foliage, p = G.p, $ = id => document.getElementById(id)
 const ctl = prop => G.gui.controllersRecursive().find(c => c.property === prop)
 const set = (prop, v) => ctl(prop)?.setValue(v)
@@ -158,6 +159,8 @@ renderMine = () => { myList.replaceChildren(...mine.map(t => { const b = documen
   myList.hidden = !mine.length; myList.previousElementSibling.hidden = !mine.length }
 const HINTS = { wood: 'Tap a + to grow a branch from there; the + at a tip makes it longer. Drag any dot to shape it. Tap a branch to pick it and add to it, tap a dot to set its thickness.',
   canopy: 'Drag the side handles to widen or narrow the canopy at that height, the green ones to bulge it out or pull it in, the top and bottom ones to raise or lower it.',
+  leaves: 'Your tree\'s own leaves: pick a colour and the shades follow.',
+  bark: 'Your tree\'s own bark and what grows on it.',
   ref: 'Choose a picture (or drop one onto the page) to stand behind the tree and draw over. Turn the camera to the view you want, then press Face the camera.' }
 const orderOf = (d, si) => { let n = 0; for (let s = si; s > 0 && d.strokes[s]?.from; s = d.strokes[s].from.s) n++; return n }
 const lerpN = (a, b, t) => a + (b - a)*t
@@ -166,7 +169,7 @@ const guessRadius = (si, i, d) => { const R = p.trunkRadius*p.size, st = d.strok
 // a node's thickness on the slider: metres of radius on a log scale, 1.5 cm to 3 m
 const R_LO = .015, R_HI = 3, toSlider = r => Math.log(r/R_LO)/Math.log(R_HI/R_LO), fromSlider = v => R_LO*(R_HI/R_LO)**v
 // what is picked, said in words, with what can be done to it
-function showSel(){ const si = sculpt.selected, i = sculpt.selNode, d = sculpt.design, on = !!p.design && si >= 0 && !!d?.strokes[si]; $('selBox').hidden = !on; if (!on) return
+function showSel(){ const si = sculpt.selected, i = sculpt.selNode, d = sculpt.design, on = !!p.design && tool === 'wood' && si >= 0 && !!d?.strokes[si]; $('selBox').hidden = !on; if (!on) return
   const st = d.strokes[si], nodes = st.pts.length - 1, isNode = i >= 1
   $('selTitle').textContent = (si === 0 ? 'The trunk' : `Limb ${si}`) + (isNode ? `, node ${i} of ${nodes}` : '')
   $('nodeTools').hidden = !isNode
@@ -189,6 +192,7 @@ function deleteSel(){ const si = sculpt.selected, i = sculpt.selNode, st = sculp
 // the Character sliders (trunk bends, lean, crookedness, windswept) shape the growth that fills a drawing: the editor borrows them
 const charGroup = () => groups[groups.length - 1]
 function openEditor(on){ if (on && !active) return
+  if (!on) releaseSeason()
   editor.hidden = !on; shapeBtn.setAttribute('aria-expanded', on); document.body.classList.toggle('shaping', on)
   if (on){ openShape(false); openSheet(false); $('editChar').append(charGroup()); charGroup().hidden = false } else if (charGroup().parentElement !== panel){ panel.append(charGroup()); showTab(0) }
   sculpt.show(on && !!p.design, G.treeInfo().root); showMode() }
@@ -197,30 +201,116 @@ function useTree(id, { open = false } = {}){ const t = mine.find(x => x.id === i
   active = id; setSpecies(t.species); p.design = JSON.parse(JSON.stringify(t.design)); p.designVary = t.vary ?? { amount: .35, seed: 0 }
   // (a tree saved as a lone base dot, from before new trees began with a trunk: it gets the trunk)
   if (p.design.strokes[0].pts.length < 2){ p.design.strokes[0] = blankDesign(p).strokes[0]; t.design = JSON.parse(JSON.stringify(p.design)) }
+  t.look ??= lookFrom(t.species, LOOK_KEYS); applyTreeLook(t); store()
   sculpt.set(p.design); loadRef(); G.later(); renderMine(); showMode(); sync(); if (open) openEditor(true) }
-function leaveTree(){ if (!active) return; active = null; p.design = null; sculpt.set(null); openEditor(false); loadRef(); G.later(); renderMine(); showMode(); sync() }
-afterRestore = () => { if (!active){ openEditor(false); p.design = null } loadRef(); renderMine() }
+function leaveTree(){ if (!active) return; releaseSeason(); active = null; p.design = null; applyTreeLook(null); sculpt.set(null); openEditor(false); loadRef(); G.later(); renderMine(); showMode(); sync() }
+afterRestore = () => { if (!active){ openEditor(false); p.design = null }
+  // (undo may have changed the look, or left the tree)
+  const look = JSON.stringify(current()?.look ?? null); if (look !== lookShown){ applyTreeLook(current()); G.later() }
+  loadRef(); renderMine() }
 function addTree(){ remember(); let n = mine.length + 1; while (mine.some(t => t.name === `My tree ${n}`)) n++
-  const t = { id: 't' + Date.now().toString(36), name: `My tree ${n}`, species: p.species, design: blankDesign(p), vary: { amount: .35, seed: 0 } }   // a fresh start: a short trunk to add to
+  const t = { id: 't' + Date.now().toString(36), name: `My tree ${n}`, species: p.species, look: { ...lookFrom('Camphor tree', LOOK_KEYS), spring: undefined, evergreen: false, autumn: leafShades('#c8742a') }, design: blankDesign(p), vary: { amount: .35, seed: 0 } }   // a fresh start: a short trunk to add to, and a plain green tree's leaves and bark to change
   mine.push(t); store(); useTree(t.id, { open: true }) }
 $('addTree').addEventListener('click', addTree); $('sheetAdd').addEventListener('click', () => { openSheet(false); addTree() })
 $('treeName').addEventListener('input', e => { const t = current(); if (t){ t.name = e.target.value; store(); renderMine(); $('nameText').textContent = t.name || 'My tree' } })
 $('treeName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur() })
-for (const n of names) $('treeBase').add(new Option(n, n))
-$('treeBase').addEventListener('change', e => { remember(); const d = p.design, v = p.designVary; setSpecies(e.target.value); p.design = d; p.designVary = v; saveDesign(); G.later(); sync() })
 $('deleteTree').addEventListener('click', () => { const t = current(); if (!t) return; remember(); mine = mine.filter(x => x !== t); store(); try { localStorage.removeItem(REF(t.id)) } catch {} leaveTree() })
+// ---- a tree's own look: its leaves and bark, kept with it and independent of any kind of tree ----
+const SHAPE_KEYS = ['brushWidth', 'midSize', 'strays', 'core', 'plateSize', 'strokeAngle', 'strokeJitter', 'lobePoint', 'lobeTilt', 'lobeWide', 'lobeDrape', 'lobeFollow', 'lobeAlong', 'lobeRough', 'lobeStretch', 'clumpVar', 'hang']
+const LEAF_KEYS = ['palette', 'sss', 'rim', 'fleck', 'coverage', 'clumpRadius', 'cardSize', 'clumpsPerTip', 'squash', 'leaf', 'edge', 'colors', 'colorPick', 'autumn', 'spring', 'evergreen', 'clumpKeep', ...SHAPE_KEYS]
+const BARK_KEYS = ['bark', 'barkScale', 'barkStretch', 'barkFurrow', 'barkPlates', 'barkBands', 'moss', 'ivy']
+const LOOK_KEYS = [...LEAF_KEYS, ...BARK_KEYS], cloneV = v => v == null ? v : JSON.parse(JSON.stringify(v))
+// the settings of a kind of tree, as a look: its year's colours written out, since a look's colours are its own
+function lookFrom(name, keys){ const sp = G.SPECIES[name], y = speciesKeys(name, sp), o = {}
+  for (const k of keys) if (k in sp) o[k] = cloneV(sp[k])
+  if (keys === LEAF_KEYS || keys === LOOK_KEYS){ o.palette = cloneV(y.summer); o.autumn = cloneV(y.autumn); o.spring = cloneV(y.spring); o.evergreen = isEvergreen(name); o.clumpKeep = 1 }
+  return o }
+let lookShown = 'null'
+function applyTreeLook(t){ const base = G.SPECIES[p.species]
+  for (const k of LOOK_KEYS){ if (t?.look && k in t.look) p[k] = cloneV(t.look[k]); else if (k in base) p[k] = cloneV(base[k]); else delete p[k] }
+  if (t?.look) p.custom = true; else delete p.custom
+  lookShown = JSON.stringify(t?.look ?? null); G.applyLook() }
+// the four shades from one colour (the rule in presets.js): shade cooler and darker, highlight warmer and lighter
+const hsv = c => { const [r, g, b] = [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)/255), M = Math.max(r, g, b), d = M - Math.min(r, g, b)
+  const h = !d ? 0 : M === r ? ((g - b)/d + 6)%6 : M === g ? (b - r)/d + 2 : (r - g)/d + 4; return [h*60, M ? d/M : 0, M] }
+const hex6 = (h, s, v) => { s = Math.min(1, s); v = Math.min(1, v); const f = n => { const k = (n + h/60)%6; return v - v*s*Math.max(0, Math.min(k, 4 - k, 1)) }
+  return '#' + [f(5), f(3), f(1)].map(x => Math.round(x*255).toString(16).padStart(2, '0')).join('') }
+const toward = (h, to, deg) => { const d = ((to - h + 540)%360) - 180; return (h + Math.sign(d)*Math.min(Math.abs(d), deg) + 360)%360 }
+const leafShades = c => { const [h, s, v] = hsv(c); return [hex6(toward(h, 230, 40), s*.85, v*.34), hex6(toward(h, 230, 30), s*.7, v*.5), c, hex6(toward(h, 50, 18), s*.85, v*1.22)] }
+const barkShades = c => { const [h, s, v] = hsv(c); return [hex6(h, s, v*.25), hex6(h, s, v*.47), c, hex6(h, s*.72, v*1.45)] }
+const mix1 = (a, b, t) => mixPal([a], [b], t)[0]
+let lookEditing = false
+const beginLook = () => { if (!lookEditing){ remember(); lookEditing = true } }
+const endLook = () => { lookEditing = false; store() }
+const putLook = (k, v) => { const t = current(); if (!t) return; p[k] = cloneV(v); if (v === undefined){ delete p[k]; delete t.look[k] } else t.look[k] = cloneV(v); lookShown = JSON.stringify(t.look) }
+// the leaf colours changed: backlight and rim follow them, and the kind's own spring tint and colour forms no longer apply
+function setLeafBands(pal){ putLook('palette', pal); putLook('rim', pal[3]); putLook('sss', mix1(pal[3], '#fff0b0', .3)); putLook('spring', undefined)
+  if (p.colors){ putLook('colors', null); putLook('colorPick', 0); G.later() } G.applyLook(); syncLook() }
+// the season the leaves are being judged in: shown on the tree while a colour is set, and put back afterwards (unless the dial was moved meanwhile)
+const SUMMER_AT = .25, AUTUMN_AT = .5, seasonCtl = k => G.gui.controllersRecursive().find(c => c.property === k)
+let seasonHeld = null, seasonShown = null
+function showSeason(s){ if (!seasonHeld) seasonHeld = { on: p.seasonOn, s: p.season }; seasonShown = s; seasonCtl('seasonOn')?.setValue(true); seasonCtl('season')?.setValue(s)
+  $('seeSummer').setAttribute('aria-pressed', s === SUMMER_AT); $('seeAutumn').setAttribute('aria-pressed', s === AUTUMN_AT) }
+function releaseSeason(){ if (!seasonHeld) return; const h = seasonHeld; seasonHeld = null; if (p.season === seasonShown){ seasonCtl('season')?.setValue(h.s); seasonCtl('seasonOn')?.setValue(h.on) }
+  $('seeSummer').setAttribute('aria-pressed', false); $('seeAutumn').setAttribute('aria-pressed', false) }
+$('seeSummer').addEventListener('click', () => showSeason(SUMMER_AT)); $('seeAutumn').addEventListener('click', () => showSeason(AUTUMN_AT))
+for (const ev of ['pointerdown', 'focus']){ $('autumnColor').addEventListener(ev, () => showSeason(AUTUMN_AT)); $('leafColor').addEventListener(ev, () => showSeason(SUMMER_AT)) }
+$('leafColor').addEventListener('input', e => { beginLook(); showSeason(SUMMER_AT); setLeafBands(leafShades(e.target.value)) })
+$('autumnColor').addEventListener('input', e => { beginLook(); showSeason(AUTUMN_AT); putLook('autumn', leafShades(e.target.value)); G.applyLook() })
+$('barkColor').addEventListener('input', e => { beginLook(); putLook('bark', barkShades(e.target.value)); G.applyLook(); syncLook() })
+for (const id of ['leafColor', 'autumnColor', 'barkColor']) $(id).addEventListener('change', endLook)
+$('evergreen').addEventListener('click', () => { beginLook(); putLook('evergreen', !p.evergreen); endLook(); G.applyLook(); syncLook() })
+const BAND_NAMES = ['Deep', 'Shade', 'Lit', 'Bright'], bandInputs = { leaf: [], bark: [] }
+for (const [which, box] of [['leaf', 'leafBands'], ['bark', 'barkBands']]) BAND_NAMES.forEach((n, i) => { const l = document.createElement('label'), c = document.createElement('input'), s = document.createElement('span')
+  l.className = 'swatch'; c.type = 'color'; s.textContent = n; l.append(c, s); $(box).append(l); bandInputs[which].push(c)
+  c.addEventListener('input', () => { beginLook(); const k = which === 'leaf' ? 'palette' : 'bark', pal = [...p[k]]; pal[i] = c.value; if (which === 'leaf') setLeafBands(pal); else { putLook('bark', pal); G.applyLook(); syncLook() } })
+  c.addEventListener('change', endLook) })
+// a leaf shape is a whole way of painting the leaves: the brush alone is too fine to see from where a tree is looked at, so each also sets the strokes, the clumps they make and their size
+const PLAIN = { brushWidth: .85, midSize: 2.4, strays: .18, core: true, plateSize: 1, strokeAngle: 0, strokeJitter: 70, lobePoint: .1, lobeTilt: 0, lobeWide: 1, lobeDrape: 0, lobeFollow: 0, lobeAlong: 1.5, lobeRough: .8, lobeStretch: [1.12, .8], clumpVar: .45, hang: 0, cardSize: .72, clumpRadius: .8, squash: .78 }
+const SHAPES = [
+  ['Soft', { leaf: 'round', edge: 'round', lobeAlong: 1, brushWidth: 1, strays: 0, strokeAngle: 80, strokeJitter: 24, lobePoint: 0, lobeRough: .35, lobeStretch: [1.2, .7], clumpVar: .3, cardSize: 1.05, clumpRadius: 1.25, squash: .62 }],
+  ['Broad', { leaf: 'round', edge: 'pointed' }],
+  ['Spiky', { leaf: 'pointed', edge: 'pointed', lobeAlong: 1, brushWidth: .38, midSize: 1.4, strays: .5, plateSize: .55, strokeAngle: 72, strokeJitter: 26, lobePoint: .6, lobeRough: 1.5, lobeStretch: [.8, 1.25], clumpVar: .3, cardSize: .78, clumpRadius: .58, squash: .95 }],
+  ['Maple', { leaf: 'pointed', edge: 'maple', lobeAlong: 1, midSize: 2, strays: .4, plateSize: .42, lobePoint: 0, lobeTilt: -.4, lobeWide: 1.4, lobeDrape: .45, lobeFollow: .6, lobeRough: .6, lobeStretch: [1.4, .5], clumpVar: .55, cardSize: .62, clumpRadius: .7, squash: .42 }],
+  ['Willow', { leaf: 'willow', edge: 'spray', lobeAlong: 1, brushWidth: .3, midSize: 0, strays: 0, core: false, strokeJitter: 16, lobePoint: 0, lobeRough: 1, lobeStretch: null, clumpVar: .35, hang: 2.6, cardSize: .95, clumpRadius: .9, squash: .62 }],
+  ['Frond', { leaf: 'pointed', edge: 'spray', brushWidth: .55, midSize: 1.8, strays: .3, plateSize: .7, strokeAngle: 70, strokeJitter: 30, lobePoint: .25, lobeTilt: -.35, lobeAlong: 2.4, lobeRough: 1, lobeStretch: [1.5, .6], clumpVar: .3, cardSize: .8, clumpRadius: .72, squash: .55 }],
+].map(([label, o]) => [label, { ...PLAIN, ...o }])
+const shapeBtns = SHAPES.map(([label, o]) => { const b = document.createElement('button'); Object.assign(b, { type: 'button', className: 'btn ghost small', textContent: label }); $('leafShapes').append(b)
+  b.addEventListener('click', () => { remember(); for (const [k, v] of Object.entries(o)) putLook(k, v); store(); G.later(); syncLook() }); return [b, o] })
+const scale = v => `${Math.round(v*100)}%`
+const LOOK_ROWS = { leafRows: [['clumpKeep', 'Fullness', .15, 1, .01, scale, true], ['clumpRadius', 'Clump size', .3, 3.5, .01, v => `${(+v).toFixed(1)} m`, true], ['squash', 'Clump height', .3, 2, .01, scale, true], ['cardSize', 'Leaf size', .3, 3.5, .01, scale, true], ['fleck', 'Flecks', 0, 1, .01, scale, false]],
+  barkRows: [['barkScale', 'Pattern size', .3, 4, .01, scale, false], ['barkFurrow', 'Fissures', 0, 2, .01, scale, false], ['barkPlates', 'Plates', 0, 1.5, .01, scale, false], ['barkBands', 'Bands', 0, 1, .01, scale, false], ['moss', 'Moss', 0, 1, .01, scale, false], ['ivy', 'Ivy', 0, 1, .01, scale, true]] }
+const lookInputs = []
+for (const [box, rows] of Object.entries(LOOK_ROWS)) for (const [k, label, min, max, step, fmt, grows] of rows){
+  const id = 'look-' + k, wrap = document.createElement('div'), head = document.createElement('div'), lab = document.createElement('label'), out = document.createElement('span'), input = document.createElement('input')
+  wrap.className = 'row'; head.className = 'row-head'; lab.htmlFor = id; lab.textContent = label; out.className = 'val'; out.setAttribute('aria-hidden', 'true'); Object.assign(input, { id, type: 'range', min, max, step })
+  head.append(lab, out); wrap.append(head, input); $(box).append(wrap); lookInputs.push([input, k, out, fmt])
+  input.addEventListener('input', () => { beginLook(); putLook(k, +input.value); out.textContent = fmt(+input.value); fill(input); if (grows) G.preview(); else G.applyLook() })
+  input.addEventListener('change', () => { endLook(); if (grows) G.later() }) }
+for (const [sel, keys, title] of [['copyLeaves', LEAF_KEYS, 'Choose a kind of tree'], ['copyBark', BARK_KEYS, 'Choose a kind of tree']]){ const el = $(sel); el.add(new Option(title, ''))
+  for (const n of names) el.add(new Option(n, n))
+  el.addEventListener('change', () => { const n = el.value, t = current(); el.value = ''; if (!n || !t) return; remember(); const o = lookFrom(n, keys)
+    for (const k of keys) if (k in o) putLook(k, o[k]); else if (k in t.look) putLook(k, undefined)
+    store(); applyTreeLook(t); G.later(); syncLook() }) }
+function syncLook(){ if (!active) return
+  $('leafColor').value = p.palette[2]; $('barkColor').value = p.bark[2]; $('autumnColor').value = (p.autumn ?? ['', '', '#c8742a'])[2]
+  $('evergreen').setAttribute('aria-pressed', !!p.evergreen); $('autumnSwatch').toggleAttribute('data-off', !!p.evergreen)
+  bandInputs.leaf.forEach((c, i) => { c.value = p.palette[i] }); bandInputs.bark.forEach((c, i) => { c.value = p.bark[i] })
+  for (const [b, o] of shapeBtns) b.setAttribute('aria-pressed', p.leaf === o.leaf && p.edge === o.edge)
+  for (const [input, k, out, fmt] of lookInputs){ input.value = p[k] ?? (k === 'clumpKeep' ? 1 : 0); out.textContent = fmt(+input.value); fill(input) } }
 showMode = () => { const t = current()
   $('shapeLabel').textContent = active ? 'Edit' : 'Shape'; shapeBtn.setAttribute('aria-controls', active ? 'editor' : 'shape')
   if (!t) return
   if (document.activeElement !== $('treeName')) $('treeName').value = t.name
-  $('treeBase').value = p.species; $('drawHint').textContent = HINTS[tool]
+  $('drawHint').textContent = HINTS[tool]; for (const [id, k] of [['leavesBox', 'leaves'], ['barkBox', 'bark']]) $(id).hidden = tool !== k; $('shapeBits').hidden = tool !== 'wood'; syncLook()
   $('grove').setAttribute('aria-pressed', p.grove > 1)
   const v = p.designVary?.amount ?? .35; $('varyAmt').value = v; $('varyOut').textContent = `${Math.round(v*100)}%`; fill($('varyAmt'))
   $('refBox').hidden = tool !== 'ref'; $('refFace').disabled = $('refRemove').disabled = !sculpt.reference.on
   showSel() }
 let tool = 'wood'
-function setTool(t){ tool = t; sculpt.setTool(t === 'ref' ? 'none' : t); for (const [id, k] of [['toolWood', 'wood'], ['toolCanopy', 'canopy'], ['toolRef', 'ref']]) $(id).setAttribute('aria-checked', k === t); showMode() }
-$('toolWood').addEventListener('click', () => setTool('wood')); $('toolCanopy').addEventListener('click', () => setTool('canopy')); $('toolRef').addEventListener('click', () => setTool('ref'))
+const TOOLS = [['toolWood', 'wood'], ['toolCanopy', 'canopy'], ['toolLeaves', 'leaves'], ['toolBark', 'bark'], ['toolRef', 'ref']]
+function setTool(t){ if (t !== 'leaves') releaseSeason(); tool = t; sculpt.setTool(t === 'ref' ? 'none' : t === 'leaves' || t === 'bark' ? 'look' : t); for (const [id, k] of TOOLS) $(id).setAttribute('aria-checked', k === t); showMode() }
+for (const [id, k] of TOOLS) $(id).addEventListener('click', () => setTool(k))
 $('delSel').addEventListener('click', deleteSel)
 $('spinLimb').addEventListener('click', () => { const before = sculpt.spin(sculpt.selected); if (before) commitDesign(before); showSel() })
 $('delLimb').addEventListener('click', () => { const before = sculpt.remove(sculpt.selected); if (before) commitDesign(before); showSel() })
@@ -266,7 +356,7 @@ addEventListener('drop', e => { if (editor.hidden) return; e.preventDefault(); u
 // ---- the editor's keys: Delete removes what is picked, 1 2 3 the tools, [ and ] thickness, N a new neighbour (Escape and undo above) ----
 addEventListener('keydown', e => { if (editor.hidden || typing() || e.metaKey || e.ctrlKey || e.altKey) return
   if (e.key === 'Delete' || e.key === 'Backspace'){ deleteSel(); e.preventDefault() }
-  else if (e.key === '1') setTool('wood'); else if (e.key === '2') setTool('canopy'); else if (e.key === '3') setTool('ref')
+  else if (/^[1-5]$/.test(e.key)) setTool(TOOLS[+e.key - 1][1])
   else if (e.key === '[') nudgeRadius(1/1.15); else if (e.key === ']') nudgeRadius(1.15)
   else if (e.key.toLowerCase() === 'n') neighbour() })
 // the tree shown last time, if it was one of yours

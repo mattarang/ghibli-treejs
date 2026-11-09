@@ -1567,6 +1567,9 @@ function addStroke(out, r, { q, n, t, len, wid, tile, pivot, ao, tone, wind, dab
 const randTile = (r, edge = false) => { const x = Math.floor(r()*4), y = Math.floor(r()*2) + (edge ? 2 : 0); return x === 3 && y === 3 ? [0, 2] : [x, y] }
 
 export function emitFoliage(sp, r, clumps, root, scale, out){
+  // (a tree's Fullness) only some of its clumps, so the branches and sky show between them; each clump's chance is fixed by where it is, so turning the slider down takes clumps away one by one
+  // (from the list itself: what is drawn after the leaves reads the clumps that were painted)
+  if ((sp.clumpKeep ?? 1) < 1) for (let i = clumps.length - 1; i >= 0; i--){ const { c } = clumps[i], h = Math.sin(c[0]*12.9898 + c[1]*37.719 + c[2]*78.233)*43758.5453; if (h - Math.floor(h) >= sp.clumpKeep && clumps.length > 3) clumps.splice(i, 1) }
   const H = sp.height*scale, turn = sp.strokeAngle*Math.PI/180, jitter = sp.strokeJitter*Math.PI/180
   const swayAt = y => .32*scale*(clamp((y - root[1])/H)**1.6)*(sp.height > 4 ? 1 : .5)
   const len0 = markSize(sp, scale), wid0 = len0*sp.brushWidth
