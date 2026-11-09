@@ -1,17 +1,40 @@
-/* The boot screen, in the locked herbarium-sheet language (design/ROUND-2-CONTEXT.md): the empty paper sheet, left for the specimen that
-   is about to arrive, and one small label in its corner - the spring-loaded season selector (main.js turns it), the name, the step and
+/* The boot screen: the empty paper sheet, left for the tree that is about to arrive, and one small label in its corner - the spring-loaded season selector, turning, the name, the step and
    how far along it is, in the same paper and type as the controls. It lifts in a fade once the first frames are drawn. */
 #boot { position: fixed; inset: 0; z-index: 3000; overflow: hidden; --at: 0;
   background: #e6e9e1; color: #2b2b28; font: 400 13px/1.45 "Nunito Sans", ui-sans-serif, system-ui, sans-serif;
   transition: opacity .9s ease, visibility 0s linear .9s; }
 #boot.done { opacity: 0; visibility: hidden; }
 #boot .boot-label { position: absolute; right: max(5vw, 20px); bottom: max(5vh, 20px); width: 250px; display: grid; grid-template-columns: 56px 1fr; column-gap: 16px; align-items: start; }
-#boot .boot-dial { width: 56px; aspect-ratio: 1; margin-top: 4px; }
-#boot .boot-dial svg { width: 100%; height: 100%; overflow: visible; }
-#boot .boot-dial svg > ellipse { display: none; }
-#boot .boot-disc { transform-box: fill-box; transform-origin: center; }
-#boot .boot-hook { stroke: #2b2b28; }
-#boot .boot-dial svg > path:last-child { fill: #2b2b28; }
+#boot .boot-dial { position: relative; width: 56px; aspect-ratio: 1; margin-top: 4px; }
+/* the disc turns under its fixed hook: pushed a few degrees against its catch, then it gives, snaps to the next quarter, overshoots a
+   little and settles - over and over until the page is ready. A CSS transform on an HTML element, so the compositor keeps it moving even
+   while the page is busy growing the tree (a script-driven or SVG animation stalls with the page) */
+#boot .boot-disc { position: absolute; inset: 0; will-change: transform; animation: boot-turn 3.6s infinite; }
+#boot .boot-disc svg, #boot .boot-fixed { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+@keyframes boot-turn {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(.6, 0, .9, .6); }
+  9% { transform: rotate(-11deg); animation-timing-function: ease-out; }
+  15% { transform: rotate(-98deg); animation-timing-function: ease-in-out; }
+  18.5% { transform: rotate(-87deg); animation-timing-function: ease-in-out; }
+  21% { transform: rotate(-90deg); animation-timing-function: linear; }
+  25% { transform: rotate(-90deg); animation-timing-function: cubic-bezier(.6, 0, .9, .6); }
+  34% { transform: rotate(-101deg); animation-timing-function: ease-out; }
+  40% { transform: rotate(-188deg); animation-timing-function: ease-in-out; }
+  43.5% { transform: rotate(-177deg); animation-timing-function: ease-in-out; }
+  46% { transform: rotate(-180deg); animation-timing-function: linear; }
+  50% { transform: rotate(-180deg); animation-timing-function: cubic-bezier(.6, 0, .9, .6); }
+  59% { transform: rotate(-191deg); animation-timing-function: ease-out; }
+  65% { transform: rotate(-278deg); animation-timing-function: ease-in-out; }
+  68.5% { transform: rotate(-267deg); animation-timing-function: ease-in-out; }
+  71% { transform: rotate(-270deg); animation-timing-function: linear; }
+  75% { transform: rotate(-270deg); animation-timing-function: cubic-bezier(.6, 0, .9, .6); }
+  84% { transform: rotate(-281deg); animation-timing-function: ease-out; }
+  90% { transform: rotate(-368deg); animation-timing-function: ease-in-out; }
+  93.5% { transform: rotate(-357deg); animation-timing-function: ease-in-out; }
+  96% { transform: rotate(-360deg); animation-timing-function: linear; }
+  100% { transform: rotate(-360deg); animation-timing-function: linear; }
+}
+@media (prefers-reduced-motion: reduce) { #boot .boot-disc { animation-duration: 12s; animation-timing-function: linear; } }
 #boot .boot-name { margin: 0; font-weight: 800; font-size: 18px; line-height: 1.2; }
 #boot .boot-step, #boot .boot-pct { margin: .2em 0 0; color: #5c6456; font-weight: 600; }
 #boot .boot-pct { margin: 0; font-feature-settings: "tnum" 1; }

@@ -119,8 +119,9 @@ const fill = el => el.style.setProperty('--fill', `${((+el.value - +el.min)/(+el
 const putBack = prop => { if (!changed(prop)) return; remember(); set(prop, defaults[prop]); sync() }
 for (const [el, prop, out, fmt, , unit, label] of sliders){
   el.addEventListener('pointerdown', () => remember()); el.addEventListener('keydown', e => { if (!e.repeat && /Arrow|Page|Home|End/.test(e.key)) remember() })
-  el.addEventListener('input', () => { busy = el; set(prop, fromShown(unit, +el.value)); out.textContent = fmt(+el.value); fill(el) })
-  el.addEventListener('change', () => { busy = null; sync() })
+  // while it is dragged the tree regrows as a light preview at once (the leaf strokes thinned); let go, and the full tree follows
+  el.addEventListener('input', () => { busy = el; set(prop, fromShown(unit, +el.value)); G.preview(); out.textContent = fmt(+el.value); fill(el) })
+  el.addEventListener('change', () => { busy = null; G.later(); sync() })
   el.addEventListener('dblclick', () => putBack(prop))
   out.addEventListener('click', () => putBack(prop))
 }

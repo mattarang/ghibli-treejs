@@ -881,7 +881,7 @@ function emitWood(sp, r, root, scale, branches, wood, clumps){
     easeJoint(rings, false, forks.length + 1)
     for (const k of forks) easeJoint(all.get(k), true, forks.length + 1)
   }
-  const cell = Math.min(.085, sp.trunkRadius*scale*.16)          // the mesh is fine enough for the trunk it wraps, or thin stems facet
+  const cell = Math.min(.085, sp.trunkRadius*scale*.16)*(sp.skinCoarse ?? 1)   // the mesh is fine enough for the trunk it wraps, or thin stems facet (a preview, while a slider is dragged, skins coarser)
   const fine = Math.max(.05, skinCell(lo, hi, cell)*1.7)         // wood finer than the skin can hold stays a tube, or it breaks into dashes
   for (const b of branches){
     if (!b.kept) continue

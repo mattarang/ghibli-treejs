@@ -18,6 +18,7 @@ import { makeCompare } from './compare.js'
 import { applyLighting } from './lighting.js'
 import { addRecipeGui, loadSavedRecipes } from './recipe-gui.js'
 import { makeForest } from './forest.js'
+import { growScene } from './grow.js'
 
 const qs = new URLSearchParams(location.search)
 const DEMO = !!window.__DEMO
@@ -389,10 +390,13 @@ function shadersOf(i, all){
   }
   return list
 }
-function bakeSun(){
+// (fromPlant) only plants from this one on are lit again: each plant is lit on its own, so when only the tree regrew the bushes' entries (which
+// come first in the table) are left as they were
+function bakeSun(fromPlant = -Infinity){
   const s = U.uSunDir.value, data = sunTable.image.data, n = Math.min(heldClumps.length, data.length/4), plants = new Map()
   for (let i = 0; i < n; i++){
-    const c = heldClumps[i]; let masses = plants.get(c.plant)
+    const c = heldClumps[i]; if (c.plant < fromPlant) continue
+    let masses = plants.get(c.plant)
     if (!masses) plants.set(c.plant, masses = new Map())
     if (!masses.has(c.mass)) masses.set(c.mass, [])
     masses.get(c.mass).push(i)
@@ -631,18 +635,6 @@ const lerpN = (a, b, t) => a + (b - a)*t
 const mergeVerts = g => { g.deleteAttribute('normal'); g.deleteAttribute('uv'); return mergeVertices(g) }   // shared corners, so the smooth normals run across the whole stone
 
 // ---- geometry ----
-// the plates alone, for the shadow pass: most strokes are small and never needed there
-function platesOf(b){
-  const o = newBuffer(), each = [['pos', 3], ['nor', 3], ['uv', 2], ['wind', 4], ['center', 3], ['leaf', 3], ['corner', 2], ['stroke', 3]]
-  for (let v = 0, n = b.dab.length; v < n; v += 4){
-    if (b.dab[v] > .5) continue
-    const base = o.pos.length/3
-    for (const [k, size] of each) for (let i = v*size, e = (v + 4)*size; i < e; i++) o[k].push(b[k][i])
-    o.idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
-  }
-  return o
-}
-
 function toGeometry(b){
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3))
@@ -654,7 +646,7 @@ function toGeometry(b){
   if (b.dab?.length) g.setAttribute('aDab', new THREE.Float32BufferAttribute(b.dab, 1))
   if (b.patch?.length){ g.setAttribute('aPatch', new THREE.Float32BufferAttribute(b.patch, 3)) }
   if (b.corner?.length){ g.setAttribute('aCorner', new THREE.Float32BufferAttribute(b.corner, 2)); g.setAttribute('aStroke', new THREE.Float32BufferAttribute(b.stroke, 3)) }
-  g.setIndex(b.idx)
+  g.setIndex(Array.isArray(b.idx) ? b.idx : new THREE.BufferAttribute(b.idx, 1))
   return g
 }
 const addMesh = (mat, depth, cast, name) => { const m = new THREE.Mesh(new THREE.BufferGeometry(), mat); m.name = name
@@ -690,27 +682,6 @@ function setStats(ms, clumps){
 }
 
 const trees = []
-// Bushes barely change between rebuilds and took most of their time: each is grown once at the origin, then copied into place
-const bushCache = new Map()
-function placeBush(bush, q, woodB, leafB, held){
-  const key = q.seed + ':' + q.scale
-  if (!bushCache.has(key)){ const wood = newBuffer(), leaf = newBuffer(), n = generatePlant(bush, q.seed, [0, 0, 0], q.scale, wood, leaf); if (MOBILE) bushCache.clear(); bushCache.set(key, { wood, leaf, n }) }   // (a phone keeps one bush's arrays, not every bush's)
-  const { wood, leaf, n } = bushCache.get(key), y = groundHeight(q.x, q.z) - .05, plant = held.length ? held[held.length - 1].plant + 1 : 0, ids = held.length
-  const copy = (src, dst) => {
-    const base = dst.pos.length/3
-    for (let i = 0; i < src.pos.length; i += 3) dst.pos.push(src.pos[i] + q.x, src.pos[i + 1] + y, src.pos[i + 2] + q.z)
-    for (const k of ['nor', 'uv', 'leaf', 'corner', 'stroke', 'dab']) for (const v of src[k]) dst[k].push(v)
-    for (let i = 0; i < src.wind.length; i += 4) dst.wind.push(src.wind[i] + q.x, src.wind[i + 1] + q.z, src.wind[i + 2], src.wind[i + 3])
-    for (const v of src.idx) dst.idx.push(v + base)
-  }
-  copy(wood, woodB); copy(leaf, leafB)
-  for (let i = 0; i < wood.center.length; i += 3) woodB.center.push(wood.center[i], wood.center[i + 1] + y, wood.center[i + 2] + q.z)    // x carries the girth
-  for (let i = 0; i < leaf.center.length; i += 3) leafB.center.push(leaf.center[i] + q.x, leaf.center[i + 1] + y, leaf.center[i + 2] + q.z)
-  for (let i = 0; i < leaf.patch.length; i += 3) leafB.patch.push(leaf.patch[i], leaf.patch[i + 1], leaf.patch[i + 2] < 0 ? -1 : leaf.patch[i + 2] + ids)
-  for (const c of leaf.held) held.push({ ...c, plant, c: [c.c[0] + q.x, c.c[1] + y, c.c[2] + q.z] })
-  return n
-}
-
 // a forest: a few prototypes of the current species, instanced hundreds of times with levels of detail (src/forest.js)
 const forest = makeForest({ scene, renderer, sun, hemi, generatePlant, newBuffer, toGeometry, groundHeight, woodDepth })
 // every other species in the forest is painted with its own brushes, leaf colours and bark; the current species uses the panel's materials, so its sliders still act
@@ -748,36 +719,53 @@ function applyPond(){
   pondSphere.center.set(POND.x, pondLevel, POND.z); pondSphere.radius = POND.r*POND.sx*1.45
   ground.geometry.dispose(); ground.geometry = toGeometry(generateGround(620))
 }
-function rebuild(){
+// Growing the trees and bushes runs in a worker (src/grow-worker.js, src/grow.js): the page keeps drawing - the camera turns, the dials
+// move - while a tree grows, and the new one is swapped in when it arrives. Only the newest request is grown; a preview (while a slider is
+// dragged) grows the same trees with fewer leaf strokes. Without workers the same code runs here, as before.
+const grower = (() => { try { return new Worker(new URL('./grow-worker.js', import.meta.url), { type: 'module' }) } catch { return null } })()
+let growAsked = 0, growShown = 0, growWaiting = []
+if (grower){
+  grower.onmessage = e => { const r = e.data; if (r.id < growShown) return; growShown = r.id; applyGrown(r)
+    growWaiting = growWaiting.filter(w => w.id > r.id || (w.ok(), false)) }
+  grower.onerror = e => { console.warn('grow worker failed; growing on the page', e.message); growFallback = true; growWaiting.forEach(w => w.ok()); growWaiting = [] }
+}
+let growFallback = !grower
+function rebuild(opts = {}){
   if (setPond(p.seed)) applyPond()
-  if (p.forest > 0) return buildForest()
+  if (p.forest > 0){ buildForest(); return Promise.resolve() }
   if (forest.state.protos.length){ forest.clear(); for (const m of [foliage, caster, wood, ivy, bushLeaf, bushCaster, bushWood]) m.visible = true; applyFoliage?.() }
   U.uHueVar.value = p.hueVar; sink.value = p.showFoliage ? p.clumpRadius*p.size*1.5*woodHid.keep : 0
-  const t0 = performance.now(), woodB = newBuffer(), leafB = newBuffer(), ivyB = newBuffer()
-  const { plants, bushes } = layoutScene({ ...p, height: p.height*p.size, groveRadius: p.groveRadius*Math.max(1, p.size) })
+  const job = { id: ++growAsked, p: JSON.parse(JSON.stringify(p)), opts: { preview: !!opts.preview, debug: !DEMO } }
+  if (growFallback){ const t0 = performance.now(), r = growScene(job.p, job.opts); r.id = job.id; r.preview = job.opts.preview; r.ms = performance.now() - t0; growShown = r.id; applyGrown(r); return Promise.resolve() }
+  grower.postMessage(job)
+  return new Promise(ok => growWaiting.push({ id: job.id, ok }))
+}
+// a grown scene onto the page: the meshes, the clump tables the light reads, the contact shadow, the sun's frame - and, once a slider is let
+// go, the grass round the trunks
+function applyGrown(r){
+  const { plants, bushes } = r
   trees.length = 0
   for (const q of plants) trees.push({ x: q.x, z: q.z, r: p.trunkRadius*p.size*q.scale*(1 + p.flare*.5)*1.7 })
   for (const q of bushes) trees.push({ x: q.x, z: q.z, r: .5*q.scale })
   U.uTreeN.value = Math.min(trees.length, 24)
   U.uTrees.value.forEach((v, i) => { const t = trees[i]; if (t) v.set(t.x, t.z, t.r); else v.set(1e5, 1e5, 1) })
-  let clumps = 0
-  generatePlant.envelopes = []
-  for (const q of plants) clumps += generatePlant(p, q.seed, [q.x, groundHeight(q.x, q.z) - .08, q.z], q.scale, woodB, leafB, ivyB)
-  mainWood = generatePlant.debug?.branches ?? null                       // the branch records of the tree just grown, for the branch debug view
+  generatePlant.envelopes = r.envelopes; mainWood = r.mainWood            // the branch records of the tree just grown, for the debug views
   // bushes are a species of their own: their own meshes and materials (palette, brushes, season), lit from the same clump tables as the trees
   useBushMats()
-  const treeClumps = leafB.held?.length ?? 0                            // the trees' clumps come first; the bushes' after (they don't drop leaves)
-  const bush = { ...SPECIES['Round bush'] }, bushWoodB = newBuffer(), bushLeafB = newBuffer()
-  for (const q of bushes) clumps += placeBush(bush, q, bushWoodB, bushLeafB, leafB.held ??= [])
-  for (const [m, g] of [[bushLeaf, bushLeafB], [bushCaster, platesOf(bushLeafB)], [bushWood, bushWoodB]]){ m.geometry.dispose(); m.geometry = g.pos.length ? toGeometry(g) : new THREE.BufferGeometry() }
-  ivy.geometry.dispose(); ivy.geometry = ivyB.pos.length ? toGeometry(ivyB) : new THREE.BufferGeometry()
-  foliage.geometry.dispose(); foliage.geometry = toGeometry(leafB)
-  heldClumps = leafB.held || []; shaders.clear(); fillLobes(heldClumps)
-  leafFall.state.sources = heldClumps.slice(0, treeClumps).map(c => [c.c[0], c.c[1], c.c[2], c.r])
-  caster.geometry.dispose(); caster.geometry = toGeometry(platesOf(leafB))
+  if (r.bushLeaf) for (const [m, g] of [[bushLeaf, r.bushLeaf], [bushCaster, r.bushPlates], [bushWood, r.bushWood]]){ m.geometry.dispose(); m.geometry = g.pos.length ? toGeometry(g) : new THREE.BufferGeometry() }   // (no bushes sent: they are where they were)
+  ivy.geometry.dispose(); ivy.geometry = r.ivy.pos.length ? toGeometry(r.ivy) : new THREE.BufferGeometry()
+  foliage.geometry.dispose(); foliage.geometry = toGeometry(r.leaf)
+  // the clumps, and which can shade which (worked out with them, in the worker): the bushes' lists stand unless the bushes were regrown
+  const keep = r.bushLeaf ? null : [...shaders].filter(([i]) => i < r.treeStart)
+  heldClumps = r.held; shaders.clear(); if (keep) for (const [i, l] of keep) shaders.set(i, l)
+  for (let k = 0; k < r.near.ids.length; k++) shaders.set(r.near.ids[k], r.near.list.subarray(r.near.at[k], r.near.at[k + 1]))
+  fillLobes(heldClumps)
+  leafFall.state.sources = heldClumps.slice(r.treeStart).map(c => [c.c[0], c.c[1], c.c[2], c.r])   // the trees' clumps: the bushes keep their leaves
+  caster.geometry.dispose(); caster.geometry = toGeometry(r.leafPlates)
   renderer.shadowMap.needsUpdate = true
-  wood.geometry.dispose(); wood.geometry = toGeometry(woodB)
-  if (plants.length) bakeContact(renderer, wood.geometry, [plants[0].x, plants[0].z], groundHeight); else U.uContactBox.value.w = 0
+  wood.geometry.dispose(); wood.geometry = toGeometry(r.wood)
+  // the trunk's contact shadow: a preview keeps the last one (it barely moves while a slider is dragged)
+  if (r.preview){} else if (plants.length) bakeContact(renderer, wood.geometry, [plants[0].x, plants[0].z], groundHeight); else U.uContactBox.value.w = 0
   if (atlas.key !== brushKey()){
     const old = atlas.tex; atlas.tex = makeBrushAtlas(p.leaf, p.edge); atlas.key = brushKey()
     foliageMat.uniforms.tBrush.value = foliageDepth.alphaMap = caster.material.alphaMap = atlas.tex; old.dispose()
@@ -786,10 +774,11 @@ function rebuild(){
   const sc = sun.shadow.camera
   sc.left = sc.bottom = -reach; sc.right = sc.top = reach; sc.near = 1; sc.far = 420; sc.updateProjectionMatrix()
   L.reach = 100
-  applyLighting(p, L); bakeSun()
-  const first = heldClumps.filter(c => c.plant === 0), top = Math.max(0, ...first.map(c => c.c[1] + c.r*c.squash)), far = Math.max(0, ...first.map(c => Math.hypot(c.c[0], c.c[2]) + c.r))
+  applyLighting(p, L); bakeSun(r.bushLeaf ? -Infinity : r.treePlant)   // the bushes' light is where it was unless they were regrown
+  const first = heldClumps.filter(c => c.plant === r.treePlant), top = Math.max(0, ...first.map(c => c.c[1] + c.r*c.squash)), far = Math.max(0, ...first.map(c => Math.hypot(c.c[0], c.c[2]) + c.r))
   size = `${top.toFixed(1)} m tall · ${(far*2).toFixed(1)} m across`; placePerson?.(); drawEnvelope?.(); drawBranches?.()
-  setStats(performance.now() - t0, clumps)
+  setStats(r.ms, r.clumps)
+  if (!r.preview && seasonReady) rebuildGrass()                          // the grass only after the slider is let go: its clearings follow the trunks
 }
 // The field follows the camera: the land is cut into squares, and those within reach are grown (nearest first, a few milliseconds' worth a
 // frame) and kept, the rest dropped. A square always grows the same grass, flowers and stones, so nothing pops as squares come and go.
@@ -943,7 +932,9 @@ function rebuildGrass(force){
   renderer.shadowMap.needsUpdate = true
 }
 let queued = 0
-const later = () => { clearTimeout(queued); queued = setTimeout(() => { rebuild(); rebuildGrass() }, 60) }
+const later = () => { clearTimeout(queued); queued = setTimeout(() => rebuild(), 60) }
+// while a slider is dragged: a preview straight away (no wait), the full tree when it is let go (demo.js)
+const preview = () => { clearTimeout(queued); rebuild({ preview: true }) }
 function applyLook(){
   barkLook.uBarkScale.value = p.barkScale; barkLook.uBarkStretch.value = p.barkStretch; barkLook.uBarkPlates.value = p.barkPlates; barkLook.uBarkBands.value = p.barkBands; U.uFurrow.value = p.barkFurrow
   ;(p.colors ?? []).forEach((f, k) => f.palette.forEach((hex, n) => foliageMat.uniforms.uPalV.value[k*4 + n].set(hex)))
@@ -1063,9 +1054,9 @@ let recipeUi = null
 const setSpecies = (name, settings = SPECIES[name]) => { for (const k of new Set(Object.values(SPECIES).flatMap(Object.keys))) if (!(k in settings)) delete p[k]; Object.assign(p, structuredClone(settings)); p.species = name; heightWas = p.height }
 const speciesCtl = treeF.add(p, 'species', Object.keys(SPECIES).sort()).name('Species').onChange(name => {
   compare.species(name)
-  setSpecies(name); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); recipeUi?.refresh(); rebuild(); rebuildGrass(); frame() })
+  setSpecies(name); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); recipeUi?.refresh(); rebuild(); frame() })
 treeF.add(p, 'seed', 1, 9999, 1).name('Seed').onChange(later).listen()
-treeF.add({ dice(){ p.seed = 1 + Math.floor(Math.random()*9998); rebuild(); rebuildGrass() } }, 'dice').name('New seed')
+treeF.add({ dice(){ p.seed = 1 + Math.floor(Math.random()*9998); rebuild() } }, 'dice').name('New seed')
 // Height and Trunk height: Height is the whole tree; the trunk keeps its length in metres when Height moves, so a taller tree is more crown
 // on the same trunk (Trunk height itself is stored as a share of Height, as every recipe has it)
 let heightWas = p.height
@@ -1095,8 +1086,8 @@ branchF.add(p, 'droop', 0, .3, .005).name('Droop').onChange(later)
 branchF.add(p, 'lean', 0, .4, .01).name('Lean').onChange(later)
 branchF.add(p, 'flare', 0, 2, .01).name('Root flare').onChange(later)
 // tuning a species without code: its outline, its growth habit, and the whole recipe as a file
-recipeUi = addRecipeGui({ gui, p, SPECIES, speciesCtl, later, setSpecies, rebuild: () => { rebuild(); rebuildGrass() },
-  refreshAll: () => { compare.species(p.species); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); recipeUi?.refresh(); rebuild(); rebuildGrass(); frame() },
+recipeUi = addRecipeGui({ gui, p, SPECIES, speciesCtl, later, setSpecies, rebuild: () => { rebuild() },
+  refreshAll: () => { compare.species(p.species); applyLook(); gui.controllersRecursive().forEach(c => c.updateDisplay()); recipeUi?.refresh(); rebuild(); frame() },
   showOutline: () => { outlineCtl.setValue(true) }, applyLook })
 const leafF = gui.addFolder('Canopy')
 leafF.add(p, 'colorPick', 0, 4, 1).name('Colour form (0 = by seed)').onChange(later)
@@ -1299,21 +1290,13 @@ if (DEMO) gui.hide()
 // first, so the screen can say what is happening; shaders are compiled before the scene is shown, and the screen lifts once the field
 // round the camera has grown and the first frames have drawn (see the loop)
 const bootEl = document.getElementById('boot')
-// the boot dial turns as a spring-loaded selector does: pushed a few degrees against its catch, then it gives and snaps over to the
-// next quarter, overshoots a little and settles
-let bootN = 0, bootDisc = bootEl?.querySelector('.boot-disc')
 const boot = (step, at) => { if (!bootEl) return; bootEl.querySelector('.boot-step').textContent = step; bootEl.style.setProperty('--at', at)
-  const pct = bootEl.querySelector('.boot-pct'); if (pct) pct.textContent = `${Math.round(at*100)}%`
-  const a0 = -90*bootN, a1 = a0 - (bootN ? 90 : 0); bootN++
-  if (!bootDisc || a1 === a0 || matchMedia('(prefers-reduced-motion: reduce)').matches){ if (bootDisc) bootDisc.style.transform = `rotate(${a1}deg)`; return }
-  bootDisc.animate([{ transform: `rotate(${a0}deg)` }, { transform: `rotate(${a0 - 11}deg)`, offset: .42, easing: 'cubic-bezier(.6, 0, .9, .6)' },
-    { transform: `rotate(${a1 - 8}deg)`, offset: .7, easing: 'ease-out' }, { transform: `rotate(${a1 + 3}deg)`, offset: .86, easing: 'ease-in-out' }, { transform: `rotate(${a1}deg)` }],
-    { duration: 760, fill: 'forwards' }) }
+  const pct = bootEl.querySelector('.boot-pct'); if (pct) pct.textContent = `${Math.round(at*100)}%` }
 const breathe = () => new Promise(r => requestAnimationFrame(() => setTimeout(r)))
 boot('Preparing the sky', .08); await breathe()
 applyLook(); reCloud()
 boot('Growing the tree', .2); await breathe()
-rebuild()
+await rebuild()
 boot('Sowing the meadow', .55); await breathe()
 rebuildGrass(); lamp(); frame(); seasonReady = true
 boot('Mixing the paints', .7); await breathe()
@@ -1327,7 +1310,7 @@ function bootTick(){
   booted = true; boot('Ready', 1); bootEl.classList.add('done'); setTimeout(() => bootEl.remove(), 1200)
 }
 if (qs.has('close')) gui.close()
-window.__foliage = { layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
+window.__foliage = { later, preview, layout, SPECIES, groundHeight, clouds, forest, walk, branchView, debugView, drawBranches, envelopeView, envelopes: () => generatePlant.envelopes, gui, p, U, view, renderer, scene, camera, controls, rebuild, relight, frame, foliage, wood, sun }
 // profiling: frame rate and frame time, then draw calls and triangles per frame (these include the shadow pass)
 const statsBar = document.createElement('div')
 statsBar.style.cssText = 'position:fixed;left:8px;top:8px;display:flex;gap:4px;z-index:20;pointer-events:none'
